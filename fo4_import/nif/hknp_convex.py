@@ -12,7 +12,7 @@ import struct
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.spatial import ConvexHull, HalfspaceIntersection
+from scipy.spatial import ConvexHull, HalfspaceIntersection, QhullError
 
 from fo4_import.havok.packfile import classes
 from fo4_import.nif import hknp_hull
@@ -34,6 +34,10 @@ SAME_POINT = 1e-6
 #: Havok's Jacobi stops when the off-diagonal terms fall below this share of the matrix, or after JACOBI_STEPS.
 JACOBI_EPSILON, JACOBI_STEPS = np.float32(2.0 ** -23), 128
 CLASS = 'hknpConvexPolytopeShape'
+#: Fewest faces a polytope has; Elric pads a thinner one with faces on a plane no point is outside.
+MIN_FACES, PADDING_PLANE = 4, (0.0, 0.0, 0.0, -1.8446726481523507e+19)
+#: A planar convex shape: its class, flags, and the mass Elric gives its surface.
+FLAT_CLASS, FLAT_FLAGS, FLAT_WEIGHT = 'hknpConvexShape', 1, 2.0
 
 
 # ---------------------------------------------------------------------------
@@ -42,11 +46,13 @@ CLASS = 'hknpConvexPolytopeShape'
 
 @dataclass
 class Mass:
-    """A shape's mass properties at density 1: volume, centre of mass, principal inertia, its frame (x, y, z, w)."""
+    """A shape's mass properties at density 1: volume, centre of mass, principal inertia, its frame (x, y, z, w);
+    `solid` false for a flat or thin shape's stand-in (a surface or a box)."""
     volume: float
     com: np.ndarray
     inertia: np.ndarray
     frame: tuple
+    solid: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -235,23 +241,30 @@ def pack_quaternion(q) -> list:
 # Packfile objects
 # ---------------------------------------------------------------------------
 
+def _vertices(verts: np.ndarray) -> bytes:
+    """`verts` tagged with their indices, padded to a multiple of 4 with the last."""
+    nv = -(-len(verts) // 4) * 4
+    return b''.join(struct.pack('<3fI', *verts[min(i, len(verts) - 1)], VERTEX_TAG | min(i, len(verts) - 1))
+                    for i in range(nv))
+
+
 def tail(verts: np.ndarray, loops: list, planes: np.ndarray, angles: list, cls: str = CLASS,
          spare: bytes = bytes(16)) -> tuple:
-    """(polytope class `cls`'s relative-array bytes past its class, {member: (count, offset)}); plane slots
-    past the last face hold `spare`."""
-    nv, nf = -(-len(verts) // 4) * 4, len(loops)
+    """(polytope class `cls`'s relative-array bytes past its class, {member: (count, offset)}); under
+    MIN_FACES faces, padding faces repeat face 0's corners on PADDING_PLANE; plane slots past the last face hold
+    `spare`."""
+    pad = max(0, MIN_FACES - len(loops))
+    nv, nf = -(-len(verts) // 4) * 4, len(loops) + pad
     np_ = -(-nf // 4) * 4
-    out = bytearray()
-    for i in range(nv):
-        src = min(i, len(verts) - 1)
-        out += struct.pack('<3fI', *verts[src], VERTEX_TAG | src)
-    out += b''.join(struct.pack('<4f', *p) for p in planes) + spare * (np_ - nf)
+    out = bytearray(_vertices(verts))
+    out += b''.join(struct.pack('<4f', *p) for p in planes) + struct.pack('<4f', *PADDING_PLANE) * pad
+    out += spare * (np_ - nf)
     first, index = 0, bytearray()
     for loop, angle in zip(loops, angles):
         out += struct.pack('<HBB', first, len(loop), angle)
         index += bytes(loop)
         first += len(loop)
-    out += bytes(4 * (np_ - nf)) + index
+    out += struct.pack('<HBB', 0, len(loops[0]), 0) * pad + bytes(4 * (np_ - nf)) + index
     out += bytes(-len(out) % 16)
     return bytes(out), _relarrays(nv, np_, nf, first, cls)
 
@@ -268,30 +281,105 @@ def _relarrays(nv: int, np_: int, nf: int, ni: int, cls: str) -> dict:
             'faces': (nf, faces_at - at['faces']), 'indices': (ni, indices - at['indices'])}
 
 
+def _faces(planes: np.ndarray, points: np.ndarray, kept: bool) -> tuple:
+    """faces() of `planes` around `points`; for a hull Havok keeps as it is (`kept`), the hull's own faces, each
+    with the corners of its own triangles.
+
+    See: docs/fork/fo4_hknp_writer.md#flat
+    """
+    if not kept:
+        return faces(planes, points.mean(0))
+    hull = hknp_hull.convex_hull(points)
+    ids, planes = hknp_hull.face_planes(hull)
+    at = {int(v): k for k, v in enumerate(hull.vertices)}
+    verts = points[hull.vertices]
+    on = [sorted({at[int(v)] for t, tri in enumerate(hull.simplices) if ids[t] == f for v in tri})
+          for f in range(len(planes))]
+    return verts, [_loop(verts, corners, plane) for corners, plane in zip(on, planes)], planes
+
+
 def corners(points: np.ndarray) -> tuple:
     """(vertices, loops, planes) of the polytope Havok builds from `points`: the simplified hull
     (`hknp_hull.simplify`), cut to MAX_VERTICES, its corners on the grid unless two would meet there."""
-    verts, loops, planes = faces(*hknp_hull.simplify(points))
+    verts, loops, planes = _faces(*hknp_hull.simplify(points))
     if len(verts) > hknp_hull.MAX_VERTICES:
-        verts, loops, planes = faces(*hknp_hull.capped(verts))
+        verts, loops, planes = _faces(*hknp_hull.capped(verts))
     on = hknp_hull.grid(verts)
     return (on if len(np.unique(on, axis=0)) == len(on) else verts), loops, planes
 
 
+def closed(planes: np.ndarray) -> bool:
+    """Whether face `planes` bound a finite solid: their normals surround the origin."""
+    try:
+        return bool((ConvexHull(planes[:, :3]).equations[:, 3] < 0).all())
+    except QhullError:
+        return False
+
+
+def _box(verts: np.ndarray) -> np.ndarray:
+    """The face planes of `verts`' axis-aligned box."""
+    low, high = verts.min(0), verts.max(0)
+    planes = box_planes((high - low) / 2)
+    planes[:, 3] -= planes[:, :3] @ ((low + high) / 2)
+    return planes
+
+
+def _objects(name: str, cls: str, shape: dict, mass: Mass, weight: float) -> list:
+    """[shape (class `cls`, fields `shape`), its properties, its mass properties of `mass` and `weight`] as
+    packfile objects named from `name`."""
+    props = {'entries': [{'object': f'{name}m', 'key': MASS_PROPERTIES_KEY, 'flags': 0}]}
+    compressed = {'centerOfMass': pack_vector(mass.com), 'inertia': pack_vector(mass.inertia),
+                  'majorAxisSpace': pack_quaternion(mass.frame), 'mass': weight, 'volume': mass.volume}
+    return [{'#': name, 'class': cls, 'fields': {**shape, 'properties': f'{name}p'}},
+            {'#': f'{name}p', 'class': 'hkRefCountedProperties', 'fields': props},
+            {'#': f'{name}m', 'class': 'hknpShapeMassProperties', 'fields': {'compressedMassProperties': compressed}}]
+
+
 def polytope(name: str, points: np.ndarray, radius: float, material: int) -> tuple:
     """([shape, its properties, its mass properties] as packfile objects named from `name`, Mass) for the hull
-    of `points` (Havok units) as Havok simplifies it, convex radius `radius`, material CRC `material`."""
+    of `points` (Havok units) as Havok simplifies it, convex radius `radius`, material CRC `material`; a
+    flat() shape when the points are planar on Havok's grid."""
+    if hknp_hull.planar(points):
+        return flat(name, points, radius, material)
     verts, loops, planes = corners(points)
-    mass = mass_properties(verts, planes, radius)
+    solid = closed(planes)
+    mass = mass_properties(verts, planes if solid else _box(verts), radius)
+    mass.solid = solid
     kept = [trim(verts, loop) for loop in loops]
     data, arrays = tail(verts, kept, planes, angle_bytes(verts, kept, planes))
     flags = SHAPE_FLAGS & ~SMALL_FACES if kept != loops else SHAPE_FLAGS
     shape = {'flags': flags, 'numShapeKeyBits': 0, 'dispatchType': DISPATCH_CONVEX, 'convexRadius': radius,
-             'userData': material, 'properties': f'{name}p', **arrays, '__tail__': data}
-    props = {'entries': [{'object': f'{name}m', 'key': MASS_PROPERTIES_KEY, 'flags': 0}]}
-    compressed = {'centerOfMass': pack_vector(mass.com), 'inertia': pack_vector(mass.inertia),
-                  'majorAxisSpace': pack_quaternion(mass.frame), 'mass': mass.volume, 'volume': mass.volume}
-    return [{'#': name, 'class': CLASS, 'fields': shape},
-            {'#': f'{name}p', 'class': 'hkRefCountedProperties', 'fields': props},
-            {'#': f'{name}m', 'class': 'hknpShapeMassProperties',
-             'fields': {'compressedMassProperties': compressed}}], mass
+             'userData': material, 'properties': None, **arrays, '__tail__': data}
+    return _objects(name, CLASS, shape, mass, mass.volume), mass
+
+
+def _surface(points: np.ndarray) -> Mass:
+    """The mass properties of the fan of triangles from `points[0]` in input order, an even surface of
+    FLAT_WEIGHT; its volume the fan's area."""
+    a, area, moment, second = points[0], 0.0, np.zeros(3), np.zeros((3, 3))
+    for b, c in zip(points[1:-1], points[2:]):
+        size = np.linalg.norm(np.cross(b - a, c - a)) / 2
+        centroid = (a + b + c) / 3
+        area, moment = area + size, moment + size * centroid
+        second += size / 12 * (np.outer(a, a) + np.outer(b, b) + np.outer(c, c) + 9 * np.outer(centroid, centroid))
+    com = moment / area
+    second = second * (FLAT_WEIGHT / area) - FLAT_WEIGHT * np.outer(com, com)
+    inertia, frame = principal(np.trace(second) * np.eye(3) - second)
+    return Mass(area, com, inertia, frame, False)
+
+
+def flat(name: str, points: np.ndarray, radius: float, material: int) -> tuple:
+    """([shape, its properties, its mass properties], Mass) as Elric writes a convex shape whose points are
+    planar on Havok's grid: an hknpConvexShape of the points as they are, the mass of their surface.
+
+    See: docs/fork/fo4_hknp_writer.md#flat
+    """
+    points = np.asarray(points, float)
+    mass = _surface(points)
+    mass.volume *= radius
+    cl = classes()
+    data = _vertices(points)
+    offset = cl.size(FLAT_CLASS) - {m.name: m.offset for m in cl.members(FLAT_CLASS)}['vertices']
+    shape = {'flags': FLAT_FLAGS, 'numShapeKeyBits': 0, 'dispatchType': DISPATCH_CONVEX, 'convexRadius': radius,
+             'userData': material, 'properties': None, 'vertices': (len(data) // 16, offset), '__tail__': data}
+    return _objects(name, FLAT_CLASS, shape, mass, FLAT_WEIGHT), mass

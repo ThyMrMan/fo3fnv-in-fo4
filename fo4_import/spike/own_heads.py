@@ -18,6 +18,10 @@ NPC using one:
   FaceGen colour) on FO4's face UVs and whose normal and specular maps are
   the sex's young face set's, named by FTST; the tint fit keeps only its
   brows and takes T2's skin tone, as the texture holds the rest.
+- Worn parts (any plugin): an FNV head part not drawn as hair (fnv_npc.worn_parts, the eyepatch) as a new Misc
+  head part of the NPC's sex, its mesh worn on FO4's head (Equipment.head_worn) in its own converted texture,
+  its one segment on FaceGen Head (32) as vanilla's eyes, with a chargen .tri; the NPC lists it, so FaceGen
+  draws it.
 
 Every record is new and keyed by authored data, so no FormID moves.
 See: docs/fork/fo4_facegen_plan.md#own-heads
@@ -57,6 +61,8 @@ HUMAN_RACE, FACE_SETS = 0x13746, {False: b'DFTM', True: b'DFTF'}
 YOUNG_FACE_SETS, YOUNG_MAPS = {True: 0x0F7E65, False: 0x16F83D}, (b'TX01', b'TX07')
 #: HDPT NAM0 of a chargen .tri.
 CHARGEN_TRI = 2
+#: FO4 HDPT type Misc; the FO4 slot of a worn part's segment: FaceGen Head, as vanilla's eyes and mouths.
+MISC, HEAD_SLOT = 0, 32
 #: Vanilla human hair materials' settings: alpha-tested at 90, two-sided, no glow.
 HAIR_MATERIAL = {'alpha_test': True, 'alpha_test_ref': 90, 'alpha_blend': False, 'two_sided': True,
                  'glowmap': False}
@@ -106,9 +112,11 @@ class OwnHeads:
         return form_id in self.own[sig]
 
     def of(self, npc: dict, female: bool, chosen, tinted, assets) -> tuple:
-        """(head part swaps {vanilla part: own parts} for head_parts_edit, FTST edit or None, the tint fit to use)
-        of FNV NPC `npc`, given its chosen vanilla parts and tint fit."""
-        swaps = {}
+        """(head part swaps {vanilla part: own parts} and worn parts for head_parts_edit, FTST edit or None, the tint
+        fit to use) of FNV NPC `npc`, given its chosen vanilla parts and tint fit."""
+        worn = [self._worn_part(part, female, assets)
+                for part in fnv_npc.worn_parts(self.export_dir, int(npc['FormID'], 16))]
+        swaps, worn = {}, [p for p in worn if p is not None]
         if chosen.hair is not None and self.owns('HAIR', npc.get('HNAM.Hair')):
             own = self._hair(npc, female, assets)
             swaps.update({chosen.hair: [own]} if own else {})
@@ -117,8 +125,8 @@ class OwnHeads:
         own_race = tinted is not None and self.owns('RACE', npc.get('RNAM.Race'))
         face = self._face(npc, female, assets) if own_race else None
         if face is None:
-            return swaps, None, tinted
-        return swaps, R.with_face(face[0]), (brows_only(tinted[0], female), face[1], tinted[2])
+            return swaps, worn, None, tinted
+        return swaps, worn, R.with_face(face[0]), (brows_only(tinted[0], female), face[1], tinted[2])
 
     def _fo4(self, form_id: int):
         """Fallout4.esm's HDPT, TXST or RACE record `form_id` (indexed once)."""
@@ -156,13 +164,34 @@ class OwnHeads:
         mesh = self._hair_mesh(rec, sex, colour, npc, assets)
         if mesh is None:
             return None
-        subs = (pack_subrecord('EDID', f'FNV_{rec["EditorID"]}_{sex}_{colour}\0'.encode())
+        return self._head_part(key, f'FNV_{rec["EditorID"]}_{sex}_{colour}', mesh, hair.HAIR, female, assets)
+
+    def _head_part(self, key: str, edid: str, mesh: tuple, kind: int, female: bool, assets) -> int:
+        """HDPT `key` named `edid`: type `kind`, of `female`'s sex, on mesh `mesh` = (path under Meshes, NIF bytes)
+        with its chargen .tri."""
+        subs = (pack_subrecord('EDID', f'{edid}\0'.encode())
                 + pack_subrecord('MODL', (mesh[0] + '\0').encode())
                 + pack_subrecord('DATA', bytes([hair.FEMALE if female else hair.MALE]))
-                + pack_subrecord('PNAM', struct.pack('<I', hair.HAIR))
+                + pack_subrecord('PNAM', struct.pack('<I', kind))
                 + pack_subrecord('NAM0', struct.pack('<I', CHARGEN_TRI))
                 + pack_subrecord('NAM1', (self._hair_tri(mesh, female, assets) + '\0').encode()))
         return self._add('HDPT', key, lambda fid: pack_fo4_record('HDPT', fid, 0, subs))
+
+    def _worn_part(self, part: tuple, female: bool, assets) -> 'int | None':
+        """The Misc head part wearing FNV head part `part` = (HDPT FormID, EditorID, model) on `female`'s head
+        (module notes), made once per part and sex; None when its mesh is not drawn on the head.
+        See: docs/fork/fo4_facegen_plan.md#worn-parts
+        """
+        form_id, edid, model = part
+        sex = 'female' if female else 'male'
+        key = f'PART {form_id:08X} {sex}'
+        if key not in self.made:
+            worn = self.builder.equipment.head_worn(model, sex, (HEAD_SLOT,))
+            mesh = None if worn is None else (f'{FOLDER}{edid}_{sex}.nif', worn[1])
+            if mesh:
+                write_new(self.builder.data_dir / 'Meshes' / mesh[0], mesh[1])
+            self.made[key] = mesh and self._head_part(key, f'FNV_{edid}_{sex}', mesh, MISC, female, assets)
+        return self.made[key]
 
     def _hair_tri(self, mesh: tuple, female: bool, assets) -> str:
         """Write hair mesh `mesh` = (path under Meshes, NIF bytes)'s chargen .tri (hair_morphs); its path."""

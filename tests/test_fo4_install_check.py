@@ -42,7 +42,8 @@ def fake_mo2(root: Path, fallout4: Path) -> Path:
     for name, file, _ in IC.REQUIRED_MODS:
         touch(mo2 / 'mods' / name / file.format(version='-'.join(map(str, READY_VERSION))))
     stamp(mo2 / 'mods' / BASE_MOD, IC.BASE_PLUGIN)
-    touch(mo2 / 'mods' / BASE_MOD / IC.PLUGINS / IC.RUNTIME_DLL)
+    for dll in IC.RUNTIME_DLLS:
+        touch(mo2 / 'mods' / BASE_MOD / IC.PLUGINS / dll)
     stamp(mo2 / 'mods' / DLC_MOD, 'DeadMoney.esm')
     (mo2 / 'overwrite').mkdir()
     return mo2
@@ -75,7 +76,7 @@ def test_ready_machine_passes(machine):
     got = report(machine)
     assert {s for s, _ in got.values()} == {'OK'}, got
     assert got['New Vegas DLC'][1].startswith('1 of 9')
-    assert set(got) >= {name for name, _, _ in IC.REQUIRED_MODS} | {IC.BASE_PLUGIN, 'DeadMoney.esm', IC.RUNTIME_DLL}
+    assert set(got) >= {name for name, _, _ in IC.REQUIRED_MODS} | {IC.BASE_PLUGIN, 'DeadMoney.esm', *IC.RUNTIME_DLLS}
 
 
 @pytest.mark.parametrize('name, file', [('Creation Kit', 'CreationKit.exe'), ('F4SE', IC.F4SE_LOADER)])
@@ -154,9 +155,10 @@ def test_plugin_in_overwrite_unfinished_or_unticked(machine):
 
 
 def test_dll_missing_and_nothing_converted(machine):
-    """No F3NV.dll is MISSING; with no converted plugin the output check is NOT YET and passes."""
-    (machine.mo2 / 'mods' / BASE_MOD / IC.PLUGINS / IC.RUNTIME_DLL).unlink()
-    assert status(machine, IC.RUNTIME_DLL) == 'MISSING'
+    """A DLL not there is MISSING; with no converted plugin the output check is NOT YET and passes."""
+    for dll in IC.RUNTIME_DLLS:
+        (machine.mo2 / 'mods' / BASE_MOD / IC.PLUGINS / dll).unlink()
+        assert status(machine, dll) == 'MISSING'
     for mod in (BASE_MOD, DLC_MOD):
         for path in IC.all_moved_in(machine.mo2 / 'mods' / mod, '*' + IC.STAMP_SUFFIX):
             path.unlink()

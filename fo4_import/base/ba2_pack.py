@@ -140,10 +140,10 @@ def stage_texture(data_dir: Path, rel: str, plan, later: 'list | None' = None) -
     """Write texture `rel` (under <data_dir>/Textures) once per run, unless the last pack staged it with the same
     signature and it is unchanged since; whether it was (or, with `later`, will be: write_later) written. plan() is
     (signature, write(target)): the signature names everything the file is made from (a copy's source, size and
-    time; a derived map's work-cache key). A second call this run is skipped unplanned."""
-    run, key = _run(data_dir), texture_key(rel)
-    if key in run['staged'] or key in run['shared']:
+    time; a derived map's work-cache key). A second call this run is skipped unplanned (staged)."""
+    if staged(data_dir, rel):
         return False
+    run, key = _run(data_dir), texture_key(rel)
     signature, write = plan()
     if _in_master(run, key, signature):
         run['shared'].add(key)
@@ -159,6 +159,14 @@ def stage_texture(data_dir: Path, rel: str, plan, later: 'list | None' = None) -
     else:
         later.append((write, target))
     return True
+
+
+def staged(data_dir: Path, rel: str) -> bool:
+    """Whether stage_texture already took texture `rel` this run.
+    See: docs/fork/fo4_build_speed.md#staged-first
+    """
+    run, key = _run(data_dir), texture_key(rel)
+    return key in run['staged'] or key in run['shared']
 
 
 def _write_one(job: tuple) -> None:

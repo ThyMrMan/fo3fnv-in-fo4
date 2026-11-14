@@ -75,12 +75,17 @@ reach, the weather, glowing signs and neon.
 
 ## Not done yet
 
-- **Casino games and Caravan:** slots and roulette work, on our own menu.
-  Blackjack and Caravan are being built now
-  ([plan](docs/fork/fo4_casino_plan.md)); until then those tables say the
-  game isn't playable yet.
+- **Casino games and Caravan:** all built on our own menu; slots and
+  roulette work, blackjack and Caravan aren't played yet
+  ([plan](docs/fork/fo4_casino_plan.md)).
 - **Fallout 3:** a first spike (Vault 101 and the opening) is built, not
-  played. The rest of the Capital Wasteland isn't converted yet.
+  played. The rest of the Capital Wasteland isn't converted yet. Keep it in
+  its own Mod Organizer profile: with New Vegas loaded too, both openings
+  start at once.
+- **Mod builds:** about 20 New Vegas mods (YUP, NVMIM, Willow, JSawyer
+  Ultimate, the New Vegas Bounties series and others) convert against the
+  built game. The first play with all of them from Doc Mitchell's house
+  found three bugs, now fixed; some mod scripts still don't compile.
 - **Known gaps:** a few hundred dialogue lines whose conditions Fallout 4
   can't check, some creature animations (hit reactions and staggers on FNV's
   own rigs), FNV's third-person gun animations, precombines in the densest

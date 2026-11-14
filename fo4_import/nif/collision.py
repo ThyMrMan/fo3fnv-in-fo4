@@ -25,7 +25,7 @@ from fo4_import.nif.file import NifFile
 from fo4_import.nif.stairs import stairs
 
 apply_patches()
-from asset_convert.collision.collision import repaired_mesh_soup, visual_tri_soup_in
+from asset_convert.collision.collision import mesh_soup, repaired_mesh_soup, visual_tri_soup_in
 from pyffi.formats.nif import NifFormat
 
 SCALE = 0.1
@@ -244,7 +244,7 @@ class _Blocks:
         """Mesh shape `s` inside a list, through the winding repair as a whole body's, moved by `transform`
         (rotation rows, translation)."""
         body, node = self.body
-        soup = _mesh_soup(SimpleNamespace(shape=s), node, self.root, self.unit / SCALE)
+        soup = _mesh_soup(SimpleNamespace(shape=s), node, self.root, self.unit / SCALE, not two_sided(body))
         if soup is None:
             raise ValueError(f'no triangles in nested {type(s).__name__}')
         tris, materials, _ = soup
@@ -305,7 +305,7 @@ def _body_shape(blocks: _Blocks, body, node) -> 'int | None':
         shape = blocks.shape(body.shape)
         return blocks.transformed(shape, body.shape, body) if _baked(body) and kind in CONVEX_SHAPES else shape
     soup = (blocks.soups[id(body)] if id(body) in blocks.soups
-            else _mesh_soup(body, node, blocks.root, blocks.unit / SCALE))
+            else _mesh_soup(body, node, blocks.root, blocks.unit / SCALE, not two_sided(body)))
     return None if soup is None else blocks.mesh(*both_sides(soup[:2], body), havok_filter(body.havok_col_filter))
 
 
@@ -316,11 +316,16 @@ def both_sides(soup: tuple, body) -> tuple:
     See: docs/fork/fo4_pipeline.md#two-sided-collision
     """
     tris, materials = soup
-    if getattr(body, 'motion_system', None) not in STILL_MOTIONS:
+    if not two_sided(body):
         return soup
     have = {_tri_key(t) for t in tris}
     extra = [(i, (t[0], t[2], t[1])) for i, t in enumerate(tris) if _tri_key((t[0], t[2], t[1])) not in have]
     return list(tris) + [t for _, t in extra], list(materials) + [materials[i] for i, _ in extra]
+
+
+def two_sided(body) -> bool:
+    """Whether FNV `body` is fixed or keyframed: its mesh gets both sides."""
+    return getattr(body, 'motion_system', None) in STILL_MOTIONS
 
 
 def _tri_key(tri) -> tuple:
@@ -330,14 +335,18 @@ def _tri_key(tri) -> tuple:
     return tuple(corners[first:] + corners[:first])
 
 
-def _mesh_soup(body, node, root, grow: float) -> 'tuple | None':
-    """(triangles in FO4 Havok units, materials, stair ramps) of FNV mesh `body` on `node`: repaired, grown by
-    `grow`, through the stairs pass. None: drop it. A bhkRigidBodyT's translation is scaled in place first (call
-    once per body)."""
+def _mesh_soup(body, node, root, grow: float, repair: bool) -> 'tuple | None':
+    """(triangles in FO4 Havok units, materials, stair ramps) of FNV mesh `body` on `node`: winding repaired when
+    `repair` (not for a mesh both_sides doubles), grown by `grow`, through the stairs pass. None: drop it. A
+    bhkRigidBodyT's translation is scaled in place first (call once per body).
+
+    See: docs/fork/fo4_pipeline.md#two-sided-collision
+    """
     if type(body).__name__ == 'bhkRigidBodyT':
         t = body.translation
         t.x, t.y, t.z = t.x * SCALE, t.y * SCALE, t.z * SCALE
-    soup = repaired_mesh_soup(body, node, triangle_materials, repair_oracle(root, node))
+    soup = (repaired_mesh_soup(body, node, triangle_materials, repair_oracle(root, node)) if repair
+            else mesh_soup(body, triangle_materials))
     if soup is None or soup == 'drop':
         return None
     tris = [tuple(tuple(c * grow for c in v) for v in tri) for tri in soup[0]]
@@ -348,7 +357,7 @@ def mesh_triangles(path: str) -> tuple:
     """(triangles in game units, FO4 materials) of the FNV NIF at `path`'s root mesh collision, as converted."""
     data = fnv_file.read(path)
     root = data.roots[0]
-    tris, materials, _ = _mesh_soup(root.collision_object.body, root, root, 1.0)
+    tris, materials, _ = _mesh_soup(root.collision_object.body, root, root, 1.0, True)
     return [tuple(tuple(c * GAME_PER_HAVOK for c in v) for v in tri) for tri in tris], materials
 
 
@@ -513,7 +522,7 @@ def _stair_ramps(nif: NifFile, owners: list, root_index: int, node_flags: int, f
         motion = co.body.motion_system
         if not is_mesh(co.body.shape) or motion not in STILL_MOTIONS or (motion == FNV_KEYFRAMED and id(node) in kept):
             continue
-        soups[id(co.body)] = soup = _mesh_soup(co.body, node, fnv_root, scale)
+        soups[id(co.body)] = soup = _mesh_soup(co.body, node, fnv_root, scale, False)
         owner = nif.blocks[index][1]
         for ramp in soup[2] if soup else ():
             nif.blocks.append(('NiNode', {
@@ -553,10 +562,16 @@ def joints(nif: NifFile, bodies: dict) -> None:
 
 def _joint(c, bodies: dict) -> 'bytes | None':
     """FNV constraint `c` in FO4's pre-Elric layout (twist/axis vectors before each pivot); None when it is
-    not a ragdoll or limited hinge or joins a body not converted."""
-    ends = [bodies.get(id(e() if callable(e) else e)) for e in c.entities]
+    not a ragdoll or limited hinge (an action listed beside the constraints included) or joins a body not
+    converted.
+
+    See: docs/fork/fo4_pipeline.md#ragdolls
+    """
     kind = type(c).__name__
-    if None in ends or kind not in JOINT_FIELDS:
+    if kind not in JOINT_FIELDS:
+        return None
+    ends = [bodies.get(id(e() if callable(e) else e)) for e in c.entities]
+    if None in ends:
         return None
     desc = getattr(c, JOINT_FIELDS[kind][0])
     side = [(ends[0], JOINT_FIELDS[kind][1]), (ends[1], JOINT_FIELDS[kind][2])]

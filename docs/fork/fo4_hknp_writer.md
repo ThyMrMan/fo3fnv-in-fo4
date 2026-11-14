@@ -4,7 +4,8 @@ Status: step 1 (convex bodies) built and wired in, awaiting its play test; step 
 on fixed and massless keyframed bodies) built and wired in, awaiting its play test; step 3's spheres and
 capsules built and wired in, awaiting their play test; step 3's compounds (lists) built and wired
 in, awaiting their play test; step 4 (constraints and ragdolls) built and
-wired in, awaiting its play test. Status lives
+wired in, awaiting its play test; the [last gaps](#gaps) (flat and thin shapes, phantom
+triggers, motion 6) built, awaiting their play test. Status lives
 in [ROADMAP.md](ROADMAP.md). Item 5 of the
 [CK replacements](fo4_ck_replacements.md#options).
 
@@ -77,6 +78,8 @@ build queue runs); reading and scratch work don't.
    into `hknp_write` ([constraints](#constraints)); ragdolls built
    (`nif/hknp_ragdoll.py`) and wired into `rig/assets.write_skeleton_nif`
    ([ragdolls](#ragdolls)). The main session runs the play test.
+7. ~~**The last gaps:**~~ flat and thin convex shapes, phantoms outside a
+   skeleton, motion 6 ([gaps](#gaps)). The main session runs the play test.
 
 ## <a id="convex"></a>Step 1: what Elric writes for a convex body
 
@@ -194,14 +197,8 @@ pairs we cover, 4 min): 65 match every field, 192 more only in angle
 bytes; the rest are the accepted hull, mass and frame drift, plus the
 throwing axe's body orientation 1.1e-4 off in one component (not read).
 
-<a id="flat"></a>**Flat shapes go to Elric.** Seven meshes there have a
-convex body with no thickness (the Lucky 38 floor and ceiling quads, a
-sewer door, the Nipton sign post): Qhull finds no 3-D hull and our writer
-raised. Elric writes an exactly flat four-point quad as a shape that is
-not a polytope (shape flags 1, mass 2), and the 1.5e-8-thick sign as an
-eight-corner polytope with four faces; neither is read yet, so
-`hknp_write.physics` returns None for a shape Qhull cannot hull and Elric
-keeps those.
+**Flat shapes** were left to Elric at this step; they are written now
+([flat](#flat)).
 
 ### <a id="elric-code"></a>Read from Elric's code
 
@@ -402,17 +399,39 @@ census reads them:
 
 - **Input:** each `NiTriStripsData` strip's points over Elric's 69.99125
   game units per Havok unit; one material-table entry per strip (filter,
-  CRC), the shape's `userData` the first strip's CRC.
+  CRC), the shape's `userData` the first strip's CRC. A triangle naming a
+  point twice is dropped: as a lone triangle it would be stored
+  `(a, b, b, b)`, and the game reads a primitive whose last three indices
+  match as a custom shape. `getLeafShapes` (`Fallout4.exe+12C7F7B`) then
+  reads the section's shared-vertex table, which we never fill, through
+  a pointer below null. NVMIM's `subendtabledirty01` had 108 such
+  primitives of 565 and crashed the game when Doc Mitchell walked past it
+  (play test 2026-11-14, fixed). Elric drops them too: 288 triangles
+  against our 293.
 - **Quads:** in triangle order, each unused triangle takes the unused
   triangle of its own strip across a shared edge (opposite direction,
-  different third corner) whose normal is closest to its own; stored
-  `(a, b, c, d)` read back as `(a, b, c)` and `(a, c, d)`; a lone triangle
-  repeats `c`. A quad is flat when `d` is within 0.01 of the first three's
-  plane (Elric's rule, [above](#mesh)).
+  different third corner) whose normal is closest to its own, when the
+  quad they make is flat and convex; stored `(a, b, c, d)` read back as
+  `(a, b, c)` and `(a, c, d)`; a lone triangle repeats `c`. A quad is flat
+  when `d` is within 0.01 of the first three's plane (Elric's rule,
+  [above](#mesh)). The game collides a quad as the hull of its four
+  corners, so any other pair is a solid the mesh does not have: WWE's
+  pairing (any neighbour) closed the doorways of the craftsman and
+  Goodsprings room kits and lidded `offrmmidstairsdown01`'s stairwell
+  (play test 2026-11-13); Elric's output for those meshes has no such quad
+  but 1-unit slivers.
 - **Sections:** primitives sorted along the mesh's longest axis by their
-  first three corners, cut at 128 primitives or 255 vertices; each
+  first three corners, cut at 127 primitives or 255 vertices; each
   section's own vertices (none shared), quantized as Elric does
   (`trunc(t × N + 0.5)` on the section box).
+- **Keys:** a mesh with several sections keys a triangle as
+  `section << 8 | primitive << 1 | triangle`, as Elric does (all 3,231 of
+  its multi-section meshes), and as `getLeafShapes` decodes it
+  (`key >> 8`, `key >> 1 & 0x7F`). So a section holds at most 127
+  primitives, Elric's own maximum over 9,819 sections. Sizing the
+  primitive field from the largest section gave 9 bits at 128 primitives.
+  A single-section mesh's key is `primitive << 1 | triangle`, sized to its
+  count, again as Elric does.
 - **Trees:** both split at the median along the widest axis; each node's
   box coded as square-root insets of its parent's decoded box, rounded so
   the decoded box always holds its geometry (WWE adds 1e-6 instead). A
@@ -608,6 +627,85 @@ covered. End to end through `write_skeleton_nif` on the 7 cached rigs, the
 ragdoll bones and the collision objects equal Elric's on all 7; the
 fields that differ are `centerOfMassWorld.w` and, on 3, the 90° angle
 byte.
+
+## <a id="gaps"></a>The last gaps: flat shapes, phantoms, motion 6
+
+A census of all 14,909 FNV meshes (each converted as the build does, then
+asked of `hknp_write.physics`) found what our writer still left to Elric:
+phantom triggers on 31 meshes (9 with an Elric entry: 7 traps, 2 trigger
+boxes), two `bhkRigidBody`s with motion system 6 (`clutter/junk/woodplank01`
+and `02`), and 11 meshes with a flat or thin convex shape. None of them had
+a flat shape on a body that moves with mass. All 44 are ours now, every
+number finite.
+
+- <a id="motion6"></a>**Motion 6** is Havok's thin-box-inertia dynamic
+  body. Elric writes it as any dynamic body: both planks match except the
+  usual inertia drift (≤0.05%) and one angle byte. `DYNAMIC` holds 2, 3
+  and 6.
+- <a id="phantoms"></a>**Phantoms outside a skeleton** join the mesh's one
+  physics system as trigger bodies (the ragdoll's phantom body and
+  material, [ragdolls](#ragdolls)) after its rigid bodies, in block order
+  (all 7 traps with an Elric entry: mailbox bomb, grenade bouquet, bear
+  trap, pressure plate, two tripwires, gas trap). 2 match in every field, 4
+  differ only by one angle byte, the bear trap by its known hull drift. A
+  phantom-only mesh
+  (laser tripwire) is a system of triggers alone. Two trigger boxes
+  (`triggers/trigactorbox03`, `trigplayerwall01`) carry FNV garbage
+  (a box half size of 0xCDCDCDCD, ≈ −4.3e7); Elric's output for them is
+  garbage too (mass ~1e33), so there is nothing to match.
+- <a id="flat"></a>**Flat and thin convex shapes.** Elric runs every
+  convex shape through Havok's hull, which works on the integer grid
+  ([elric-code](#elric-code)), and three cases follow:
+  - *Planar on the grid* (the points' grid steps lie exactly in one
+    plane: the Lucky 38 floor, ceiling and two mid floors, the sewer door,
+    5 of the automat's 7 slats): an `hknpConvexShape` (flags 1), its
+    vertices the input points as given, padded to 4 like a polytope's. Its
+    mass properties are those of the fan of triangles from the first point
+    in input order, an even surface of mass 2: so a quad listed as a bow
+    tie (the mid floors) has its centre of mass a third of the way off its
+    middle, exactly as Elric's. `mass` is 2, `volume` the fan's area times
+    the convex radius. All 4 Lucky 38 pairs and the sewer door match in
+    every field.
+  - *Thinner than float precision but 3-D on the grid* (the metro pillar
+    fence, a Lucky 38 corridor floor, the Nipton sign post, 2 automat
+    slats): Qhull's float test may reject the hull, so `hknp_hull.convex_hull`
+    takes the triangles from Qhull on the grid steps and the planes from
+    the points. The plane pass leaves 2 planes, and under 4 Havok keeps the
+    hull it had: a polytope of two back-to-back faces holding every corner.
+    Havok pads a polytope under 4 faces to 4 by copying face 0's header
+    before any angle byte is written, so the padding faces' angle bytes are
+    left over memory (64, 63, 60, 59, 255 seen; the compare tool reads them
+    as 0); their planes are (0, 0, 0, −1.8e19). The vertex pass collapses
+    nothing on such a hull only because Havok computes an edge's cost
+    vᵀQv in float32: on a hull 1.5e-8 thick the tolerance² is 1.4e-17 and
+    float32 leaves ~1e-10 even on the plane; in float64 the sign post lost
+    a corner. All 5 match in every field.
+  - *Degenerate* (a hull triangle under the 1e-7 test): Havok skips both
+    passes and keeps the exact hull, so the faces are the hull's own, each
+    with the corners of its triangles, not rebuilt from the planes. That
+    also fixed the corner count on 4 clipboards. The vault window
+    (`dungeons/vaultruined/room/vdnwallwindow01`, a list child 1e-7 thick)
+    matches but for its two big faces' corner lists (9 and 7 corners, Elric
+    6 and 6: which triangles Havok's own triangulation puts on them is not
+    read).
+  - *Mass of a thin or degenerate hull whose faces do not close a solid*
+    (`hknp_convex.closed`: the face normals do not surround the origin):
+    the points' axis-aligned box grown by the convex radius, density 1,
+    inertia × 1.5, as a solid box (fence, corridor floor, sign post, automat
+    slats, vault window: all exact).
+  - A flat or thin shape on a body with a full motion goes to Elric: none
+    exist in FNV, and Elric's mass for one is unread.
+
+On FNV `clutter` plus `architecture/barrier` none of the 724 pairs both
+runs could compare differs in a field it matched before (643 more no longer
+have an Elric entry, because other changes moved their pre-Elric bytes;
+our writer covers them, the compare cannot check them). In FNV nothing
+reaches Elric after this; what our writer would still refuse (a constraint
+other than ragdoll and limited hinge, a flat shape on a moving body) does
+not occur. Four meshes used to fail conversion before any physics (the
+sentry turret skeletons and two explosions: `collision.py` read their Havok
+actions as constraints, [fixed](fo4_pipeline.md#ragdolls)); all four now
+convert and are ours. FO3 was not censused.
 
 ## <a id="check"></a>How each step is checked
 

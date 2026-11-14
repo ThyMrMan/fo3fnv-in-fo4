@@ -75,7 +75,10 @@ def unpack_quaternion(packed) -> tuple:
 
 def hull(fields: dict, cls: str = 'hknpConvexPolytopeShape') -> dict:
     """{'points': (n, 3) distinct corners, 'faces': (f, 6) rows of normal, offset, angle byte, corner count} of a
-    polytope's (class `cls`) decoded fields."""
+    polytope's (class `cls`) decoded fields; a padding face's angle byte (left unwritten by Elric) reads 0.
+
+    See: docs/fork/fo4_hknp_writer.md#flat
+    """
     cl = packfile.classes()
     at = {m.name: m.offset for m in cl.members(cls)}
     base = cl.size(cls)
@@ -86,7 +89,8 @@ def hull(fields: dict, cls: str = 'hknpConvexPolytopeShape') -> dict:
         start = at[name] + offset - base
         parts[name] = list(struct.iter_unpack(fmt, tail[start:start + count * size]))
     corners = {w & VERTEX_INDEX: (x, y, z) for x, y, z, w in parts['vertices']}
-    faces = [(*plane, angle, count) for plane, (_, count, angle) in zip(parts['planes'], parts['faces'])]
+    faces = [(*plane, angle if any(plane[:3]) else 0, count) for plane, (_, count, angle) in
+             zip(parts['planes'], parts['faces'])]
     return {'points': np.array(sorted(corners.values())).reshape(-1, 3), 'faces': np.array(faces).reshape(-1, 6)}
 
 

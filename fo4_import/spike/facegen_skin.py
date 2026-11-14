@@ -23,6 +23,7 @@ from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.face import facegeom, npc_skin, own_facegen, sculpt, slider_fit, tint
 from fo4_import.face.bake import face_shape
 from fo4_import.pipeline import creation_kit
+from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.face_fit import brow_overlay, record_subrecords
 from fo4_import.spike.fnv_npc import fnv_face, fnv_shine, npc_head
 from tes5_import.base.tes5_reader import subrecords, walk
@@ -47,17 +48,19 @@ class Face:
     own: bool
 
 
-def fitted_faces(data_dir: Path, plugin: str) -> list:
-    """The plugin's fitted NPCs (module doc) whose FaceGeom the export wrote, by FormID; one it does not export
-    (facegeom.exported: traits from a template, a race with no FaceGen head) has none to refit or skin.
+def fitted_faces(data_dir: Path, plugin: str, export_dir: Path) -> list:
+    """The plugin's fitted NPCs (module doc) whose FaceGeom the export wrote and that FNV made as NPCs (`export_dir`'s
+    NPC_ records), by FormID. One the export skips (facegeom.exported) or a converted creature has no FNV FaceGen
+    to refit or skin to.
     See: docs/fork/fo4_facegen_plan.md#own-stage
     """
     out, geom = [], data_dir / own_facegen.GEOM_DIR / plugin
+    npcs = {own_facegen.FNV_PREFIX + r['EditorID'] for r in export_records(export_dir, 'NPC_') if 'EditorID' in r}
     for rec, _ in walk((data_dir / plugin).read_bytes(), b'NPC_'):
         subs = dict(subrecords(rec.body))
         edid = facegeom.zstr(subs.get(b'EDID', b'\0'))
         has_geom = (geom / f'{rec.form_id & 0xFFFFFF:08X}.nif').is_file()
-        if b'FMRI' in subs and edid.startswith(own_facegen.FNV_PREFIX) and has_geom:
+        if b'FMRI' in subs and edid in npcs and has_geom:
             female = bool(struct.unpack_from('<I', subs[b'ACBS'])[0] & FEMALE)
             out.append(Face(rec.form_id & 0xFFFFFF, edid[len(own_facegen.FNV_PREFIX):], female, b'FTST' in subs))
     return sorted(out, key=lambda f: f.form_id)

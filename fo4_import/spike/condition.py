@@ -1,7 +1,7 @@
 """FO3/FNV weapon and armor condition on Fallout 4: the records and data its scripts run on.
 
-Condition is the engine's own item health, set through the F3NV
-F4SE plugin (F3NV_Condition). Every converted weapon that wears (FNV DATA
+Condition is the engine's own item health, set through Cleanroom UI's
+CleanroomUI.dll (CRUI_Condition). Every converted weapon that wears (FNV DATA
 Health, and not thrown or placed) and every armor with FNV health gets our
 condition attach point and keyword (`wire`, `wire_armor`). Condition mods
 by tenths carry FNV's curves: eleven for weapons (damage, value), and for
@@ -17,16 +17,16 @@ runs F3NV_ConditionPlayer on data read from the source game:
 Repair uses a spare: the same item, or an item of its FNV repair list
 (REPL). The Repair hotkey item repairs the equipped weapon, else the most
 worn armor piece; in the Pip-Boy, T (or its REPAIR hint) repairs the
-highlighted item, whose item card shows its condition (CND, drawn by the
-plugin). The plugin DLL ships in the mod's F4SE\\Plugins.
+highlighted item, whose item card shows its condition (CND, drawn by
+Cleanroom UI's Pip-Boy movie). The DLLs ship in the mod's F4SE\\Plugins.
 
 See: docs/fork/fo4_condition.md#armor
 """
 
-import shutil
 import struct
 from pathlib import Path
 
+from fo4_import.app import runtime_dll
 from fo4_import.base.install import source_walk
 from fo4_import.base.source import plugin_stem
 from fo4_import.base.support_records import pack_mesg, pack_script_quest
@@ -41,15 +41,16 @@ from fo4_import.spike.hotkey_items import hotkey_effect, hotkey_item
 from fo4_import.spike.type_tests import with_keywords
 from tes5_import.base.tes5_reader import first_sub
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
+from tools.validate.fo4_install_check import PLUGINS
 
 #: derive_formid site: quest, sources, plugin rows, item, effect, keywords, tiers, messages, 'repair <FLST>'.
 SITE = 'FNV condition'
-SCRIPT, CALLS, NATIVES, ITEM_SCRIPT = ('F3NV_ConditionPlayer', 'F3NV_ConditionCalls', 'F3NV_Condition',
+SCRIPT, CALLS, NATIVES, ITEM_SCRIPT = ('F3NV_ConditionPlayer', 'F3NV_ConditionCalls', 'CRUI_Condition',
                                        'F3NV_ConditionRepairItem')
 #: Each plugin's rows (the game's on its condition quest, a DLC's on a quest of its own); see Condition.write.
 SOURCE_SCRIPT = 'F3NV_ConditionSource'
-#: The item-card line API for other mods (natives in F3NV.dll, card.cpp), shipped with the Pip-Boy work.
-CARD_SCRIPT = 'F3NV_ItemCard'
+#: The item-card line API for other mods (natives in Cleanroom UI's CleanroomUI.dll), shipped with the Pip-Boy work.
+CARD_SCRIPT = 'CRUI_ItemCard'
 #: Our condition attach point (attach point keyword) and the keyword every converted item takes its mods by.
 POINT_EDID, KEYWORD_EDID, ATTACH_POINT, MOD_ASSOCIATION = 'FNV_ap_Condition', 'FNV_ma_Condition', 2, 5
 #: FNV weapon animation types that never wear: grenade throw, land mine, mine drop, thrown.
@@ -78,9 +79,6 @@ DAMAGE_RESIST = 0x2E3
 #: The hotkey item's name, and the player script's messages: property, text (a %.0f takes the percent).
 REPAIR_NAME = 'Repair'
 MESSAGES = (('ConditionNote', 'Condition %.0f%%'), ('BrokenNote', 'This weapon is broken.'))
-#: The F3NV plugin as built (tes_runtime/fo4_condition) and where a mod ships F4SE plugins.
-PLUGIN = Path(__file__).resolve().parents[2] / 'tes_runtime' / 'dist' / 'F3NV.dll'
-PLUGIN_DIR = Path('F4SE') / 'Plugins'
 #: The plugin's name before 2026-10-23, deleted on rebuild: both would load and hook the Pip-Boy twice.
 LEGACY_PLUGIN = 'FalloutCondition.dll'
 
@@ -246,11 +244,8 @@ class Condition:
         self.builder.scripts.used += [SCRIPT, CALLS, ITEM_SCRIPT, CARD_SCRIPT]
         if self.builder.built:
             return
-        (data_dir / PLUGIN_DIR).mkdir(parents=True, exist_ok=True)
-        shutil.copy2(PLUGIN, data_dir / PLUGIN_DIR / PLUGIN.name)
-        legacy = data_dir / PLUGIN_DIR / LEGACY_PLUGIN
-        if legacy.exists():
-            legacy.unlink()
+        runtime_dll.install(data_dir)
+        (data_dir / PLUGINS / LEGACY_PLUGIN).unlink(missing_ok=True)
 
     def _source_quest(self, ammo_mods, sources: int, repair: int) -> None:
         """A start-game quest of this plugin holding its own wired items' rows (F3NV_ConditionSource), which adds

@@ -26,7 +26,7 @@ const char *TALK_SCRIPT = "F3NV_Talk";
 // The game's end-the-talk function: the talk's speaker, the player's current scene (the call does nothing when it is
 // another scene than the player's), and whether the dialogue menu closes too.
 using EndTalkFn = void (*)(void *manager, TESObjectREFR *speaker, BGSScene *scene, bool closeMenu);
-// A reference handle's reference (as in dialogue.cpp).
+// A reference handle's reference.
 using HandleFn = NiPointer<TESObjectREFR> *(*)(NiPointer<TESObjectREFR> *out, UInt32 *handle);
 
 RelocPtr<void *> TopicManager(0x30E6E50);

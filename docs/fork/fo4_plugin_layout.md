@@ -1243,6 +1243,36 @@ decides.
   `after <master>`. `--run` builds the first plugin needing it, then checks
   again, until none needs a build. `--verify` rebuilds one current plugin and
   compares its plugin and ledger bytes.
+- **A rebuild writes the plugin where it is (fixed 2026-11-13).** `--run`
+  replays the last build's arguments, from the inputs record or else the
+  stamp. Nine plugins had been built in `temp/profile_data_<x>` and then
+  deployed, so their stamps named the scratch folder. A replay wrote the
+  scratch copy again, the MO2 plugin never got a record, and Caravan Pack
+  built over and over from 04:30 to 06:20. Now:
+  - `retarget` points `--out` and `--data` at the plugin's own folder;
+  - `--plugin-dirs` names the folders of the plugin's masters among those
+    planned (the scratch commands named a stale `temp/profile_data` base);
+  - the stamp keeps `argv` as a list, and an old stamp's space-joined
+    command is split back with mod-folder spaces kept (`stamp_argv`);
+  - a plugin still needing a build after its own build stops the run
+    (exit 3).
+- <a id="owned-lists"></a>**Other plugins' script lists are not inputs
+  (fixed 2026-11-13).** Script conversion files each plugin's list of the
+  scripts it wrote (`<owner>.owned.txt`, `script_convert/ownership.py`)
+  beside its scripts folder, which for FO4 is the shared `temp/fo4_scripts`.
+  So every plugin's build read every other plugin's list as if they shared
+  one folder (they don't: each has `temp/fo4_scripts/<plugin>`), and Dead
+  Money's script build made FalloutNV.esm look changed. `convert_scripts`
+  now leaves that folder and the lists in it out of the record.
+- **The plan reads masters in the plugin's numbering (fixed 2026-11-13).**
+  Each master file numbers FormIDs by its own master list (Dead Money's own
+  records are `03`, and so are Honest Hearts'). The build reads masters
+  through `built_bytes`, renumbered to the dependent plugin's list; the plan
+  read the raw bytes. So Agua Fria (eight masters) asked "does Dead Money
+  hold 03000FD0?", the build answered no, and the plan found Honest Hearts'
+  own `03000FD0` and rebuilt it until the loop guard stopped the run.
+  `_held` and `_records` now read through `read_built`, the same
+  renumbering read fresh from disk, as the plan outlives masters' rebuilds.
 - **The plan reads the code on disk (fixed 2026-11-06).** Code identity is
   unknown for a file edited after its process started, which protects a
   build whose running code is not on disk. The plan process runs none of the
@@ -1252,6 +1282,43 @@ decides.
   was "changed" after each build and rebuilt 8 times (about 7.5 min each).
   Each `plan()` now calls `code_identity.rebase()`: the code on disk is the
   code to compare, its identities computed afresh.
+- <a id="plan-guards"></a>**`--run` guards (2026-11-13).** Three ways a run
+  went wrong unseen now stop it, each with its own exit code:
+  - *Scratch masters (exit 5).* A plugin outside `temp/` whose last build
+    read a master inside it, or whose next build would, is refused before
+    anything runs (`scratch_masters`). A rebuilt Caravan Pack against a
+    `temp/` copy is how the loop of 2026-11-12 started.
+  - *Hidden inputs (exit 4).* After each build the plan is made again. A
+    plugin that was current, does not read the one just built as a master
+    (directly or through another), and now needs a build means that build
+    wrote a file the plugin reads but its record misses; the run stops and
+    prints the changed input (`leaked`). Before, only a repeat build of the
+    same plugin stopped it (exit 3), after a wasted build. A repeat build
+    is still allowed after one of the plugin's masters was built: a plugin
+    with no record yet (the NVTUP overlay on 2026-11-13) sorts first, and
+    only its first build's record names the masters that later move it.
+  - <a id="replay"></a>*Each plugin replayed by its own module.* A stamp's
+    command names the module that built it; `--run` rebuilds with that
+    module, not always `pipeline.run`. An asset overlay
+    (`pipeline.overlay`, e.g. `F3NV - NVTUP and NVMIM.esl`) is retargeted to
+    its own folder (`--out`, `--name` its stem) and to the planned masters'
+    current paths (`--built`, its header's masters found in the plugins'
+    folders). An old space-joined command is split back by flag: one path
+    (`--out`), several paths (`--built`, `--mods`, `--plugin-dirs`; each the
+    longest run of words naming an existing path) and text (`--name`, every
+    word up to the next flag). Before this an overlay's replay failed with
+    "required: --export" and stopped the run (2026-11-13). Overlay now
+    records its reads like `pipeline.run` (an inputs record, its `--built`
+    plugins as masters, `argv` in its stamp), so the plan orders it after
+    its masters and rebuilds it only when the files it read (the masters'
+    file lists and texture records, the replacer mods' files, the exports)
+    or its code changed. An overlay built before then has no record and is
+    rebuilt once.
+  - *Faces reset by a rebuild.* A rebuilt plugin whose faces stage had run
+    on its previous build gets that stage again, with the recorded
+    arguments, before anything else is planned (`faces_again`,
+    [faces-stamp](fo4_facegen_plan.md#faces-stamp)). Its failure stops the
+    run with the stage's exit code.
 - **Tested** (`tests/test_fo4_build_plan.py`):
   - a DLC stays current after the game gains a record and changes one it did
     not read;

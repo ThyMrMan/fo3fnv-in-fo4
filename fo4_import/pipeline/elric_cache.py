@@ -66,7 +66,11 @@ def write_new(target: Path, data: bytes) -> None:
     """Write `data` to `target`, its folder made, unless the file already holds exactly that (then it is touched,
     marking it made by this build: stale_files); any NIF held for `target` is dropped."""
     _HELD.pop(os.path.normcase(str(target)), None)
-    if target.is_file() and target.stat().st_size == len(data) and target.read_bytes() == data:
+    try:
+        same = target.stat().st_size == len(data) and target.read_bytes() == data
+    except OSError:
+        same = False
+    if same:
         os.utime(target)
         return
     target.parent.mkdir(parents=True, exist_ok=True)

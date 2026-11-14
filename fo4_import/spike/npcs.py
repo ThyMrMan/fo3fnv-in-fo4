@@ -34,6 +34,7 @@ from fo4_import.face.sculpt import FACE_FIELDS
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.face_fits import FIT_SITES, basis_hash, fit_key, fitted, keep, kept, take
 from fo4_import.spike import records as R
+from fo4_import.spike.classes import Classes
 from fo4_import.spike.packages import listed
 from fo4_import.spike.entry_condition import condition_of
 from fo4_import.spike.face_fit import sculpt_fit, tint_fit
@@ -166,10 +167,13 @@ def vendor_snam(builder, fnv: int) -> bytes:
     return pack_subrecord('SNAM', struct.pack('<Ib', vendor, 0)) if vendor else b''
 
 
-def with_class(subs: bytes) -> bytes:
-    """A converted human's subrecords with CNAM (class) HUMAN_CLASS."""
-    return b''.join(pack_subrecord(tag.decode(), struct.pack('<I', HUMAN_CLASS) if tag == b'CNAM' else data)
-                    for tag, data in subrecords(subs))
+def with_class(cls: int = HUMAN_CLASS):
+    """A record edit giving a converted human CNAM (class) `cls`."""
+    def edit(subs: bytes) -> bytes:
+        """The subrecords with the class set."""
+        return b''.join(pack_subrecord(tag.decode(), struct.pack('<I', cls) if tag == b'CNAM' else data)
+                        for tag, data in subrecords(subs))
+    return edit
 
 
 def with_factions(snams: bytes):
@@ -342,6 +346,9 @@ class Npcs:
         self.lists = {int(r['FormID'], 16): r for sig in ('LVLN', 'LVLC') for r in export_records(export_dir, sig)}
         self.made_lists, self.tone_layers = {}, tint.skin_tone_layers(builder.fo4)
         self.voids, self.poses, self.own_heads = VoidActors(builder), None, OwnHeads(builder, export_dir)
+        lines = [line for quest in getattr(getattr(builder, 'say', None), 'infos', {}).values() for line in quest]
+        names = {int(r['FormID'], 16): r['EditorID'] for r in export_records(export_dir, 'CLAS') if r.get('EditorID')}
+        self.classes = Classes(builder, lines, names, HUMAN_CLASS)
 
     def source(self, fnv: int, flag: int) -> 'dict | None':
         """The NPC or creature `fnv` takes part `flag` from (template_source); None if a list."""
@@ -369,7 +376,8 @@ class Npcs:
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, body.body, body.flags, f'FNV_{npc["EditorID"]}', npc.get('FULL', ''),
             (FACE_FIELDS if face else frozenset()) | BODY_TIES, morphs,
-            composed(edit, with_class, with_factions(self._factions(fnv)), self._packages(fnv),
+            composed(edit, with_class(self.classes.of(int(traits.get('CNAM.Class', '0'), 16))),
+                     with_factions(self._factions(fnv)), self._packages(fnv),
                      self._inventory(fnv, struct.unpack('<I', child)[0] if child else 0),
                      with_voice(self.voices.of(int(traits.get('VTCK.Voice', '0'), 16))), self._actor_data(fnv),
                      self.builder.combat_styles.edit(traits), with_perks(self.builder.perks.teammates.held_by(fnv)),
@@ -392,12 +400,22 @@ class Npcs:
         return with_template(template, listed) if template else None
 
     def _kind(self, traits: dict) -> tuple:
-        """(body kind, female, fitted: an adult human whose sex has both bases) of `traits`; a child keeps its
-        body's face, as FNV's face bases are adult."""
-        race = int(traits.get('RNAM.Race', '0'), 16)
+        """(body kind, female, fitted: a human whose sex has face bases) of `traits`."""
         female = bool(int(traits.get('ACBS.Flags', 0)) & FEMALE)
-        kind = body_kind('ghoul' in self.races.get(race, '').lower(), female, race in self.child_races)
+        kind = self._body(int(traits.get('RNAM.Race', '0'), 16), female)
         return kind, female, kind.startswith('human') and basis_hash(female) is not None
+
+    def _body(self, race: int, female: bool) -> str:
+        """The body kind of an NPC of FNV race `race`: a child, ghoul or human of that sex."""
+        return body_kind('ghoul' in self.races.get(race, '').lower(), female, race in self.child_races)
+
+    def trait_forms(self) -> dict:
+        """{FNV race: the FO4 race its NPCs' body has, FNV class a line tests: its FO4 class}, for conditions.
+        See: docs/fork/fo4_dialogue_gaps.md#races
+        """
+        races = {fnv: struct.unpack('<I', first_sub(self.bodies[self._body(fnv, False)].body, b'RNAM'))[0]
+                 for fnv in self.races}
+        return {**races, **self.classes.form_map()}
 
     def _templated(self, fnv: int) -> 'int | None':
         """Write FNV NPC or creature `fnv`, whose traits come from a leveled list or a template, as an FO4 template
@@ -492,7 +510,7 @@ class Npcs:
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, body.body, body.flags, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), BODY_TIES, b'',
             checked(self.builder.counts, body.body, rec['EditorID'],
-                    composed(*parts, with_template(template, flags, traits), None if body is not male else with_class))))
+                    composed(*parts, with_template(template, flags, traits), None if body is not male else with_class()))))
         self.builder.counts['NPC_ (template actor)'] += 1
         return fid
 
@@ -637,9 +655,9 @@ class Npcs:
             return b'', None
         sculpted, tinted, chosen = fitted
         self.builder.counts['face fitted'] += 1
-        swaps, face, tinted = self.own_heads.of(npc, female, chosen, tinted, self.assets)
+        swaps, worn, face, tinted = self.own_heads.of(npc, female, chosen, tinted, self.assets)
         return (sculpted or (b'',))[0], composed(_tint_edit(tinted, female, self.tone_layers), _preset_edit(sculpted),
-                                                 head_parts_edit(chosen, self.assets, swaps), face)
+                                                 head_parts_edit(chosen, self.assets, swaps, worn), face)
 
     def warm_faces(self, fnvs: list, workers: int = 0) -> int:
         """Fit in `workers` processes (face_workers by default), each on one BLAS thread, the faces the bases of FNV

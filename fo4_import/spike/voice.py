@@ -9,6 +9,7 @@ folder recorded it. Audio comes from the FO4 Creation Kit's xWMAEncode; lips fro
 See: docs/fork/fo4_spikes.md#spike-1-voice
 """
 
+import functools
 import hashlib
 import json
 import os
@@ -51,8 +52,16 @@ def fnv_folders(export_dir: Path, voice_type: str) -> tuple:
     """`voice_type`'s recordings folder in each export plugin, in master-byte order.
     See: docs/fork/fo4_plugin_layout.md#dlc-voice
     """
-    plugins = (*map(Path, export_masters(str(export_dir))), Path(export_dir))
-    return tuple(asset_dirs(p)[-1] / 'sound' / 'voice' / plugin_name(p).lower() / voice_type.lower() for p in plugins)
+    return tuple(root / voice_type.lower() for root in _voice_roots(str(export_dir)))
+
+
+@functools.cache
+def _voice_roots(export_dir: str) -> tuple:
+    """Each export plugin's sound/voice/<plugin> folder, master-byte order.
+    See: docs/fork/fo4_build_speed.md#staged-first
+    """
+    plugins = (*map(Path, export_masters(export_dir)), Path(export_dir))
+    return tuple(asset_dirs(p)[-1] / 'sound' / 'voice' / plugin_name(p).lower() for p in plugins)
 
 
 def recorded(folders: tuple) -> bool:

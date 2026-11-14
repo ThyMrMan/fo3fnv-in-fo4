@@ -32,6 +32,8 @@ from script_convert.tes4 import nodes as N
 
 from dataclasses import dataclass, field
 
+from fo4_import.cleanroom import SCRIPTS as CLEANROOM_SCRIPTS
+
 from script_convert.constants import (
     AXIS_COMMANDS, KNOWN_GLOBALS, NUMERIC_RANK, RETURN_TYPES,
     _BASE_OBJECT_PAPYRUS, is_generated_script_type,
@@ -42,9 +44,10 @@ from script_convert.command_rows import (
     OBJREF_SHARED_FUNCTIONS,
 )
 
-#: The static_scripts/ classes the converted games ship (each target's folder too), lowercase.
+#: The static_scripts/ classes the converted games ship (each target's folder too) and Cleanroom UI's, lowercase.
 STATIC_SCRIPT_CLASSES = frozenset(name[:-4].lower() for _, _, names in os.walk(
-    os.path.join(os.path.dirname(__file__), 'static_scripts')) for name in names if name.endswith('.psc'))
+    os.path.join(os.path.dirname(__file__), 'static_scripts')) for name in names if name.endswith('.psc')) | frozenset(
+    name.lower() for name in CLEANROOM_SCRIPTS)
 
 #: Names a script may use undeclared: Papyrus globals, keywords, event parameters, the static scripts.
 IMPLICIT_NAMES = STATIC_SCRIPT_CLASSES | frozenset({

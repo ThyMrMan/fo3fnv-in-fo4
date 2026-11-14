@@ -92,11 +92,16 @@ class Fit:
 
 
 def _solve(a: np.ndarray, b: np.ndarray, lower: np.ndarray, ridge: np.ndarray) -> tuple:
-    """(values, objective): least squares of `a`, `b` with per-column `ridge`, in [lower, BOUND]."""
-    stacked = np.vstack([a, np.diag(np.sqrt(ridge))])
-    rhs = np.concatenate([b, np.zeros(a.shape[1])])
-    x = lsq_linear(stacked, rhs, bounds=(lower, BOUND)).x
-    return x, float(((stacked @ x - rhs) ** 2).sum())
+    """(values, objective): least squares of `a`, `b` with per-column `ridge`, in [lower, BOUND]. A column no
+    measure sees is 0 under its ridge, so only the others are solved.
+    See: docs/fork/fo4_build_speed.md#unseen-controls
+    """
+    seen = np.abs(a).sum(0) > 0
+    stacked = np.vstack([a[:, seen], np.diag(np.sqrt(ridge[seen]))])
+    rhs = np.concatenate([b, np.zeros(int(seen.sum()))])
+    x = np.zeros(a.shape[1])
+    x[seen] = lsq_linear(stacked, rhs, bounds=(lower[seen], BOUND)).x
+    return x, float(((stacked @ x[seen] - rhs) ** 2).sum())
 
 
 def unmaxed_fit(measures: np.ndarray, sculpt_basis: np.ndarray, preset_basis: tuple, target: np.ndarray) -> Fit:

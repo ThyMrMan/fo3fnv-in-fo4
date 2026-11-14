@@ -18,6 +18,7 @@ import pytest
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record
 from fo4_import.pipeline import build_inputs as BI
 from fo4_import.pipeline import build_plan as BP
+from fo4_import.pipeline import build_steps as BS
 from fo4_import.pipeline import code_identity as CI
 from fo4_import.pipeline import mod_dirs as MD
 from fo4_import.pipeline import ran_code as RC
@@ -270,25 +271,43 @@ def test_a_plugin_lookup_stands_for_the_mod_sources(recording, monkeypatch):
     assert verdict == BP.BUILD and reason.startswith('plugin found ["Guns.esp"')
 
 
+def _plugin(path: Path, masters: list, records: list) -> Path:
+    """A plugin at `path` mastering `masters` and holding `records` [(signature, FormID, body)]."""
+    writer = FO4PluginWriter(masters=masters, is_esm=True)
+    for sig, fid, body in records:
+        writer.add_record(sig, pack_fo4_record(sig, fid, 0, body))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    writer.write(str(path))
+    return path
+
+
 def _game(path: Path, records: list) -> Path:
     """A built game plugin at `path` holding `records` [(signature, FormID, body)]."""
-    game = FO4PluginWriter(masters=['Fallout4.esm'], is_esm=True)
-    for sig, fid, body in records:
-        game.add_record(sig, pack_fo4_record(sig, fid, 0, body))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    game.write(str(path))
+    _plugin(path, ['Fallout4.esm'], records)
     _finished(path)
     return path
 
 
+def test_master_formids_are_read_in_the_dependent_plugins_numbering(tmp_path):
+    """Two DLC each number their own records 02 (after Fallout4 and the game); a mod mastering both reads the
+    second's as 03, so asking whether 03000FD0 is held looks at that DLC alone."""
+    masters = ['Fallout4.esm', 'Game.esm', 'One.esm', 'Two.esm']
+    one = _plugin(tmp_path / 'One.esm', masters[:2], [('FLST', 0x02000FD0, b'a')])
+    two = _plugin(tmp_path / 'Two.esm', masters[:2], [('FLST', 0x02000AAA, b'b')])
+    held = BP._held([one, two], masters)
+    assert {0x02000FD0, 0x03000AAA} <= held
+    assert 0x03000FD0 not in held and 0x02000AAA not in held
+
+
 def _dlc_asks(game: Path, dlc_data: Path) -> Path:
     """A DLC build that asked the game whether it holds 0x01000900 and read record 0x01000901; its plugin."""
-    held = BI.Held(BP._held([game]))
+    masters = ['Fallout4.esm', game.name]
+    held = BI.Held(BP._held([game], masters))
     BI.MASTERS.cover('plugin', game)
     assert 0x01000900 in held
-    body = BP._records([game], {0x01000901: 'FLST'})[0x01000901]
+    body = BP._records([game], {0x01000901: 'FLST'}, masters)[0x01000901]
     BI.MASTERS.records[0x01000901] = body
-    plugin = dlc_data / 'Dlc.esm'
+    plugin = _plugin(dlc_data / 'Dlc.esm', masters, [])
     _finished(plugin)
     BI.write(plugin, dlc_data, [])
     return plugin
@@ -316,6 +335,50 @@ def test_a_dlc_waits_for_a_game_that_needs_a_build(recording):
     dlc = _dlc_asks(game, recording / 'dlc')
     planned = BP.plan([dlc, game])
     assert [(p.name, verdict) for p, verdict, _ in planned] == [('Game.esm', BP.BUILD), ('Dlc.esm', BP.AFTER)]
+
+
+def test_other_plugins_script_lists_stay_out_of_the_record(monkeypatch, tmp_path):
+    """Script conversion leaves the shared scripts folder and every plugin's owned list beside it out of the record,
+    so a DLC's script build never makes its game look changed."""
+    scripts = tmp_path / 'fo4_scripts' / 'Game.esm'
+    scripts.mkdir(parents=True)
+    (scripts.parent / 'Dlc.esm.owned.txt').write_text('DlcScript\n')
+    left = []
+    monkeypatch.setattr(BS, 'leave_out', lambda paths: left.extend(paths))
+    monkeypatch.setattr(BS.subprocess, 'run', lambda *_, **__: subprocess.CompletedProcess([], 0, '', ''))
+    BS.convert_scripts(tmp_path / 'export', scripts)
+    assert set(left) == {scripts.parent, scripts.parent / 'Dlc.esm.owned.txt'}
+
+
+def test_a_stamp_command_keeps_paths_with_spaces(tmp_path):
+    """A stamp's space-joined command splits back into its arguments, a mod folder's spaces kept in one path."""
+    mod = tmp_path / 'F3NV - Old World Blues'
+    mod.mkdir()
+    (mod / 'OldWorldBlues.esm').write_bytes(b'')
+    argv = BP.stamp_argv(f'fo4_import.pipeline.run --export export/X.esm --out {mod}/OldWorldBlues.esm --data {mod} '
+                         f'--world WastelandNV NVDLC03BigMT --replacements replacements/falloutnv.json Cell01')
+    assert argv[argv.index('--out') + 1] == f'{mod}/OldWorldBlues.esm'
+    assert argv[argv.index('--data') + 1] == str(mod)
+    assert argv[-3:] == ['--replacements', 'replacements/falloutnv.json', 'Cell01']
+
+
+def test_a_rebuild_writes_the_plugin_in_its_own_folder(tmp_path):
+    """A command recorded for a scratch build is rebuilt into the plugin's own folder, its masters from `dirs`."""
+    plugin, game = tmp_path / 'Mod' / 'Dlc.esm', tmp_path / 'Game'
+    argv = ['--export', 'export/Dlc.esm', '--out', 'temp/scratch/Dlc.esm', '--data', 'temp/scratch',
+            '--plugin-dirs', 'temp/profile_data', '--no-test-cell']
+    assert BP.retarget(argv, plugin, [game]) == ['--out', str(plugin), '--data', str(plugin.parent), '--plugin-dirs',
+                                                 str(game), '--export', 'export/Dlc.esm', '--no-test-cell']
+
+
+def test_a_plugin_still_out_of_date_after_its_build_stops_the_run(monkeypatch, tmp_path):
+    """A build that leaves its plugin needing a build again stops the run instead of building it forever."""
+    plugin, builds = tmp_path / 'Dlc.esm', []
+    monkeypatch.setattr(BP, 'plan', lambda plugins: [(plugin, BP.BUILD, 'no finished build with an inputs record')])
+    monkeypatch.setattr(BP, 'master_dirs', lambda *_: [])
+    monkeypatch.setattr(BP, 'rebuild', lambda p, dirs: builds.append(p) or 0)
+    assert BP.run([plugin]) == 3
+    assert builds == [plugin]
 
 
 @pytest.mark.parametrize('executable, args, program', [
@@ -360,3 +423,89 @@ def test_master_scripts_follow_the_names_a_script_uses(tmp_path):
     (own / 'Dlc.psc').write_text('F3NV_Packages Property P Auto', encoding='utf-8')
     found = BI.master_scripts([own / 'Dlc.psc'], (master,))
     assert [p.name for p in found] == ['F3NV_Base.psc', 'F3NV_Packages.psc']
+
+
+def _overlay_setup(tmp_path: Path) -> tuple:
+    """Two built masters in folders with spaces, an old and a new copy of each, two replacer mods, and an overlay ESL
+    whose stamp holds the old space-joined command (no argv, no inputs record): (esl, old masters, new masters,
+    mods)."""
+    old, new = tmp_path / 'old mods', tmp_path / 'mods'
+    olds, news = [], []
+    for mod, name in (('F3NV - Fallout New Vegas', 'FalloutNV.esm'), ('F3NV - Dead Money', 'DeadMoney.esm')):
+        for root, out in ((old, olds), (new, news)):
+            (root / mod).mkdir(parents=True, exist_ok=True)
+            (root / mod / name).write_bytes(b'')
+            out.append(root / mod / name)
+    mods = [tmp_path / 'FNV Texture Upscale Project (NVTUP) 2.0', tmp_path / 'New Vegas Mesh Improvement Mod 1.14 2026']
+    for mod in mods:
+        mod.mkdir()
+    folder = new / 'F3NV - NVTUP and NVMIM'
+    folder.mkdir()
+    (old / 'F3NV - NVTUP and NVMIM').mkdir()
+    esl = folder / 'F3NV - NVTUP and NVMIM.esl'
+    FO4PluginWriter(masters=['FalloutNV.esm', 'DeadMoney.esm'], is_esm=False, is_esl=True).write(str(esl))
+    command = (f'fo4_import.pipeline.overlay --out {old / "F3NV - NVTUP and NVMIM"} --name F3NV - NVTUP and NVMIM '
+               f'--built {" ".join(map(str, olds))} --mods {" ".join(map(str, mods))}')
+    BS.write_stamp(esl, 'finished', time.time(), {'command': command})
+    return esl, olds, news, mods
+
+
+def test_an_overlay_command_splits_back_with_its_spaces(tmp_path):
+    """An overlay's old stamp command: --out one path, --built and --mods several (each the longest existing path),
+    --name every word up to the next flag."""
+    esl, olds, _, mods = _overlay_setup(tmp_path)
+    command = json.loads(BS.stamp_path(esl).read_text(encoding='utf-8'))['command']
+    assert BP.stamp_argv(command) == ['--out', str(tmp_path / 'old mods' / 'F3NV - NVTUP and NVMIM'),
+                                      '--name', 'F3NV - NVTUP and NVMIM', '--built', *map(str, olds),
+                                      '--mods', *map(str, mods)]
+
+
+def test_an_overlay_is_replayed_by_overlay_on_the_planned_masters(tmp_path, monkeypatch):
+    """The NVTUP overlay is rebuilt by pipeline.overlay (not run, which wanted --export), into its own folder, over
+    the planned masters' current copies."""
+    esl, _, news, mods = _overlay_setup(tmp_path)
+    calls = []
+    monkeypatch.setattr(BP.subprocess, 'call', lambda argv, cwd: calls.append(argv) or 0)
+    assert BP.rebuild(esl, [p.parent for p in news]) == 0
+    assert calls[0][1:3] == ['-m', BP.OVERLAY]
+    assert calls[0][3:] == ['--out', str(esl.parent), '--name', 'F3NV - NVTUP and NVMIM', '--built',
+                            *map(str, news), '--mods', *map(str, mods)]
+
+
+def test_an_unknown_build_module_is_not_replayed(tmp_path, monkeypatch):
+    """A stamp naming a module build_plan cannot replay stops with 2, nothing run."""
+    plugin = tmp_path / 'X.esm'
+    plugin.write_bytes(b'')
+    BS.write_stamp(plugin, 'finished', time.time(), {'command': 'fo4_import.other --out x'})
+    monkeypatch.setattr(BP.subprocess, 'call', lambda *a, **k: pytest.fail('ran'))
+    assert BP.rebuild(plugin) == 2
+
+
+def test_an_overlay_records_its_inputs_and_masters(recording, monkeypatch):
+    """overlay.main keeps argv in its stamp and writes an inputs record with its --built plugins as masters: the
+    plan orders it after them, finds it current, and rebuilds it when a replacer file it read changes."""
+    from fo4_import.pipeline import overlay as OV
+    esl, _, news, mods = _overlay_setup(recording)
+    texture = mods[0] / 'textures' / 'rock.dds'
+    BI._STATE['on'] = False
+    texture.parent.mkdir()
+    texture.write_bytes(b'dds')
+    BI._STATE['on'] = True
+    argv = ['--out', str(esl.parent), '--name', esl.stem, '--built', *map(str, news), '--mods', *map(str, mods)]
+    for name in ('hold_heavy_lock', 'configure_multiprocessing', 'create_pool_job'):
+        monkeypatch.setattr(OV, name, lambda *a: None)
+    monkeypatch.setattr(OV, 'overlay', lambda args: {'read': len(texture.read_bytes())})
+    monkeypatch.setattr(BI, 'start', lambda folder: (folder.mkdir(parents=True, exist_ok=True),
+                                                     monkeypatch.setenv(BI.ENV, str(folder))))
+    monkeypatch.setenv(OV.OVERLAY_ENV, '')
+    monkeypatch.setattr(sys, 'argv', ['overlay', *argv])
+    for master in news:
+        _finished(master)
+    OV.main()
+    assert json.loads(BS.stamp_path(esl).read_text(encoding='utf-8'))['argv'] == argv
+    assert BP.masters_of(esl) == news
+    assert BP.ordered([esl, *news])[-1] == esl
+    assert BP.check(esl) == (BP.CURRENT, '')
+    BI._STATE['on'] = False
+    texture.write_bytes(b'dds2')
+    assert BP.check(esl) == (BP.BUILD, f'file {BI.norm(texture)}')

@@ -111,6 +111,95 @@ What running the CK through MO2 taught, kept for FaceGen, which still does
 - It also edits `CreationKitPrefs.ini`, `ckpe.log` and the `Logs` folders in
   the game folder in place.
 
+## <a id="graph-check"></a>The graph checker (built 2026-11-13)
+
+`py -3.14 -m tools.validate.fo4_graph_check <plugin> [--data DIR] [--race
+EDID ...]` checks a built plugin's creature graphs and AnimTextData offline,
+for the mistakes that cost the gecko spike its frozen builds
+([spike 4](fo4_spikes.md#own-rig-graph-contract)). It checks every race with
+a graph in the data folder (the default is the plugin's folder), with the
+game's archives behind it. That covers our rigs, any FO4 mod's creatures, or
+vanilla's when it is pointed at `Fallout4.esm`. It follows each race's
+project to its root graph, its subgraph entries, and the files those load
+through `hkbBehaviorReferenceGenerator`. It exits 1 on an error.
+
+**Errors** (each was a freeze or a dead attack in play):
+- **Names.** The root lacks a name a third-person subgraph entry's graph
+  uses (test 12). First-person graphs attach to the first-person root, so
+  they're skipped.
+- **Wildcards.** A wildcard transition flagged neither local (0x800) nor
+  global (0x400). Havok ignores it, so its event is "not processed" (test
+  15).
+- **Clip names.** Two clip generators in one graph share a name (test 21).
+- **iState.** Two `iState_` variables start at the value `iState` starts at.
+  The game maps an `iState_<name>` value to the MOVT named `<name>`, so it
+  picks one at random: the gecko with the mole rat's `iState_Molerat`
+  (tests 29–40).
+- **Attacks.** An attack state never raises `attackStop`, so the creature
+  attacks once (test 23). The event may be raised on exit, by its
+  generators, by a state its transitions lead to (a combo), or on exit of a
+  state holding its machine (the deathclaw's `Attack_State`).
+- **Clips.** A clip the root graph plays is missing from its project's file
+  data, or a clip a file data lists is not there.
+- **AnimTextData.** A required file is missing:
+  - the project's `AnimationFileData\<project>.txt`;
+  - the root graph's `AnimEventInfo`;
+  - each entry's `AnimationFileData` and `DynamicIdleData`, unless the
+    persistent list names the entry.
+- **MOVT speed.** A SPED whose size isn't its form version's layout: 112
+  bytes from version 104 (the gecko's 17 floats at 131, tests 29–40).
+
+**Warnings** (legal in vanilla):
+- The root lacks `PickNewIdle`, `Ragdoll`, `SoundPlay`, `weapEquip`,
+  `weaponDraw`, `weaponSheathe`, `bAnimationDriven` or `camerafromx/y/z`.
+  Every vanilla root has them but the vertibird's, which has a subgraph.
+- An attack event no graph names. The cat's 15 have none: cats never
+  fight.
+- `iState_` variables sharing another value. The super mutant's
+  `iState_SuperMutantBlocking` and `iState_NPCBlocking` both start at 5.
+- An `iState_` naming no MOVT: Liberty Prime, the deathclaw's sprint, the
+  companion protectron.
+- AnimTextData loose in the data folder. All 35 installed mods pack theirs,
+  but packing alone fixed nothing in test 11, and loose files were never
+  tested. The deployed mod has them loose while a build is between the
+  plugin write and the Main archive.
+
+**Measured (2026-11-13):**
+- **Our 12 rigs** in the built `FalloutNV.esm`: 0 errors, in 4 s.
+- **The Fallout 3 build's giant ant** has no `AnimationFileData` for its
+  subgraph entry (`7046690657184703767`). The FNV build has one only as a
+  leftover from an older build (dated 2026-11-12, kept because `prune`
+  doesn't own that folder). No current code writes an own-rig entry's file
+  data: `rig.build` writes only the project's, and `gun_clips` only gun
+  entries'. Fixed 2026-11-13, not built:
+  [entry file data](research/anim_text_data.md#entry-file-data).
+- **The gecko's graph broken again in memory** the spike's ways: every
+  break is reported, the clean graph nothing.
+  - wildcards at 0: 3 machines;
+  - `PickNewIdle` gone;
+  - `iState_Molerat` added at 0;
+  - attack exits cleared: 4 states;
+  - a shared clip name.
+- **All of `Fallout4.esm`:** 45 races with graphs, 0 errors, 47 warnings, in
+  43 s. Reading each data folder's archives once made this 11 times faster
+  (473 s).
+
+The first version took the spike's rules literally, and vanilla broke them
+1,427 times on 17 creature races:
+- **Names.** The vertibird's root lacks the fixed root names. First-person
+  subgraphs don't carry the race root's names.
+- **Wildcards.** The spike's "every vanilla wildcard carries 0x800" is
+  wrong. Over vanilla's 147 actor graphs, 1,299 wildcards carry 0x800, 360
+  carry 0x400 and 229 both. None has neither.
+- **iState.** "Only its own `iState_` variable" is too strong. 16 vanilla
+  graphs have several (the deathclaw's default, hard turn and sprint), each
+  at its own value in 15 of them.
+- **ClipGeneratorData.** No vanilla root graph has it (17 of 17), so only
+  `AnimEventInfo` is required there.
+- **Clips.** Shared graphs (furniture, ambush) name clips an entry's folders
+  lack, so an entry's file data is only checked for listed clips that are
+  missing.
+
 ## <a id="nightstalker"></a>Second creature: the nightstalker (2026-10-27)
 
 A table entry only, to check the gecko's code holds for another ground

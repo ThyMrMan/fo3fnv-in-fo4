@@ -42,8 +42,6 @@ CLIMBED = 28.0
 LEDGE = 40.0
 #: Foot height above the mesh's lowest point that counts as open: full01's one-step 26.3 is not, HalfTop's 48 is.
 OPEN_FOOT = 32.0
-#: |normal z| from which a face is walkable ground or ramp (50 degrees; Novac motel's stairs ramp is 38).
-WALKABLE = 0.64
 #: Mesh collision blocks: a NIF holding none goes through no stairs pass.
 MESH_BLOCKS = (b'hkPackedNiTriStripsData', b'bhkNiTriStripsShape', b'bhkCompressedMeshShape')
 #: Record types whose model the export places with REFRs.
@@ -69,7 +67,7 @@ def _step_heights(corners: np.ndarray, nz: np.ndarray, plain: np.ndarray, base: 
     """Per face, the height of the plain step it is (0 for none): an upright face whose top corners each meet a
     walkable face's (a tread or a ramp up to WALKABLE), none of them marked stairs, and whose bottom corners each
     meet a walkable face's or the ground (`base`)."""
-    walk = np.nonzero(nz >= WALKABLE)[0]
+    walk = np.nonzero(nz >= S.WALKABLE)[0]
     out = np.zeros(len(corners))
     marked = np.repeat(~plain[walk], 3)
     if not len(walk):

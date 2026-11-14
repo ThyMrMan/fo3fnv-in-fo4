@@ -1,4 +1,4 @@
-# Bodies, CBBE and BodySlide for converted outfits (planned 2026-11-07)
+# Bodies, CBBE and BodySlide for converted outfits (planned 2026-11-07, proof of concept 2026-11-12)
 
 How the FO3/FNV → Fallout 4 converter can use CBBE, a male body and
 BodySlide with Outfit Studio to fix the clothing problems of converted
@@ -43,6 +43,12 @@ the detail behind option C of
   male bodies; SHB is older. Vanilla men need none of this.
 - **Dependency only.** CBBE's files are read on the player's machine and
   never shipped; BodySlide (GPL-3) is run as a separate program.
+- **Proven offline (2026-11-12, [results](#poc)).** The scrambled skin is a
+  UV mismatch: fitted to CBBE's body, the skin's median UV error on CBBE's
+  texture drops from 0.25 to 0.0002. Our Python writes BodySlide projects
+  that BodySlide 5.9.1 batch-builds from its command line with no clicks;
+  the Zeroed build equals our mesh exactly and a Curvy build follows the
+  body to 0.02 units. The Outfit Studio route (2a) is no longer needed.
 
 ## <a id="problem"></a>1. The problem as it stands
 
@@ -147,6 +153,49 @@ replacers that keep vanilla's UVs. CBBE is not one of them, and it is the
 replacer most players have. Whatever else is chosen, the converter must
 take bare-skin UVs from the body the player actually uses.
 
+### <a id="bare-skin"></a>The bare-skin bug: cause and fix (measured 2026-11-12)
+
+**Cause: UVs only.** Our worn skin shapes (`Arms01` of
+`fnv\armor\lingerie\outfitf_female.nif`, `FemaleBodySkinned:0` of the
+prostitute outfit) use shader type 5 (skin tint),
+`template/SkinTemplate_Wet.bgsm` and `FemaleBody_d.dds`, all copied from
+vanilla's body (`outfit._body_material`), with UVs taken from vanilla's
+body (`BodyFit.on_body_texture`). CBBE's `FemaleBody_d.dds` replaces that
+path, laid out for CBBE's UVs. Measured with `tools/nif/fo4_body_fit_check.py`
+and a one-off probe:
+
+- At the same body point, CBBE's UV and vanilla's differ by a median 0.17
+  of the texture; 89% of vanilla's 1,723 body vertices are off by more
+  than 0.05. Our outfits' skin on CBBE's texture: median UV error 0.25,
+  p90 0.76-0.80. That is the scramble.
+- Material, shader type and texture path are the same as CBBE's own
+  outfits use. CBBE's converted outfits (`Clothes\SummerShorts\OutfitF.nif`,
+  `SlinkyDress\DressF.nif`) draw bare skin as a trimmed copy of CBBE's
+  body (`BaseFemaleBody:0`, CBBE UVs), the same pattern as vanilla's
+  `BaseFemaleBody_fitted:0`.
+- **Not the cause, but a difference:** their skin copies carry the body's
+  25 sub-segments and `FemaleBody.ssf`; ours carry 7 plain segments and no
+  `.ssf` (no dismemberment cuts, [human clothing](fo4_build_next.md#human-clothing)
+  step 3). CBBE also ships its own `FemaleHands.nif` and hand textures.
+
+**Fix: fit to the body the game draws.** `outfit.body_fit()` now takes the
+body NIF (`body_nif`); the skin then takes that body's UVs, shape and
+edges. Measured on the lingerie, a prostitute outfit and the female vault
+suit:
+
+| Fit to | Skin UV error on CBBE's texture (median / p90) | Outfit gap to its body, p90 |
+|---|---|---|
+| Vanilla (today) | 0.25 / 0.76-0.80 | 1.2-3.3 |
+| Installed CBBE `FemaleBody.nif` (10,729 vertices) | 0.0002 / 0.18-0.22 | 1.8-5.6 |
+| CBBE's reference `ShapeData\CBBE\CBBEBody.nif` (22,708, zero sliders) | 0.003-0.005 / 0.19-0.32 | 1.0-3.4 |
+
+The p90 tails are the measurement (nearest point across a UV seam):
+vanilla's own fit measured on vanilla gives 0.16. Fit to the reference
+shape: it is the zero-slider base BodySlide adds presets to (a fit to a
+preset-built `FemaleBody.nif` would get the preset twice), it fits more
+closely, and its UV layout is the installed body's. The installed body
+is still read, to detect which UV layout wins.
+
 ## <a id="offer"></a>2. What CBBE and BodySlide offer
 
 ### CBBE (Nexus fallout4/mods/15)
@@ -197,7 +246,14 @@ take bare-skin UVs from the body the player actually uses.
     Skyrim-to-FO4 CBBE and others (on the user's disk).
 - **Presets:** a preset is a value per slider; building applies each
   slider's diff times its value to the base mesh. FO4 sets build one NIF
-  (no `_0`/`_1` weight pair, `GenWeights` off).
+  (no `_0`/`_1` weight pair, `GenWeights` off; confirmed by our builds:
+  one `.nif`, plus a `.tri` with `--trimorphs`). Fallout 4's body weight
+  is bone scaling, not two meshes ([body weight](#body-weight)).
+- **`.osd` checked against CBBE's own** `CBBEBody.osd`: the magic is the
+  bytes `\0DSO` (the uint32 written little-endian), version 1, 84 entries;
+  each move is a packed 14 bytes (`uint16` vertex, three `float32`).
+  CBBE's reference shape `CBBE` has 22,708 vertices, under the 16-bit
+  limit.
 
 ### <a id="outfit-studio"></a>Outfit Studio: conform and weights
 
@@ -213,7 +269,15 @@ From `OutfitProject.cpp`, `Automorph.cpp`, `ConformOptions.h`:
   a diff, then normalized; masked vertices keep theirs.
 - This is the same idea as our conform (smoothed offsets of the nearest
   body vertices, `outfit._anchors`), so a Python re-implementation is
-  small, but it does not have to be ours ([headless](#headless)).
+  small.
+- **Exact rule** (`Automorph::GenerateResultDiff` and
+  `BuildProximityCache`, nifly `KDMatcher.hpp`, both GPL-3.0): the
+  reference vertices within the radius, by plain distance, nearest first,
+  the first `maxResults` of them; if the nearest has no move for the
+  slider the vertex gets none; otherwise each one with a move weighs
+  1/distance (1000 at distance 0) and the moves are mixed by weight.
+  Ported, with credit, as `fo4_import/nif/bodyslide.py:conform` (default
+  options: no smoothing, squeeze, solid mode or masks).
 
 ### <a id="headless"></a>Command line and headless use
 
@@ -232,6 +296,19 @@ From `OutfitProject.cpp`, `Automorph.cpp`, `ConformOptions.h`:
   outfit can be conformed to CBBE and saved as a project by Outfit Studio
   itself, on the player's machine, with no clicks.
 - 6.1.0 also adds an MCP server (`--mcp`); not needed here.
+- **Measured on the installed 5.9.1** (a copy in a scratch folder, its
+  `Config.xml` set to `TargetGame` 3): `BodySlide.exe --groupbuild "<group>"
+  --targetdir <dir> --preset "<name>" [--trimorphs]` built our three
+  generated projects in about a second with no window input; `--filter`
+  works. 5.9.1 always exits 0, so success is read from `Log_BS.txt` ("All
+  command-line build sets processed successfully!") and from the files.
+  The Automation step names exist in 5.9.1's `OutfitStudio.exe` too.
+- 🛑 **The "Choose output set" trap.** When two selected sets write the
+  same file (CBBE Body, Body Physics and Body Reduced all write
+  `FemaleBody`), a command-line build stops on a dialog until someone
+  picks one, then saves the pick and reuses it. So our sets must each
+  write their own outfit's path, never share a group with a body, and
+  the converter must not build the body for the player.
 
 ### LooksMenu morphs (Nexus fallout4/mods/12631)
 
@@ -241,7 +318,7 @@ names matching the body's. BodySlide's "Build Morphs" (`--trimorphs`)
 writes all of that; built with "CBBE Zeroed Sliders" it is the usual
 LooksMenu setup. We never write `.tri` ourselves.
 
-### Body weight (thin, muscular, large)
+### <a id="body-weight"></a>Body weight (thin, muscular, large)
 
 Vanilla FO4 has no weight morph files: one body per sex, and the engine
 scales the body's `_skin` helper bones by the NPC's weight (`MWGT`, three
@@ -252,10 +329,19 @@ body's bones, helpers included, so they should follow it already
 
 ### <a id="licensing"></a>Licensing and permissions
 
-- **BodySlide/Outfit Studio:** GPL-3. We only run it as a separate
-  program on the player's machine and write data files it reads; no code
-  is linked or shipped, so our MIT licence is unaffected (the app already
-  avoids GPL viewers: [preview](fo4_gui.md#preview)).
+- **Our code** is GPL-3.0 with a modding exception (`LICENSE`,
+  `EXCEPTIONS`; an earlier version of this doc wrongly said MIT).
+- **BodySlide/Outfit Studio and nifly:** GPL-3.0 (GitHub's licence API for
+  `ousnius/BodySlide-and-Outfit-Studio` and `ousnius/nifly`, checked
+  2026-11-12). GPL-compatible with ours, so reading and porting their code
+  is allowed with credit: `bodyslide.conform` is such a port, credited in
+  its module docstring. We still run BodySlide as a separate program and
+  never ship its binaries; the player installs it (Nexus 25).
+- **What outfit-conversion mods ship** (read from the user's installs):
+  the SHB conversion of all vanilla male outfits (Nexus 42708) ships only
+  `Tools\BodySlide`: `SliderSets\*.osp`, `ShapeData\<set>\*.nif` and `.osd`,
+  `SliderGroups\*.xml`; no built meshes, SHB as a requirement. CBBE ships
+  its outfit projects plus built meshes of each.
 - **CBBE** (block read from the official SFW edition page, 107978, same
   authors; the adult page's block could not be read logged out, assumed
   the same):
@@ -277,6 +363,18 @@ body's bones, helpers included, so they should follow it already
   must not be redistributed (a Wabbajack list rebuilds it on the user's
   machine instead). Whether publishing generated projects is allowed is
   not stated: ask Ousnius before anyone shares one.
+- **Verdict.**
+
+  | Item | Ship? | Why |
+  |---|---|---|
+  | Our converter code, `bodyslide.py` included | Yes | Ours, GPL-3.0; the ported conform is GPL-3.0 with credit |
+  | Outfit meshes fitted to vanilla's body | Yes, as today | Converted from FNV/FO3 data and FO4's body, like every other output |
+  | Outfit meshes fitted to CBBE, and their `.osp`/`.osd` | No: made on the player's machine | They carry CBBE's shape and slider moves; "parts of it" needs permission |
+  | CBBE's body, textures, slider sets, reference shapes | Never | Dependency only; read from the player's install |
+  | BodySlide itself | Never | The player installs it; we only run it |
+
+  Since the converter runs on the player's machine anyway, nothing is
+  lost: the CBBE fit and its projects are built there, from their CBBE.
 
 ## <a id="males"></a>3. Males
 
@@ -372,16 +470,15 @@ the player's preset.
 **Route 2: BodySlide projects the player builds (for presets).** Two ways
 to make the projects, both on the player's machine:
 
-- **2a, Outfit Studio does it (preferred where it runs).** The converter
-  writes one automation script and runs `OutfitStudio -a` over route 1's
-  meshes: `LoadReference` (the body's reference template, e.g. CBBE Body),
-  `ImportFile` (the outfit), `ConformSliders`, `SaveProject` (into our
-  slider set and shape data folder). The conform is then BodySlide's own,
-  exactly as a modder's by hand. Windows, and Linux with the native build.
-  The script keeps FNV-based weights: no `CopyBoneWeights` step.
-- **2b, our own writer (fallback, any OS).** Python writes the same files
-  using the conform rule above. Used where Outfit Studio cannot run
-  (macOS) or fails.
+- **2b, our own writer (chosen; any OS).** Python writes the files with
+  Outfit Studio's conform rule (`fo4_import/nif/bodyslide.py`). Proven
+  2026-11-12: BodySlide 5.9.1 builds them unattended ([results](#poc)).
+  Fast, headless, testable, no GUI program in the conversion.
+- **2a, Outfit Studio's automation (not needed).** `OutfitStudio -a`
+  with `LoadReference`, `ImportFile`, `ConformSliders`, `SaveProject`. It
+  gives the same conform but runs a GUI program per outfit, Windows and
+  Linux only. Kept only as a cross-check if 2b's projects ever disagree
+  with a hand conform.
 
 Either way, for each converted outfit a BodySlide slider set sits beside
 it in the output:
@@ -501,12 +598,47 @@ Fallout 4; an all-worlds profile loads both, so one character can travel
 - **BodySlide groups per source** ("F3NV FalloutNV", "F3NV Fallout3")
   keep the two games' outfits separately buildable in either profile kind.
 
+## <a id="poc"></a>Proof of concept (2026-11-12, offline)
+
+Branch `claude/fo4-cbbe-bodyslide-152c33`; nothing deployed or played.
+
+- **Code:** `outfit.body_fit(..., body_nif=)` (fit to any body NIF);
+  `fo4_import/nif/bodyslide.py` (`.osd` read/write, reference template
+  reader, `conform`, `.osp` and group writers); tool
+  `tools/nif/fo4_body_fit_check.py` (fit, write, measure, and optionally
+  write projects); tests `tests/test_fo4_bodyslide.py`.
+- **Inputs:** FNV `armor/lingerie/outfitf.nif`,
+  `armor/prostitutes/prosfemale01.nif`, `armor/vaultsuit/f/outfit.nif`,
+  female; CBBE 2.7.2 and BodySlide 5.9.1 from the user's MO2 (read only;
+  BodySlide run from a scratch copy).
+- **Fit:** the [bare-skin table](#bare-skin).
+- **Projects:** 126 conformable CBBE Body sliders (zap and UV sliders
+  skipped), 500 data entries over the three outfits, conformed in seconds.
+- **BodySlide build** of group "F3NV check" with "CBBE Zeroed Sliders":
+  every vertex equals our input mesh (max difference 0.0000). With "CBBE
+  Curvy" and `--trimorphs`: shapes, shader, texture set, skin and
+  segments kept; a `.tri` and the root's `BODYTRI` string added (LooksMenu).
+  Against CBBE's body built with the same presets (body moves up to 2.07
+  units, median 0.27), each outfit vertex's move differs from the body's
+  move under it by median 0.02, p90 0.03-0.07, and the outfit's gap to the
+  body is unchanged between presets. The outfits follow the body.
+- **Open from the measurements:** fitted to CBBE (installed body), 36% of
+  the lingerie top's vertices sit over 3 units off the body around the
+  chest (13% on vanilla); the reference-shape fit roughly halves the
+  tail. Check in play before tuning `NEIGHBOURS`/`SMOOTH_PASSES` per body.
+
 ## <a id="plan"></a>6. Plan, step by step
 
 Each step is played on its own before the next, one change per play
-test. Steps 1 and 2 come after A's step 1 (FNV's own
-weights, [human clothing](fo4_build_next.md#human-clothing)), since every
-route reuses A's weights and seams.
+test. Step 2 does not wait for A's step 1 (FNV's own weights,
+[human clothing](fo4_build_next.md#human-clothing)): it only swaps the
+body that route 1 fits to.
+
+**Automated vs installed by the player.** The converter does steps 1-5
+with no clicks. The player installs CBBE (or a male body) and BodySlide,
+picks the Body in the app, and keeps or picks a preset. The app can run
+BodySlide's command line for them; otherwise the Finished screen says
+which group to batch-build.
 
 1. **Know which body the game will draw (S).** A resolver that finds the
    body NIF and texture that win in the player's setup: the mod sources'
@@ -517,9 +649,12 @@ route reuses A's weights and seams.
    UV layout (CBBE), warn in the app and the build log: today that
    scrambles bare skin. Test: a fake mod folder holding a body NIF with
    moved UVs flips the warning.
-2. **Route 1: fit to the chosen body (M).** `body_fit()` takes the body
-   NIF (and hands, for the wrist edge) from step 1 instead of always the
-   archive's vanilla body. Bare skin takes the chosen body's UVs and
+2. **Route 1: fit to the chosen body (M; the hook is built).**
+   `body_fit(body_nif=)` exists; wire it: the equipment stage passes the
+   chosen body's reference shape (for CBBE the `CBBE Body` template's
+   `ShapeData\CBBE\CBBEBody.nif`, read from the player's install), and the
+   body file's hash joins `body_reads` (the worn cache key). This alone
+   fixes the scrambled skin ([bare skin](#bare-skin)). Bare skin takes the chosen body's UVs and
    texture paths; seams pair with its edges. Measure as the spike did, per
    body: mean and 90th-percentile distance of outfit to body, longest
    edges, seam gaps, UV-stretch fallbacks, on the dress, a duster
@@ -531,20 +666,16 @@ route reuses A's weights and seams.
    for converted NPCs (FO4 body addons plus the underwear addon). Count
    converted NPCs with no upper-body outfit first, to see how often it
    shows. Play: a naked FNV NPC, on vanilla and on CBBE.
-4. **BodySlide projects (M).** `fo4_import/nif/bodyslide.py`:
-   - 2a: write the Outfit Studio automation script and the group XML, run
-     `OutfitStudio -a` over route 1's meshes (the user's install, path
-     from the app), check its exit and that each project exists. First
-     check the installed 5.9.1 against the source's step names (the
-     source read was 6.x `dev`).
-   - 2b: write `.osp`, `.osd` and the group XML in Python; read the body's
-     slider set and `.osd` from the player's install (never copied);
-     conform each outfit shape per slider with Outfit Studio's defaults.
-   - Tests: a round trip of our `.osd` against BodySlide's reader layout; a
-     synthetic body whose one slider moves one vertex moves the nearest
-     outfit vertex by the same amount and distant ones not at all; 2a and
-     2b on the same outfit agree within a small tolerance. By hand: open a
-     generated project in Outfit Studio and move sliders.
+4. **BodySlide projects (M; writer and tests built, not wired).**
+   `fo4_import/nif/bodyslide.py` writes `.osp`, `.osd` and the group from
+   the body's reference template, read from the player's install. Left:
+   the equipment stage writes one set per worn outfit (third and first
+   person) into `Tools\BodySlide` of the output, `OutputPath`/`OutputFile`
+   naming the worn NIF itself (`Meshes\fnv\...\<static>_female`), groups
+   "F3NV <source>"; only for a non-vanilla Body. Tests exist for the
+   `.osd` round trip and the conform rule; the BodySlide build itself was
+   checked by hand ([results](#poc)). By hand still: open a generated
+   project in Outfit Studio and move sliders.
 5. **BodySlide build and morphs (S).** Batch build the group with CBBE
    Zeroed Sliders: the output must equal route 1's meshes (same vertices
    within float error). Then a curvy preset, with "Build Morphs" for
@@ -604,9 +735,13 @@ route reuses A's weights and seams.
    enough?
 6. A-Body's ZeX skeleton and physics bones: does our FNV-to-FO4 retarget
    and weight mapping still hold on it?
-7. Are the automation step names the same in 5.9.1 as in the 6.x source
-   read? Read the installed version's changelog or run a one-outfit test.
-8. Should one Body choice cover both sexes' defaults (CBBE plus vanilla
+7. ~~Are the automation step names the same in 5.9.1?~~ Moot: route 2b
+   is chosen, and 5.9.1's command-line build of our projects works.
+8. Does the reference-shape fit's remaining gap at the chest show in play
+   (lingerie top, [results](#poc))?
+9. CBBE ships its own hands; does the wrist seam (fitted to CBBE's body
+   edge) meet them in play?
+10. Should one Body choice cover both sexes' defaults (CBBE plus vanilla
    men) as a preset in the app, to keep Setup short?
 
 ## <a id="sources"></a>Sources
@@ -640,3 +775,15 @@ public GraphQL API (name, version, description; no permissions block).
 - Measured here: FNV and FO3 body NIFs and textures in `export/`;
   FO4's body NIF and textures from `Fallout 4 - Meshes.ba2` and
   `Textures*.ba2`; the installed CBBE body's UVs and shapes.
+- Added 2026-11-12 (the MO2 install is now `D:\Modlists\fo3fnv-in-fo4`):
+  `Automorph.cpp` (`GenerateResultDiff`, `BuildProximityCache`),
+  `DiffData.cpp`/`.h` (`OSDataFile::Write`), `ConformOptions.h` and
+  `OutfitProject.cpp` (`ConformShape`) on `dev` (pushed 2026-11-09);
+  nifly `include/KDMatcher.hpp` (`kd_nn`); licences from GitHub's API.
+  Installed files read: CBBE 2.7.2's `CBBE.osp`, `CBBE Vanilla.osp`,
+  `RefTemplates\CBBE.xml`, `SliderPresets\CBBE.xml`, `CBBEBody.nif/.osd`,
+  `FemaleBody.nif`, `Clothes\SummerShorts\OutfitF.nif`,
+  `Clothes\SlinkyDress\DressF.nif`; the SHB outfit conversion (Nexus 42708,
+  v1.1.0); BodySlide 5.9.1's `BodySlide.exe`/`OutfitStudio.exe` strings
+  and `Log_BS.txt` from the scratch runs. CBBE's Nexus permissions were
+  not re-read; the 2026-11-07 reading stands.

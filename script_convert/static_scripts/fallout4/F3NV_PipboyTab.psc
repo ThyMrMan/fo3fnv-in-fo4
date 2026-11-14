@@ -1,5 +1,5 @@
 ScriptName F3NV_PipboyTab extends Quest Hidden
-{A Pip-Boy STAT page tab (F3NV_Pipboy.SetTab), given to the plugin as the quest starts and each time the Pip-Boy opens, since the plugin forgets tabs each game start. See docs/fork/fo4_pipboy_tabs.md}
+{A Pip-Boy STAT page tab (CRUI_Pipboy.SetTab), given to the plugin as the quest starts and each time the Pip-Boy opens, since the plugin forgets tabs each game start. See docs/fork/fo4_pipboy_tabs.md}
 
 String Property TabName Auto Const
 Int Property Order Auto Const
@@ -22,5 +22,5 @@ EndEvent
 
 Function Send()
   {Give the plugin this tab.}
-  F3NV_Pipboy.SetTab(TabName, Order, Rows, Values, Shown)
+  CRUI_Pipboy.SetTab(TabName, Order, Rows, Values, Shown)
 EndFunction

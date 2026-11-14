@@ -173,8 +173,9 @@ in every mode.
 
 ## <a id="menu"></a>The menu (built 2026-11-12, not played)
 
-`fo4_import/level_up/` (`CRUI_LevelUp.as`, `crui/levelup/Character.as`)
-on f3ui, built by `mxmlc`, installed by the masterless build as
+Cleanroom UI's `menus/level_up/` (`CRUI_LevelUp.as`, `crui/levelup/Character.as`)
+on its `crui` library, built by its `python -m crui` since 2026-11-13
+([move](spin_offs.md#move)), installed by the masterless build as
 `Interface/CRUI_LevelUp.swf`, registered by `CRUI_LevelUp.psc` with the
 casino's menu flags. Three pages (Prev/Next):
 - **SKILLS:** each skill and its value. Accept or Right sets a point, Left
@@ -189,7 +190,10 @@ casino's menu flags. Three pages (Prev/Next):
   Papyrus's `TakePerk` (the engine's `IsEligible`) has the last word.
 - **TAKEN:** the perks held, with their ranks.
 
-Points not spent stay for later (banking). The HUD color, hints with key
+Points not spent stay for later (banking). Since 2026-11-13 the game's own perk points,
+which the Pip-Boy's LEVEL UP notice shows, follow ours (`CleanroomUI.dll`,
+Cleanroom UI's `docs/level_up_plan.md#game-points`): it no longer counts
+the levels already spent. The HUD color, hints with key
 names or button glyphs, and translated words (`$CRUI_LU_*`) come from the
 library.
 
@@ -380,9 +384,9 @@ As with [item-card lines](swf_framework.md#card-lines), a small API:
 ## <a id="holder"></a>The level-up holder (Cleanroom UI's, built 2026-11-12, not played)
 
 `CRUI_LevelUp`, `CRUI_LevelUpHolder`, `CRUI_LevelUpTable` and `CRUI_Array`
-are Cleanroom UI's (`ThyMrMan/cleanroom-ui`, its `papyrus/`), copied here
-verbatim but for doc links until the converter takes that repo as a
-submodule. The host names no converter script: it asks its holder (its
+are Cleanroom UI's (`ThyMrMan/cleanroom-ui`, its `papyrus/`); since
+2026-11-13 the script stage ships them from its checkout
+(`fo4_import/cleanroom.py` `SCRIPTS`), with no copy here. The host names no converter script: it asks its holder (its
 `Events` property) for the tags, for where `Get()` finds it, and for what
 opening each menu does.
 
@@ -423,11 +427,9 @@ now only those variables, under the same names, and `MoveTo`.
 - Remove `F3NV_LevelUp` (stub, `LEGACY_SCRIPT`, `HostMoved`) once no save
   predates it.
 
-The movie (`CRUI_LevelUp.as`, its menu name and events) and its words
-(`$CRUI_LU_*`, `$CRUI_HINT_LEAVE` in `FalloutHelpers_<language>.txt`) match
-Cleanroom UI's, so either repo's movie works with the other's scripts.
-The movie still builds on our `f3ui` library until the converter takes
-Cleanroom UI's `crui`. Converted xNVSE array code calls `CRUI_Array`.
+The movie and its words (`$CRUI_LU_*`, `$CRUI_HINT_LEAVE` in
+`CleanroomUI_<language>.txt`, which F4SE reads for `CleanroomUI.esl`) are
+Cleanroom UI's own build since 2026-11-13; ours are deleted. Converted xNVSE array code calls `CRUI_Array`.
 
 ## <a id="plugin"></a>`CleanroomUI.esl` (built 2026-11-12, not played)
 
@@ -435,13 +437,12 @@ Cleanroom UI's `crui`. Converted xNVSE array code calls `CRUI_Array`.
 `CRUI_LevelUpHolder`), which every level-up host announces itself to.
 
 The converter ships it: `fo4_import.helpers_plugin --out <dir>/FalloutHelpers.esl`
-(the app's helpers stage) also writes `<dir>/CleanroomUI.esl`
-(`fo4_import/cleanroom_plugin.py`, with our own plugin writer), so it lands
+(the app's helpers stage) also copies `<dir>/CleanroomUI.esl` from
+Cleanroom UI's build (`python -m crui plugin`, `fo4_import/cleanroom.py`), so it lands
 in the build folder and the deploy copies it like `FalloutHelpers.esl`. The
-app's MO2 setup ticks it after the helper plugin. Its bytes are exactly
-Cleanroom UI's (`crui/plugin.py`; compared 2026-11-12 after the `CRUI_`
-rename), so the converter's copy and a Cleanroom UI release are one file to
-the game. The name and holder id are `CLEANROOM_PLUGIN` and
+app's MO2 setup ticks it after the helper plugin. It is Cleanroom UI's
+own file (since 2026-11-13; our writer is deleted), so the converter's copy
+and a Cleanroom UI release are one file to the game. The name and holder id are `CLEANROOM_PLUGIN` and
 `CLEANROOM_HOLDER` (`script_convert/constants.py`), a save contract.
 Converted plugins don't master it.
 - **Perks of other mods:** `AddPerk(akFirstRank)` and `RemovePerk`, kept by

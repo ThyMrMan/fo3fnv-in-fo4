@@ -25,7 +25,7 @@ def test_lod_settings_name_the_grid_from_the_top_level_tiles():
 
 
 def test_lod_settings_round_the_grid_to_a_power_of_two_top_tiles_across():
-    """Freeside's 3 level-8 tiles across give a 32-cell grid (4 across), as vanilla's 8 or 1; Freeside's 24 crashed."""
+    """Freeside's 3 level-8 tiles across give a 32-cell grid (4 across)."""
     found = [(8, x, y, None) for x in (-10, -2, 6) for y in (-8, 0, 8)]
     assert struct.unpack('<hhIII', T.lod_settings(found)) == (-10, -8, 32, 4, 8)
 
@@ -44,19 +44,74 @@ def test_a_tile_missing_a_texture_is_left_out(tmp_path):
     assert [(level, x, y) for level, x, y, _ in T.tiles(tmp_path, 'W')] == [(4, 0, 0)]
 
 
+def grid(n: int, size: float) -> tuple:
+    """(positions, uvs, triangles) of an n × n point tile `size` across, heights x + 2y, triangles facing up."""
+    xs, ys = np.meshgrid(np.linspace(0, size, n), np.linspace(0, size, n), indexing='ij')
+    pos = np.stack([xs.ravel(), ys.ravel(), (xs + 2 * ys).ravel()], axis=1)
+    at = np.arange(n * n).reshape(n, n)
+    a, b, c, d = at[:-1, :-1].ravel(), at[1:, :-1].ravel(), at[1:, 1:].ravel(), at[:-1, 1:].ravel()
+    tris = np.concatenate([np.stack([a, b, c], axis=1), np.stack([a, c, d], axis=1)])
+    return pos, pos[:, :2] / size, tris
+
+
+def normals(pos: np.ndarray, tris: np.ndarray) -> np.ndarray:
+    """Each triangle's (unnormalised) normal."""
+    return np.cross(pos[tris[:, 1]] - pos[tris[:, 0]], pos[tris[:, 2]] - pos[tris[:, 0]])
+
+
+def test_skirts_are_vanilla_s_depth_per_level():
+    """1,000 units per level step from level 4, as the Commonwealth's tiles."""
+    assert [T.skirt_depth(level) for level in (4, 8, 16, 32)] == [1000, 2000, 3000, 4000]
+
+
+def test_fnv_skirts_give_way_to_vanilla_depth_ones_facing_out():
+    """FNV's -14,098 skirt goes; each border point is repeated skirt_depth below with its UV, and each border edge
+    closes down to them in two triangles facing away from the tile; the surface is untouched."""
+    pos, uv, tris = grid(5, 16384.0)
+    border = np.nonzero(np.any((pos[:, :2] == 0) | (pos[:, :2] == 16384), axis=1))[0]
+    fnv = np.concatenate([pos, pos[border] * (1, 1, 0) - (0, 0, 14098)])
+    fnv_tris = np.concatenate([tris, [[border[0], border[1], len(pos)]]])
+    out, out_uv, out_tris = T.with_skirts(fnv, np.concatenate([uv, uv[border]]), fnv_tris, 8)
+    assert (out[:len(pos)] == pos).all() and out_tris[:len(tris)].tolist() == tris.tolist()
+    low = out[len(pos):]
+    assert len(low) == len(border) == 16 and len(out_tris) - len(tris) == 2 * 16
+    assert set(map(tuple, low[:, :2])) == set(map(tuple, pos[border, :2]))
+    top ={tuple(p[:2]): (p[2], t) for p, t in zip(pos, uv)}
+    assert all(top[tuple(p[:2])][0] - p[2] == 2000 and (top[tuple(p[:2])][1] == t).all()
+               for p, t in zip(low, out_uv[len(pos):]))
+    skirt = out_tris[len(tris):]
+    facing = normals(out, skirt)[:, :2] * (out[skirt].mean(axis=1)[:, :2] - 8192)
+    assert (facing.sum(axis=1) > 0).all() and (normals(out, skirt)[:, 2] == 0).all()
+
+
+def test_strip_stitches_hang_no_skirt():
+    """A strip's zero-area stitch on a border edge hangs no second skirt."""
+    pos, uv, tris = grid(3, 100.0)
+    stitched = np.concatenate([tris, [[0, 3, 0]]])
+    assert len(T.with_skirts(pos, uv, stitched, 4)[2]) == len(T.with_skirts(pos, uv, tris, 4)[2]) + 1
+
+
 @pytest.mark.skipif(not TILE.exists(), reason='needs the FalloutNV.esm export')
 def test_a_tile_becomes_one_scaled_land_shape_facing_up():
     """The land shape is scaled by its level with positions in tile units, drops the strips' zero-area stitches,
-    faces up like vanilla's (over 90%), lays UVs out as vanilla (u = x, v = 1 - y) and names its two textures."""
+    its surface faces up like vanilla's (over 90%) over walls hanging 3,000 units at level 16, lays UVs out as
+    vanilla (u = x, v = 1 - y) and names its two textures."""
     nif = F.read(T.btr(TILE, 16, ('d.dds', 'n_msn.dds')))
     assert [k for k, _ in nif.blocks] == ['BSMultiBoundNode', 'BSTriShape', 'BSLightingShaderProperty',
                                           'BSShaderTextureSet', WATER_NODE[0], 'BSTriShape', *WATER_NODE[2:]]
     shape = nif.blocks[1][1]
     pos = np.array([v['position'] for v in shape['vertices']], float)
     tris = np.array(shape['triangles'])
-    normal = np.cross(pos[tris[:, 1]] - pos[tris[:, 0]], pos[tris[:, 2]] - pos[tris[:, 0]])
+    normal = normals(pos, tris)
     assert shape['scale'] == 16.0 and pos[:, :2].min() == 0 and pos[:, :2].max() == 4096
-    assert np.linalg.norm(normal, axis=1).min() > 0 and (normal[:, 2] > 0).mean() > 0.9
+    edge = (pos[:, :2] == 0) | (pos[:, :2] == 4096)
+    wall = (edge[tris[:, 0]] & edge[tris[:, 1]] & edge[tris[:, 2]]).any(axis=1)
+    assert np.linalg.norm(normal, axis=1).min() > 0 and (normal[~wall, 2] > 0).mean() > 0.9
+    walls = pos[tris[wall]].reshape(-1, 3)
+    heights = {}
+    for x, y, z in walls:
+        heights.setdefault((x, y), []).append(z)
+    assert all(abs(max(z) - min(z) - 3000 / 16) < 0.5 for z in heights.values())
     uv = np.array([v['uv'] for v in shape['vertices']], float)
     assert np.abs(uv - np.stack([pos[:, 0] / 4096, 1 - pos[:, 1] / 4096], axis=1)).max() < 1e-3
     assert nif.blocks[2][1]['shader_type'] == 18 and nif.blocks[3][1]['textures'][:2] == ['d.dds', 'n_msn.dds']

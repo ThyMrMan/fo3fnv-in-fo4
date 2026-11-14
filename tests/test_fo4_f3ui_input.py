@@ -8,8 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LIBRARY = ROOT / 'fo4_import' / 'base' / 'as3' / 'f3ui'
-MENUS = (ROOT / 'fo4_import' / 'casino' / 'as3' / 'F3NV_Casino.as',
-         ROOT / 'fo4_import' / 'dialogue_menu' / 'as3' / 'DialogueMenu.as')
+MENUS = (ROOT / 'fo4_import' / 'casino' / 'as3' / 'F3NV_Casino.as',)
 #: FO4's menu-mode controls (the control map in Fallout4.exe) and the action each should be.
 MENU_CONTROLS = {'Accept': 'ACCEPT', 'Cancel': 'BACK', 'Up': 'UP', 'Down': 'DOWN', 'Left': 'LEFT', 'Right': 'RIGHT',
                  'LShoulder': 'PREV', 'RShoulder': 'NEXT', 'LTrigger': 'PREV', 'RTrigger': 'NEXT', 'XButton': 'X',
@@ -61,20 +60,13 @@ def test_images_asks_the_dll_for_a_texture_by_the_name_it_registers():
     gfx = (runtime / 'gfx.cpp').read_text(encoding='utf-8')
     assert 'RegisterFunction<TextureExistsNative>(plugin, movie, "TextureExists")' in gfx
     assert 'std::string("Textures\\\\")' in gfx and 'BSResourceNiBinaryStream stream(path.c_str());' in gfx
-    assert 'RegisterImageNatives(movie, plugin);' in (runtime / 'dialogue.cpp').read_text(encoding='utf-8')
+    assert re.search(r'Register\("F3NV", RegisterMovieNatives\)', (runtime / 'plugin.cpp').read_text(encoding='utf-8'))
     images = (LIBRARY / 'Images.as').read_text(encoding='utf-8')
     assert 'dll.TextureExists == null || dll.TextureExists(texturePath(path)) == true' in images
 
 
-def test_both_lists_are_the_librarys():
-    """The Pip-Boy's list panel is a Modal round a ScrollList, and the dialogue's rows are a ScrollList."""
-    panel = (ROOT / 'fo4_import' / 'pipboy_overlay' / 'as3' / 'ListPanel.as').read_text(encoding='utf-8')
-    assert 'new Modal()' in panel and 'new ScrollList()' in panel and 'modal.open(body' in panel
-    assert 'new ScrollList()' in MENUS[1].read_text(encoding='utf-8')
-
-
 def test_the_menus_take_keys_and_controls_only_through_input():
-    """Neither menu listens for keys itself, and each hands the game's controls and platform to Input."""
+    """No menu listens for keys itself, and each hands the game's controls and platform to Input."""
     for menu in MENUS:
         source = menu.read_text(encoding='utf-8')
         assert 'KeyboardEvent' not in source, menu.name

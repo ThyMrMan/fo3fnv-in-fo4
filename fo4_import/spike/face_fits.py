@@ -46,7 +46,7 @@ from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
 #: The face fits' version, of FIT_SITES' entries and the published file: bump it when any fit's result changes.
-FIT_VERSION = 3
+FIT_VERSION = 4
 #: The FNV NPC fields a face fit reads; with its head parts and its sex's basis hash, its inputs (fit_key).
 FIT_FIELDS = ('FGGS', 'FGGA', 'FGTS', 'RNAM.Race', 'HNAM.Hair', 'ENAM.Eyes', 'HCLR.R', 'HCLR.G', 'HCLR.B',
               'LNAM.HairLength')

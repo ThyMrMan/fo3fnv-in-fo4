@@ -3,8 +3,9 @@
 The head, FaceGen and race come from the export. FNV's NPC head parts (PNAM)
 and HDPT models are not exported yet, so they are read from FalloutNV.esm.
 The frame maps FNV head coordinates onto the FO4 head (face.bake.align).
-FNV head parts carry no type: one centred below the eyes is facial hair,
-one above them a brow, any other has no FO4 head part kind.
+FNV head parts carry no type: one drawn as hair (its mesh names a hair
+layer) centred below the eyes is facial hair, one above them a brow; one
+not drawn as hair (FNV's Eyepatch) is worn as its own part (worn_parts).
 
 See: docs/fork/fo4_spikes.md#spike-2-hair
 """
@@ -29,6 +30,8 @@ from tes5_import.base.tes5_reader import subrecords, walk
 
 #: FNV race head part index of the left eye mesh.
 FNV_EYE_PART = 6
+#: FNV texture set slot of a hair layer (_hl), which only the head parts FNV draws as hair name.
+HAIR_LAYER = 2
 #: Per race head part key, the head texture FNV's playable races share: the skin FO4's face bases stand for.
 STOCK_SKIN = {'MalePart[0]': 'characters\\male\\headhuman.dds', 'FemalePart[0]': 'characters\\female\\headhuman.dds'}
 
@@ -121,17 +124,41 @@ def _esm_records(esm_path: Path, mapping: tuple, game: str) -> tuple:
 
 
 def head_parts(export_dir: Path, form_id: int) -> list:
-    """Sorted [(EditorID, model)] of FNV NPC `form_id`'s head parts (PNAM) that have a model, from the newest
-    plugin of `export_dir`'s master chain holding it (a DLC build fits its masters' NPCs too), its parts from any
-    of them. Sorted, as FNV draws them as a set: PNAM order changes no fit.
+    """Sorted [(EditorID, model)] of the NPC's owned_parts: PNAM order changes no fit.
     See: docs/fork/fo4_pipeline.md#face-fit-head-parts
     """
+    return sorted((edid, model) for _, edid, model in owned_parts(export_dir, form_id))
+
+
+def worn_parts(export_dir: Path, form_id: int) -> list:
+    """Sorted owned_parts of the NPC not drawn as hair (hair_drawn): the eyepatch.
+    See: docs/fork/fo4_spikes.md#spike-2-hair
+    """
+    return sorted(p for p in owned_parts(export_dir, form_id) if not hair_drawn(asset(export_dir, 'meshes', p[2])))
+
+
+def owned_parts(export_dir: Path, form_id: int) -> list:
+    """[(HDPT FormID, EditorID, model)] of FNV NPC `form_id`'s head parts (PNAM) that have a model, in PNAM order,
+    from the newest plugin of `export_dir`'s master chain holding it (a DLC build fits its masters' NPCs too), its
+    parts from any of them. FNV draws them as a set.
+    See: docs/fork/fo4_pipeline.md#face-fit-head-parts
+    """
+    chain, parts = _head_chain(str(export_dir))
+    owned = next((npcs[form_id] for npcs in chain if form_id in npcs), [])
+    return [(p, *parts[p]) for p in owned if parts.get(p, ('', ''))[1]]
+
+
+@cache
+def _head_chain(export_dir: str) -> tuple:
+    """([{NPC: [PNAM head parts]}] of `export_dir`'s master chain, newest first; {HDPT: (EditorID, model)} of the
+    chain, the newest plugin's winning), once per process.
+    See: docs/fork/fo4_build_speed.md#staged-first
+    """
     chain = [_esm_records(*source) for source in plugin_sources(export_dir)]
-    owned = next((npcs[form_id] for npcs, _ in chain if form_id in npcs), [])
     parts = {}
     for _, held in chain:
         parts = {**held, **parts}
-    return sorted(parts[p] for p in owned if parts.get(p, ('', ''))[1])
+    return [npcs for npcs, _ in chain], parts
 
 
 def eye_mesh(export_dir: Path, race: dict, part: str) -> Path:
@@ -148,18 +175,28 @@ def frame(export_dir: Path, edid: str, fo4_face: np.ndarray) -> Frame:
     return Frame(fnv, npc, race, part, to_fo4, (eye_z.min(), eye_z.max()))
 
 
+@cache
+def hair_drawn(mesh: Path) -> bool:
+    """Whether FNV head part mesh `mesh` names a hair layer (HAIR_LAYER)."""
+    sets = [b.textures for b in fnv_file.read(mesh).blocks if type(b).__name__ == 'BSShaderTextureSet']
+    return any(len(t) > HAIR_LAYER and t[HAIR_LAYER] for t in sets)
+
+
 def sorted_parts(export_dir: Path, at: Frame) -> tuple:
-    """([facial hair mesh paths], [brow mesh paths], [unmapped EditorIDs]) of the NPC's head parts."""
+    """([facial hair mesh paths], [brow mesh paths], [unmapped EditorIDs]) of the NPC's head parts; a part not
+    drawn as hair (hair_drawn) is unmapped wherever it sits.
+    See: docs/fork/fo4_spikes.md#spike-2-hair
+    """
     facial, brows, unmapped = [], [], []
     for edid, model in head_parts(export_dir, int(at.npc['FormID'], 16)):
         path = asset(export_dir, 'meshes', model)
-        centre = at.to_fo4(hair.fnv_shape(path)[0]).mean(0)[2]
-        if centre < at.eyes[0]:
-            facial.append(path)
-        elif centre > at.eyes[1]:
-            brows.append(path)
-        else:
+        centre = at.to_fo4(hair.fnv_shape(path)[0]).mean(0)[2] if hair_drawn(path) else None
+        if centre is None or at.eyes[0] <= centre <= at.eyes[1]:
             unmapped.append(edid)
+        elif centre < at.eyes[0]:
+            facial.append(path)
+        else:
+            brows.append(path)
     return facial, brows, unmapped
 
 

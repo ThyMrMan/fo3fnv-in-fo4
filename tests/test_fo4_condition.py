@@ -135,7 +135,7 @@ def test_npc_skills_join_prps_or_come_before_its_successor():
 
 def test_fallout4_static_scripts_count_as_declared():
     """Fallout 4's static scripts are known, so their calls are kept."""
-    assert {'f3nv_conditioncalls', 'f3nv_condition', 'tes4polyfill'} <= STATIC_SCRIPT_CLASSES
+    assert {'f3nv_conditioncalls', 'crui_condition', 'tes4polyfill'} <= STATIC_SCRIPT_CLASSES
 
 
 def test_a_dlc_whose_master_holds_the_condition_quest_writes_only_its_own_rows(monkeypatch):

@@ -227,7 +227,7 @@ def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helpe
         builder.scripts.used += [list_adds.SCRIPT]
     else:
         builder.counts['Pip-Boy movie installed'] = pipboy_overlay.install(data_dir)
-        builder.counts['level-up menu movie installed'] = level_up_menu.install(data_dir)
+        builder.counts['level-up menu files installed (Cleanroom UI)'] = level_up_menu.install(data_dir)
         builder.counts['menu translation files installed'] = translations.install(data_dir)
 
 

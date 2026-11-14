@@ -1,8 +1,9 @@
 """Fallout 4's dialogue model over a built plugin: which scenes start, which topics they play, which lines speak.
 
 A topic is reachable when the engine plays it on its own (any subtype but
-scene and custom), when a script property names it, or when a reachable
-scene's action names it. A scene is reachable when it begins on quest start,
+scene and custom), when a script property names it, when a reachable
+scene's action names it, or when the menu links file (F3NV.dll) links a
+speakable option of a reachable topic to it (an answer topic). A scene is reachable when it begins on quest start,
 when a script property names it, when a reachable line starts it (TSCE), or
 when a reachable scene's Start Scene action names it. A line speaks when its
 topic is reachable and a placed actor or talking activator (a radio
@@ -58,15 +59,20 @@ def scene_actions(scene) -> tuple:
 class Fo4Dialogue:
     """Reachable scenes and topics of a built Fallout 4 plugin, and why a line cannot speak."""
 
-    def __init__(self, index):
-        """Read topics, scenes, lines and placed actors from a PluginIndex, then solve reachability."""
+    def __init__(self, index, links=()):
+        """Read topics, scenes, lines and placed actors from a PluginIndex, and `links` ([(option INFO, answer
+        DIAL)], menus.plugin_links), then solve reachability."""
         self.index = index
         self.present = index.placed_speakers()
         self.subtype = {r.form_id: zstring(first(r, 'SNAM'))[:4] for r in index.by_type['DIAL']}
         self.actions = {r.form_id: scene_actions(r) for r in index.by_type['SCEN']}
-        self.starts = defaultdict(list)
+        self.starts, self.answers = defaultdict(list), defaultdict(list)
         for rec in index.by_type['INFO']:
             self.starts[rec.parent_dial] += [(rec, u32(data)) for data in every(rec, 'TSCE')]
+        for option, answer in links:
+            rec = index.by_fid.get(option)
+            if getattr(rec, 'type', '') == 'INFO' and answer:
+                self.answers[rec.parent_dial].append((rec, answer))
         self.scenes, self.live = self._reachable()
 
     def _seeds(self) -> tuple:
@@ -84,17 +90,24 @@ class Fo4Dialogue:
         """The scenes a speakable line of topic `dial` starts."""
         return {scene for rec, scene in self.starts.get(dial, ()) if self.line_speakable(rec)}
 
+    def _answered_by(self, dial: int) -> set:
+        """The answer topics the links file links a speakable option of topic `dial` to."""
+        return {answer for rec, answer in self.answers.get(dial, ()) if self.line_speakable(rec)}
+
     def _reachable(self) -> tuple:
-        """(reachable scenes, reachable topics) by a fixed point over scene actions and lines' TSCE."""
-        scenes, topics = self._seeds()
-        pending, done = set(scenes).union(*map(self._started_by, topics)), set()
-        while pending:
-            scene = pending.pop()
-            done.add(scene)
-            named_topics, named_scenes = self.actions.get(scene, (set(), set()))
-            pending |= set().union(*map(self._started_by, named_topics - topics))
-            topics |= named_topics
-            pending = (pending | named_scenes) - done
+        """(reachable scenes, reachable topics) by a fixed point over scene actions, lines' TSCE and menu links."""
+        pending, fresh = self._seeds()
+        done, topics = set(), set()
+        while pending or fresh:
+            topics |= fresh
+            pending = (pending | set().union(*map(self._started_by, fresh))) - done
+            fresh = set().union(*map(self._answered_by, fresh)) - topics
+            if pending:
+                scene = pending.pop()
+                done.add(scene)
+                named_topics, named_scenes = self.actions.get(scene, (set(), set()))
+                fresh |= named_topics - topics
+                pending = (pending | named_scenes) - done
         return done, topics
 
     def conditions(self, rec) -> list:

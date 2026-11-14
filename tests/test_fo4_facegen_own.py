@@ -46,18 +46,22 @@ def test_own_npcs_are_the_plugins_own_records(tmp_path):
     assert facegen_own.own_npcs(tmp_path / 'p.esp') == [0x800, 0x802]
 
 
-def test_fitted_faces_are_only_those_the_export_wrote(tmp_path):
-    """A fitted NPC with no FaceGeom (the export skips one taking traits) is not refitted or skinned (001810D4)."""
+def test_fitted_faces_are_only_those_the_export_wrote(tmp_path, monkeypatch):
+    """A fitted NPC with no FaceGeom (the export skips one taking traits) is not refitted or skinned (001810D4);
+    nor is a converted creature (Dead Money's Ghost People), which FNV has no NPC_ record or FaceGen for."""
     w = FO4PluginWriter(masters=['Fallout4.esm'], is_esm=False, description='t')
-    for fid in (0x01000800, 0x01000801):
+    for fid in (0x01000800, 0x01000801, 0x01000802):
         subs = pack_subrecord('EDID', f'{own_facegen.FNV_PREFIX}Npc{fid & 0xFFF:X}\0'.encode())
         subs += pack_subrecord('ACBS', bytes(20)) + pack_subrecord('FMRI', b'\0' * 4)
         w.add_record('NPC_', pack_fo4_record('NPC_', fid, 0, subs))
     w.write(str(tmp_path / 'p.esp'))
     geom = tmp_path / own_facegen.GEOM_DIR / 'p.esp'
     geom.mkdir(parents=True)
-    (geom / '00000800.nif').write_bytes(b'')
-    assert [f.form_id for f in facegen_skin.fitted_faces(tmp_path, 'p.esp')] == [0x800]
+    for stem in ('00000800', '00000802'):
+        (geom / f'{stem}.nif').write_bytes(b'')
+    npcs = ({'EditorID': 'Npc800'}, {'EditorID': 'Npc801'}, {})
+    monkeypatch.setattr(facegen_skin, 'export_records', lambda export_dir, sig: npcs if sig == 'NPC_' else ())
+    assert [f.form_id for f in facegen_skin.fitted_faces(tmp_path, 'p.esp', tmp_path)] == [0x800]
 
 
 def test_a_face_a_later_plugin_overrides_is_not_refitted(monkeypatch):

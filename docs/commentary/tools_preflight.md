@@ -453,8 +453,8 @@ On 2026-09-30:
 ### Dialogue menu links
 <a id="xdi-menus"></a>
 `menus.audit` (`--audit menus`, Fallout 4 builds) checks a build's menus
-against the links file it wrote (`F4SE/Plugins/F3NV_Menus/<plugin>.txt`):
-F3NV.dll lists an option only through a link. Errors: menus but no links
+against the links file it wrote (`F4SE/Plugins/CleanroomDialogue/<plugin>.txt`):
+CleanroomDialogue.dll lists an option only through a link. Errors: menus but no links
 file; an option of the plugin's own menus without a link; a link from no
 menu option; a link to no answer topic, or to one with no line (the
 plugin's or a built master's); a skill check on a missing INFO or AVIF.

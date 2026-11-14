@@ -10,7 +10,8 @@ can be located in an unpacked build by translating 107327 through both builds'
 databases.  Without that translation the raw RVA lands in unrelated code and any
 conclusion drawn from it is fiction.
 
-Formats: 1 (SE 1.5.x), 2 (SE/AE 1.6.x) and 5 (AE 1.7.x), little-endian.
+Formats: 1 (SE 1.5.x), 2 (SE/AE 1.6.x) and 5 (AE 1.7.x), little-endian; Fallout 4's
+(F4SE's `version-<a>-<b>-<c>-0.bin`, no format number) is a count and (id, rva) pairs.
 See: docs/reference/address_library_formats.md#address-library-database-formats
 
 Usage:
@@ -25,6 +26,9 @@ Usage:
 
     # RVA of an ID in one build
     python tools/disasm/address_lib.py --id 107327 --from 1.6.1170
+
+    # Fallout 4: the IDs of several RVAs, and each ID's RVA in other builds
+    python tools/disasm/address_lib.py --dir <F4SE Plugins> --from 1.11.240 --rvas 0xD75FF0,0x32DD370         --builds 1.10.984,1.11.137
 """
 
 from __future__ import annotations
@@ -187,16 +191,28 @@ def _load_flat(r: Reader, path: Path) -> dict[int, int]:
     return {i: off for i, off in enumerate(rvas) if off}
 
 
+def _load_pairs(data: bytes) -> 'dict[int, int] | None':
+    """Fallout 4's body: a u64 count, then (u64 id, u64 rva) pairs; None when the size does not fit that."""
+    count = struct.unpack_from("<Q", data, 0)[0] if len(data) >= 8 else -1
+    if len(data) != 8 + 16 * count:
+        return None
+    pairs = struct.unpack_from(f"<{2 * count}Q", data, 8)
+    return dict(zip(pairs[0::2], pairs[1::2]))
+
+
 def load(path: Path) -> dict[int, int]:
     """Parse an Address Library database into {stable_id: rva}.
 
-    Formats 1 (SE 1.5.x) and 2 (SE/AE 1.6.x) are delta-coded; 5 (AE 1.7.x) is a
-    flat u32[count] indexed by id. The four i32s after the format are the build
-    version quad. Raises SystemExit on an unknown format, or on a body that does
-    not consume the file exactly.
-    See: docs/reference/address_library_formats.md#address-library-database-formats
+    Fallout 4's is a count and (id, rva) pairs. Skyrim's start with a format: 1 (SE 1.5.x) and 2 (SE/AE 1.6.x) are
+    delta-coded, 5 (AE 1.7.x) a flat u32[count] indexed by id, after the build's version quad. Raises SystemExit on
+    an unknown format, or on a body that does not consume the file exactly.
+    See: docs/reference/address_library_formats.md#fallout-4
     """
-    r = Reader(path.read_bytes())
+    data = path.read_bytes()
+    pairs = _load_pairs(data)
+    if pairs is not None:
+        return pairs
+    r = Reader(data)
     fmt = r.i32()
     if fmt not in (1, 2, 5):
         raise SystemExit(f"{path.name}: unsupported database format {fmt} (expected 1, 2 or 5)")
@@ -258,6 +274,23 @@ def owning_id(db: dict[int, int], rva: int) -> tuple[int, int] | None:
     return best[0], rva - best[1]
 
 
+def table(rvas: list, src: str, builds: list, extra_dir: str | None) -> int:
+    """Print each of `rvas` in build `src` as its ID (exact match, else the entry below it and the distance) and
+    that ID's RVA in each of `builds` (- when absent); 1 if any RVA has no exact ID."""
+    src_db = load(find_versionlib(src, extra_dir))
+    by_rva = {off: sid for sid, off in src_db.items()}
+    others = [load(find_versionlib(build, extra_dir)) for build in builds]
+    print(f"{src + ' RVA':>12}  {'ID':>8}  " + "  ".join(f"{build:>12}" for build in builds))
+    missing = 0
+    for rva in rvas:
+        sid, delta = (by_rva[rva], 0) if rva in by_rva else owning_id(src_db, rva) or (None, 0)
+        missing += delta != 0 or sid is None
+        label = f"{sid}" if not delta else f"{sid}+{delta:#x}"
+        print(f"{rva:>#12x}  {label:>8}  " + "  ".join(f"{db[sid]:>#12x}" if sid in db else f"{'-':>12}"
+                                                     for db in others))
+    return 1 if missing else 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--id", type=lambda s: int(s, 0), help="stable ID to look up")
@@ -281,6 +314,8 @@ def main() -> int:
         help="byte offset inside the function (from a crash frame's '+0xNNN')",
     )
     ap.add_argument("--dir", help="extra directory to search for versionlib bins")
+    ap.add_argument("--rvas", help="comma-separated RVAs in --from to print as IDs (with --builds)")
+    ap.add_argument("--builds", default="", help="comma-separated builds to show each --rvas ID's RVA in")
     ap.add_argument(
         "--log",
         help="translate every frame in a CrashLoggerSSE .log into --to build RVAs",
@@ -289,10 +324,17 @@ def main() -> int:
 
     if args.log:
         return translate_log(Path(args.log), args.src, args.dst, args.dir)
+    if args.rvas:
+        return table([int(s, 0) for s in args.rvas.split(",")], args.src,
+                     [b for b in args.builds.split(",") if b], args.dir)
 
     if args.id is None and args.rva is None:
-        ap.error("need --id, --rva, or --log")
+        ap.error("need --id, --rva, --rvas or --log")
+    return lookup(args)
 
+
+def lookup(args) -> int:
+    """--id or --rva: the ID and RVA in --from, then in --to."""
     src_db = load(find_versionlib(args.src, args.dir))
     sid = args.id
 

@@ -318,6 +318,25 @@ run)*: about 150 s on 8 workers, against 5,827 s; the same rates give about
 results are a few kilobytes per sex and could be made once and shared. With
 that gone, more workers than cores would add their 27%.
 
+<a id="unseen-controls"></a>**Sculpt controls no measure sees (2026-11-13).**
+The base build of 2026-11-13 refit 2,130 faces after `FIT_VERSION` 3 → 4
+(the worn head parts): the people stage took 714 s on 4 workers (memory
+held it to 4 with the main process at 7 GB), against 63 s with the fits
+cached. The sculpt fit was most of a face's time, all of it in
+`proportions._solve`'s bounded least squares (`lsq_linear`), called about
+250 times a face by the greedy preset search and the ridge doubling.
+- Only 94 of the 224 male sculpt columns move any of the 19 measures. The
+  others enter the objective only through their ridge, so their best value
+  is 0; `_solve` now solves only the seen columns and leaves the rest at 0.
+- Measured on one process, one BLAS thread, against the old solve on 116
+  faces (the six references, three slices of the game's faces, women
+  among them): every stored value (FMRS, presets) the same, so
+  `FIT_VERSION` stays. The sculpt fit took 102.7 s before and 40.3 s
+  after; women are slowest (1.70 s a face before, 0.63 s after).
+- With the tint fit and head-part choice unchanged (about 0.35 s a face
+  together), a refit costs about 0.7 s a face instead of 1.3 s *(estimate,
+  not built)*.
+
 ## <a id="keys"></a>3. Cache keys that hold
 
 - **A hand-bumped version for the expensive sites.** Face fits (5,500 s to
@@ -1142,6 +1161,196 @@ files):
 The halved write is certain. The wall-clock gain is within this disk's
 noise while the overnight queue shares it: the same old-code case measured
 124.6–213.5 s earlier in the day.
+
+### <a id="weap-profile-2026-11-13"></a>The item WEAP stage, profiled (2026-11-13)
+
+The 07:40 base build ran with `F3NV_PROFILE_STAGES=item WEAP`
+([stage-profile](fo4_plugin_layout.md#stage-profile)): 100.1 s, 90 s of it
+under `Guns.templates`. Shares overlap; the profiler slows pure Python more
+than file calls.
+
+| Part | Time |
+|---|---|
+| Clips (`_clips`: the guess pass 50 s, the pool warm-up 38 s, `GunClips.convert` 21 s) | 65 s |
+| NIF reads (`read_tri_shape`, 2.9 million vertices, 24 million `Reader.take` calls) | 25 s |
+| Cache files: 88,821 opens, 50,045 existence checks, 66,079 time stamps | about 25 s |
+| Building the gun meshes (`nif.gun.gun`, `_merge_shape`) | 19 s |
+| `copy.deepcopy` (14 million calls on 2,374 objects) | 8 s |
+
+<a id="gun-parses"></a>**Three fixes (2026-11-13, not yet in a build).**
+- **Shared parses.** A gun's converted mesh was parsed three times per gun
+  and its receiver four (`fnv_layout`, `placement`, `gun`, `receiver_bones`,
+  `pieces`). The readers that never change the NIF now share
+  `gun.parsed()` and `gun.stripped()`, which keep the last 8 parses;
+  `gun()` and `without()` still read their own copy, since they change it.
+- **A lighter shape copy.** `_merge_shape` deep-copied the source shape,
+  vertex dicts included, then replaced the vertices. It now copies every
+  other field and reads the vertices from the source.
+- **Fewer file calls per cached clip.** `work_cache.has_bytes` and
+  `stored_bytes` check that the entry and its code record exist instead of
+  reading and parsing the record, which is always empty for these entries.
+  `current()` stats the entry once, and `mark_used` sets an entry's time
+  only when it is a day old or more: `prune` counts whole days, so an entry
+  any build used within 14 days still stays. `write_new` stats its target
+  once.
+
+The NIF block readers themselves (`Reader.take`, `read_tri_shape`,
+`read_vertex`) were left alone, though vectorizing them is the bigger win.
+They are in the code records of the FaceGen, Elric-finish and shape-material
+caches (`own_face`, `sculpt_fit`, `tint_fit`, `head_parts`,
+`elric_finish`), so any edit to them rebuilds all of those. So are
+`work_cache.current_ran`, `ran_path` and `write_ran` (in 117,799
+`mesh_files` records), which this change keeps as they were.
+
+**Measured** (scratch harnesses, a build running at the same time):
+- **The gun calls** of a build (`fnv_layout`, `draws`, `placement`, `gun`,
+  `receiver_bones`, `pieces` of both NIFs, `receiver_layout`, `mesh_top`)
+  on all 113 FNV guns with a mesh, each on a vanilla receiver: 22.95 s
+  before, 19.42 s after; every output pickles to the same bytes.
+- **The cache replay** of 3,000 copied `gun_clip_files` entries (`has_bytes`,
+  `stored_bytes`, `write_new` onto unchanged files): 1.40 s before, 0.85 s
+  after, the same values. A whole-map build replays about 21,600 of them.
+
+### <a id="goodies-profile-2026-11-13"></a>Goodies.esp's stages, profiled (2026-11-13)
+
+Goodies masters every New Vegas DLC, so its build makes much of its
+masters' content again ([replay](#replay)). Profiled stages (the
+profiler slows Python, so shares rather than seconds), from
+`temp/stage_profiles_goodies`:
+
+| Stage | Profiled | Where the time went |
+|---|---|---|
+| people | 206 s | creature bases 88 s (worn items 38 s, own rigs 32 s); `face_fits.fit_key` 57 s, 36 s of it `plugin_sources` rebuilt per NPC; 55 million `deepcopy` calls, 24 s of them `source_registry.load` copying the registry on each of 34,678 reads |
+| item WEAP | 122 s | as the base build ([weap-profile](#weap-profile-2026-11-13)), before that fix |
+| base STAT | 92 s | 1.1 million file-existence checks (47 s): `copy_texture` (33 s, 41,214 calls) and `_source` (11 s) look each texture up through every export layer, even when the run already staged it; `cached_files` 32 s |
+| closing records | 36 s | 40 idle clips written (`human_clip.write`, 23 s) |
+| animation data | 34 s | parsing 3,154 offsets files (18 s) |
+| worlds | 27 s | land records 12 s, placement 9 s |
+| item ARMO | 23 s | headgear and outfit fitting |
+
+<a id="staged-first"></a>**Three fixes (2026-11-13, not yet in a build).**
+- **A texture already staged this run is skipped first.** `copy_texture`,
+  and `stage_files`' textures, specular and glow maps, ask
+  `ba2_pack.staged` before finding their source; `stage_texture` makes the
+  same check, so nothing written changes.
+- **The head-part chain once per export.** `fnv_npc.head_parts` rebuilt
+  `plugin_sources` and merged every plugin's head parts per NPC;
+  `_head_chain` does that once.
+- **Voice folders once per export.** `voice.fnv_folders` keeps each export
+  plugin's voice root (`_voice_roots`).
+
+Left alone because they are in cache code records (any edit rebuilds those
+entries): `Layered.path`, `export_file`, `plugin_sources` and
+`source_registry.load` / `directories` (`mesh_files`, `meshes`, 299 of 300
+sampled). `fnv_npc.head_parts` is only in face-fit entries from before the
+fits were versioned; every entry a build looks up now has an empty record.
+
+**Measured** on Goodies.esp's export (scratch harness, old code against
+new):
+
+| Work | Old | New | Same output |
+|---|---|---|---|
+| `head_parts` for all 4,232 NPCs of the chain | 11.68 s | 0.01 s | yes |
+| `fnv_folders` x 760 | 1.44 s | 0.00 s | yes |
+| `write_assets`, 250 statics, textures new to the run | 4.39 s | 4.62 s | yes: 918 files, bytes, faults |
+| the same again, textures already staged | 1.79 s | 0.94 s | yes |
+
+Not changed yet: creature bases and outfits in the people stage, and
+`cached_files` in base STAT, which are master content a mod build makes
+again; that is [section 5](#replay)'s work.
+
+### <a id="mesh-pool-profile-2026-11-13"></a>The mesh pool's work, profiled (2026-11-13)
+
+What one pool worker does per mesh (`convert_static.convert`, as
+`cached_convert` calls it, then `mesh_files`), run in one process on a
+seeded sample of 300 of FalloutNV.esm's 7,973 placed and item models
+(scratch `meshprof.py`; no cache read or written). Creatures, outfits and
+heads go through other converters and are not in it.
+
+**Per mesh, unprofiled:** 39.8 s for the 300, none failed. Median 37 ms,
+p90 247 ms, max 5.1 s. The slowest 8 take 45% of the time. At that rate
+the 7,973 meshes are about 18 CPU-minutes, about 70 s on 15 workers.
+
+| Slowest | Time | Vertices |
+|---|---|---|
+| `scol\scolfreesidetrainstation01b.nif` | 5.10 s | 12,292 |
+| `scol\scolcheckpointfreeside01b.nif` | 5.05 s | 12,441 |
+| `architecture\suburban\houseruined01.nif` | 2.36 s | 14,280 |
+| `architecture\hooverdam\nvhooverdamoverpass.nif` | 1.49 s | 19,115 |
+| `architecture\generic\trainyardterminal.nif` | 1.39 s | 29,133 |
+
+**Profiled** (78.5 s under the profiler):
+
+| Part | Cumulative | What it is |
+|---|---|---|
+| Collision triangles (`collision._mesh_soup`, via `_stair_ramps`) | 49.1 s (65%) | |
+| - winding repair (`repair_inverted_floors`) | 27.0 s | a nearest-face search per suspect triangle (20,589 `_nearest_says_inverted`), plain Python: 15 million `math.dist`, 15 million `round` |
+| - the repair's visual triangles (`repair_oracle` → `visual_tri_soup_in`) | 14.0 s | rebuilt for every collision body of a mesh, then moved one vertex at a time |
+| - stairs | 4.3 s | |
+| Shapes (`_shapes`) | 22.5 s (30%) | vertex packing (`emit`, `vertices`) 9.4 s; reading geometry (`_geometry`) 9.5 s, 4.3 s of it 8.9 million per-element numpy-to-Python conversions in the reader (`fnv_schema` row getters); materials 2.6 s; overlay layers 4.7 s |
+| Collision blocks (`collision_object`) | 1.1 s | |
+
+**The two SCOL outliers** each have 55 collision bodies.
+`visual_tri_soup_in(root, node)` calls `_visual_tri_soup(root)` per body,
+so the whole mesh's visual triangles are gathered 55 times (7.3 of the
+mesh's 11.3 profiled seconds). The soup depends only on the root.
+
+**What this says about a native converter.** Two thirds of the time is the
+collision repair, not NIF reading or writing, and much of it is avoidable
+work before any language change:
+1. Gather the visual triangles once per mesh, not once per body.
+2. Do the nearest-face search on arrays (or a spatial index) instead of
+   per-triangle Python. It must stay bit-exact: the soup is compared
+   against a trust radius, so a different rounding flips different
+   triangles (`_transform_verts`' docstring). Elementwise numpy in the same
+   operation order as the Python sums gives the same doubles.
+3. Hand geometry to the converter as arrays from the reader instead of
+   per-element Python values.
+4. Pack vertices per shape as arrays (`vertices`, `emit`).
+
+Each changes code in the mesh cache's code records, so each makes the
+mesh cache rebuild once; landing them together, with the export-layer
+index, costs one rebuild. The collision repair is shared with the Skyrim
+converter (`asset_convert/collision`), whose tests would cover it too.
+Native code is worth sizing again only after these.
+
+<a id="still-bodies-skip-repair"></a>**Done first: no repair for still
+bodies.** A fixed or keyframed body's mesh gets both sides
+(`collision.both_sides`), so the repair's winding choice never reaches
+the game ([two-sided collision](fo4_pipeline.md#two-sided-collision)).
+`_mesh_soup` now takes the authored soup (`asset_convert`'s `mesh_soup`)
+for those bodies and repairs only dynamic ones.
+- `convert` over 200 sampled placed meshes: 24.3 s → 11.3 s, single process.
+- The stair pass took each riser's diagonal from its tread's winding;
+  `stairs._ordered` now orders each edge's ends by coordinate.
+- Over 500 sampled meshes (seeds 1 and 2, 435 collision meshes) every
+  written collision mesh holds the same triangles, both windings, as with
+  the repair. Up to 28 entries per mesh differ only in material: a riser
+  the stair pass adds over an authored riser face. Before, each side kept
+  both faces, one with the base material and one with the stairs material.
+  Now the added riser's front faces out and the authored face backs it.
+
+<a id="mesh-pool-arrays"></a>**Then: arrays and once-per-mesh work.**
+Same sample code (`convert`, then `mesh_files`, single process). Every
+`MeshFiles` field hashed against a baseline from the code before these
+changes, on 300 (seed 1) and 600 (seed 2) meshes: none differ.
+
+| Change | Where |
+|---|---|
+| Positions, normals, UVs, colors taken from the reader's columns, not one row object per vertex | `convert_static._fields` |
+| Normal, tangent and color bytes rounded in numpy (`rint` is `round`'s half to even; NaN held as `min`/`max` hold it) | `convert_static.vertices` |
+| Vertices and triangles packed as one structured array; a value `struct` would refuse or pack differently (NaN, out of range, a float for an integer, skin, eye data) falls back to `pack_vertex` | `blocks._vertex_array` |
+| NIFs with an `NiTransformData` read with our reader: an empty key group's default looked up nif.xml's `Float`, pyffi's `float`, so 12 of 300 files fell back to pyffi | `fnv_schema.pyffi_type` |
+| A normal map's spec-mask verdict kept per file, size and time (804 checks, 367 maps in the sample) | `convert_static._spec_masked` |
+| The stair cover test's per-face terms worked out once per body; three reaches per edge tested together | `stairs.cover_frame` |
+| Authored collision normals read only for the repair | `mesh_soup(normals=)` |
+| One parent map per mesh, not one per shape (four copies folded into one) | `fnv_file.parent_map` |
+
+- 300 meshes: 16.7 s → about 6 s (5.6 to 6.2 s across runs).
+- 600 meshes: 41.0 s → 12.1 s.
+- Profiled, 300 meshes: 31.2 s → 9.2 s. No single stage now passes 1.2 s:
+  collision about 3 s in all (the stair pass 1.2, the collision soup 0.9),
+  the specular scans 0.9, `_geometry` 1.1, `emit` 1.1.
 
 ## <a id="open"></a>Open questions
 

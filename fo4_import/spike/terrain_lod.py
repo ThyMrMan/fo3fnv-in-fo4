@@ -68,6 +68,8 @@ WATER_SHADER = {'name': 2, 'extra': [], 'controller': -1, 'flags1': 0x80000000, 
 SEGMENT_CELLS = 4
 #: A segment's parent array index when it has none.
 NO_PARENT = 0xFFFFFFFF
+#: Vanilla's skirt depth per level step, world units (Commonwealth tiles: 1,000 at level 4 to 4,000 at 32).
+SKIRT_STEP = 1000
 
 
 def tiles(export_dir: Path, world: str) -> list:
@@ -130,10 +132,14 @@ def water_shape(data) -> tuple:
             tris.append(np.array([(t.v_1, t.v_2, t.v_3) for t in block.data.triangles], int) + sum(map(len, pos)))
             pos.append(np.array([(v.x, v.y, v.z) for v in block.data.vertices], float))
     pos, tris = np.concatenate(pos), np.concatenate(tris)
-    flat = np.pad(pos[:, :2], ((0, 0), (0, 1)))
-    seen = np.cross(flat[tris[:, 1]] - flat[tris[:, 0]], flat[tris[:, 2]] - flat[tris[:, 0]])[:, 2]
-    used, tris = np.unique(tris[seen != 0], return_inverse=True)
+    used, tris = np.unique(tris[seen_area(pos, tris) != 0], return_inverse=True)
     return pos[used], tris.reshape(-1, 3)
+
+
+def seen_area(pos: np.ndarray, tris: np.ndarray) -> np.ndarray:
+    """Each of `tris`' signed area seen from above, twice over (positive facing up)."""
+    a, b, c = pos[tris[:, 0], :2], pos[tris[:, 1], :2], pos[tris[:, 2], :2]
+    return (b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])
 
 
 def without_skirts(pos: np.ndarray, tris: np.ndarray) -> np.ndarray:
@@ -148,6 +154,41 @@ def without_skirts(pos: np.ndarray, tris: np.ndarray) -> np.ndarray:
         top[(x, y)] = max(top.get((x, y), z), z)
     skirt = border & np.array([z < top.get((x, y), z) for x, y, z in pos])
     return tris[~skirt[tris].any(axis=1)]
+
+
+def skirt_depth(level: int) -> int:
+    """Vanilla's skirt depth at `level`: SKIRT_STEP per level step from level 4."""
+    return SKIRT_STEP * (level.bit_length() - MIN_LEVEL.bit_length() + 1)
+
+
+def border_edges(pos: np.ndarray, tris: np.ndarray) -> np.ndarray:
+    """[(a, b)] of `tris`' edges on the tile's outer edge, each as its triangle runs it (a to b); triangles with
+    no area seen from above (strip stitches) give none.
+    See: docs/fork/fo4_terrain_lod_plan.md#p0
+    """
+    lo, hi = pos[:, :2].min(axis=0), pos[:, :2].max(axis=0)
+    tris = tris[seen_area(pos, tris) != 0]
+    edges = np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]])
+    a, b = pos[edges[:, 0], :2], pos[edges[:, 1], :2]
+    side = ((a == lo) & (b == lo)) | ((a == hi) & (b == hi))
+    return edges[side.any(axis=1) & np.any(a != b, axis=1)]
+
+
+def with_skirts(pos: np.ndarray, uv: np.ndarray, tris: np.ndarray, level: int) -> tuple:
+    """(positions, uvs, triangles) of a tile's land with FNV's skirts swapped for vanilla's: every border point
+    repeated skirt_depth(level) below itself with its UV, each border edge closed down to it, facing out; only
+    the vertices kept triangles use, in their order.
+    See: docs/fork/fo4_terrain_lod_plan.md#p0
+    """
+    tris = without_skirts(pos, tris)
+    edges = border_edges(pos, tris)
+    hung, index = np.unique(edges.ravel(), return_inverse=True)
+    a, b = edges.T
+    a2, b2 = len(pos) + index.reshape(-1, 2).T
+    skirt = np.concatenate([np.stack([b, a, a2], axis=1), np.stack([b, a2, b2], axis=1)])
+    used, tris = np.unique(np.concatenate([tris, skirt]), return_inverse=True)
+    pos = np.concatenate([pos, pos[hung] - (0, 0, skirt_depth(level))])
+    return pos[used], np.concatenate([uv, uv[hung]])[used], tris.reshape(-1, 3)
 
 
 def tile_units(pos: np.ndarray, tris: np.ndarray, level: int) -> tuple:
@@ -224,8 +265,8 @@ def btr(path: Path, level: int, textures: tuple) -> bytes:
     """The .btr of the FNV tile at `path` of `level`, textured by (diffuse, normal) Data paths: the land, then the
     WATER node when the tile has water, in vanilla's block order."""
     data = read_tile(path)
-    pos, uv, tris = land_shape(data)
-    local, tris = tile_units(pos, without_skirts(pos, tris), level)
+    pos, uv, tris = with_skirts(*land_shape(data), level)
+    local, tris = tile_units(pos, tris, level)
     uv = 1 - uv
     water = _water_blocks(data, level, 4)
     nif = F.NifFile(strings=['chunk', 'Land', ''] + ['WATER'] * bool(water))

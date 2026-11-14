@@ -176,7 +176,7 @@ def main():
     print(f'loose files restored from the Main archive: {restore_packed(args.data, args.out.name)}')
     LISTENERS.append(estimate(args))
     started = time.time()
-    extra = {'command': ' '.join(['fo4_import.pipeline.run'] + sys.argv[1:]), **source_state(),
+    extra = {'command': ' '.join(['fo4_import.pipeline.run'] + sys.argv[1:]), 'argv': sys.argv[1:], **source_state(),
              STAMP_KEY: args.choice.light}
     write_stamp(args.out, 'running', started, extra)
     build_inputs.start(build_inputs.record_dir(args.out))

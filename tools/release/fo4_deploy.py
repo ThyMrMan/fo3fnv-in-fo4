@@ -276,14 +276,16 @@ def main(argv=None) -> int:
 
 
 def retire_hub(args: argparse.Namespace) -> None:
-    """Delete (unless --dry-run) the XDI-era hub files (dialogue_menu.LEGACY) in the MO2 mods beside --mod:
-    each build now writes its own plugin's links.
+    """Delete (unless --dry-run) the XDI-era hub files (dialogue_menu.LEGACY) in the MO2 mods beside --mod, and each
+    links file in the old folder (OLD_LINKS) whose plugin has one in Cleanroom UI's (LINKS) in any of them.
     See: docs/fork/fo4_dialogue_menu_plan.md#converter
     """
-    found = [mod / rel for mod in sorted(args.mod.parent.iterdir()) if mod.is_dir()
-             for rel in menu_links.LEGACY if (mod / rel).is_file()]
+    mods = [mod for mod in sorted(args.mod.parent.iterdir()) if mod.is_dir()]
+    moved = {path.name for mod in mods for path in (mod / menu_links.LINKS).glob('*.txt')}
+    found = [mod / rel for mod in mods for rel in menu_links.LEGACY if (mod / rel).is_file()]
+    found += [path for mod in mods for path in (mod / menu_links.OLD_LINKS).glob('*.txt') if path.name in moved]
     for path in found:
-        print(f'XDI-era hub file {path}: {"would delete" if args.dry_run else "deleting"}')
+        print(f'old dialogue menu file {path}: {"would delete" if args.dry_run else "deleting"}')
         if not args.dry_run:
             path.unlink()
 

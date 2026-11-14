@@ -19,11 +19,16 @@ span, each rising from the last) also gets a stair-helper ramp, as vanilla
 puts under its staircases: a thin slab whose top face runs through the
 first and last nosings down to the flight's foot, which only FO4's
 character controller meets, so it walks up a slope instead of each step.
+Some FNV staircases are collision ramps with no treads (Lucky 38's curved
+stairs, Novac's motel, the vault halls): a face too steep to walk between
+such a ramp and a level landing (or the ground) is a step, marked with the
+ramp and landing it joins.
 
 See: docs/fork/fo4_spikes.md#spike-4-exterior
 """
 
 import numpy as np
+from scipy.spatial import cKDTree
 
 #: Tallest step (game units) marked, within TOUCH: vanilla's tallest stairs riser is 22; FNV kits use 24.
 RISER_MAX = 24.0
@@ -33,6 +38,10 @@ RISER_MIN = 8.0
 REACH = 24.0
 #: |normal z| at least this is a tread, at most VERTICAL an upright face.
 FLAT, VERTICAL = 0.98, 0.17
+#: |normal z| from which a face is walkable ground or ramp (50 degrees; Novac motel's stairs ramp is 38).
+WALKABLE = 0.64
+#: |normal z| from which a face is a built floor (2.6 degrees), not a sculpted surface's near-flat facet.
+LEVEL = 0.999
 #: Game units a point may sit off a face and still touch it.
 TOUCH = 1.0
 #: Fewest steps in a row that get a stair-helper ramp (vanilla's ramped flights have 7 to 15).
@@ -52,24 +61,35 @@ def faces(tris: list, unit: float) -> tuple:
     return corners, nz
 
 
-def _covers(tris: np.ndarray, point: np.ndarray) -> np.ndarray:
-    """Which of `tris` (n, 3, 3) cover XY `point`, within TOUCH of their edges."""
+def cover_frame(tris: np.ndarray) -> tuple:
+    """What covers_at needs of `tris` (n, 3, 3), worked out once: each edge's start and vector, how far (TOUCH)
+    a point may sit outside it, which way the face winds in XY, and which faces have area."""
     a, b, c = tris[:, 0, :2], tris[:, 1, :2], tris[:, 2, :2]
     area = (b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])
-    sign = np.where(area >= 0, 1.0, -1.0)
-    ok = np.abs(area) > 1e-9
-    for p, q in ((a, b), (b, c), (c, a)):
-        edge = q - p
-        cross = sign * (edge[:, 0] * (point[1] - p[:, 1]) - edge[:, 1] * (point[0] - p[:, 0]))
-        ok &= cross >= -TOUCH * np.linalg.norm(edge, axis=1)
+    edges = [(p, q - p) for p, q in ((a, b), (b, c), (c, a))]
+    return ([(p, e, -TOUCH * np.linalg.norm(e, axis=1)) for p, e in edges], np.where(area >= 0, 1.0, -1.0),
+            np.abs(area) > 1e-9)
+
+
+def covers_at(frame: tuple, points: np.ndarray) -> np.ndarray:
+    """(m, n) mask: which of cover_frame's faces cover each XY point of `points` (m, 2), within TOUCH."""
+    edges, sign, ok = frame
+    ok = np.broadcast_to(ok, (len(points), len(ok))).copy()
+    x, y = points[:, 0:1], points[:, 1:2]
+    for p, edge, limit in edges:
+        ok &= sign * (edge[:, 0] * (y - p[:, 1]) - edge[:, 1] * (x - p[:, 0])) >= limit
     return ok
 
 
-def _beyond(flat: np.ndarray, tops: np.ndarray, top: float, mid: np.ndarray, out: np.ndarray) -> np.ndarray:
-    """Mask of the treads one step below `top` beyond an edge (`mid`, outward `out`); none when a tread at `top`
-    continues past it or the drop is one FO4 climbs anyway."""
-    for reach in (2 * TOUCH, REACH / 2, REACH):
-        hit = _covers(flat, mid + out * reach)
+def _covers(tris: np.ndarray, point: np.ndarray) -> np.ndarray:
+    """Which of `tris` (n, 3, 3) cover XY `point`, within TOUCH of their edges."""
+    return covers_at(cover_frame(tris), np.asarray(point, dtype=float)[None, :2])[0]
+
+
+def _beyond(frame: tuple, tops: np.ndarray, top: float, mid: np.ndarray, out: np.ndarray) -> np.ndarray:
+    """Mask of the treads (cover_frame `frame`) one step below `top` beyond an edge (`mid`, outward `out`); none
+    when a tread at `top` continues past it or the drop is one FO4 climbs anyway."""
+    for hit in covers_at(frame, np.array([mid + out * reach for reach in (2 * TOUCH, REACH / 2, REACH)])):
         if (hit & (np.abs(tops - top) <= TOUCH)).any():
             break
         lower = hit & (tops < top - TOUCH) & (tops >= top - RISER_MAX - TOUCH)
@@ -82,15 +102,15 @@ def _beyond(flat: np.ndarray, tops: np.ndarray, top: float, mid: np.ndarray, out
 def _edge_steps(corners: np.ndarray, treads: np.ndarray) -> tuple:
     """(treads in a step, risers): each riser is (upper tread, edge start, edge end, lower level, outward)."""
     flat, tops = corners[treads], corners[treads, :, 2].mean(axis=1)
-    marked, risers, seen = set(), [], set()
+    frame, marked, risers, seen = cover_frame(flat), set(), [], set()
     for k, i in enumerate(treads):
         tri = corners[i]
         centre = tri[:, :2].mean(axis=0)
-        for p, q in ((tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])):
+        for p, q in (_ordered(tri[0], tri[1]), _ordered(tri[1], tri[2]), _ordered(tri[2], tri[0])):
             mid, along = (p[:2] + q[:2]) / 2, q[:2] - p[:2]
             out = np.array([along[1], -along[0]]) / (np.linalg.norm(along) or 1.0)
             out = out if np.dot(out, mid - centre) > 0 else -out
-            below = _beyond(flat, tops, tops[k], mid, out)
+            below = _beyond(frame, tops, tops[k], mid, out)
             if not below.any():
                 continue
             marked.update([int(i), *(int(j) for j in treads[below])])
@@ -99,6 +119,11 @@ def _edge_steps(corners: np.ndarray, treads: np.ndarray) -> tuple:
                 seen.add(key)
                 risers.append((int(i), p, q, float(tops[below].max()), out))
     return marked, risers
+
+
+def _ordered(p: np.ndarray, q: np.ndarray) -> tuple:
+    """Edge p-q with its ends in coordinate order, so a riser never depends on winding."""
+    return (p, q) if tuple(p) <= tuple(q) else (q, p)
 
 
 def _ground_steps(corners: np.ndarray, nz: np.ndarray, treads: np.ndarray) -> set:
@@ -115,6 +140,39 @@ def _ground_steps(corners: np.ndarray, nz: np.ndarray, treads: np.ndarray) -> se
         if on.any():
             marked.update([int(i), *(int(j) for j in treads[on])])
     return marked
+
+
+def _ramp_steps(corners: np.ndarray, nz: np.ndarray) -> set:
+    """Faces too steep to walk, SHORT_RISE to RISER_MAX tall, between a ramp face and a LEVEL one (or the mesh's
+    lowest point, below), both at least REACH square and the ramp rising more than RISER_MIN, with the faces their
+    corners meet: an FNV collision ramp's lip onto its landing or its riser up from the floor.
+    See: docs/fork/fo4_pipeline.md#ramp-lips
+    """
+    walk = np.nonzero(nz >= WALKABLE)[0]
+    if not len(walk):
+        return set()
+    tree, base, marked = cKDTree(corners[walk].reshape(-1, 3)), corners[:, :, 2].min(), set()
+    sides = np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0])
+    big = np.linalg.norm(sides, axis=1) >= 2 * REACH ** 2
+    level, ramp_face = big & (nz >= LEVEL), big & (nz < FLAT) & (np.ptp(corners[:, :, 2], axis=1) > RISER_MIN)
+    for i in np.nonzero(nz < WALKABLE)[0]:
+        z = corners[i, :, 2]
+        if not SHORT_RISE - TOUCH <= z.max() - z.min() <= RISER_MAX + TOUCH:
+            continue
+        top = _met(tree, walk, corners[i][z >= z.max() - TOUCH])
+        grounded = z.min() <= base + TOUCH
+        bottom = set() if grounded else _met(tree, walk, corners[i][z <= z.min() + TOUCH])
+        tread = [level[list(top)].any(), grounded or level[list(bottom)].any()]
+        ramp = [ramp_face[list(side)].any() for side in (top, bottom)]
+        if top and (grounded or bottom) and (ramp[0] and tread[1] or tread[0] and ramp[1]):
+            marked.update([int(i), *top, *bottom])
+    return marked
+
+
+def _met(tree, walk: np.ndarray, points: np.ndarray) -> set:
+    """Faces of `walk` that `points` meet within TOUCH; empty unless every point does."""
+    near = tree.query_ball_point(points, TOUCH)
+    return {int(walk[k // 3]) for hits in near for k in hits} if all(len(h) for h in near) else set()
 
 
 def _riser_faces(p: np.ndarray, q: np.ndarray, low: float, out: np.ndarray) -> list:
@@ -206,7 +264,7 @@ def stairs(tris: list, materials: list, unit: float, stairs_of) -> tuple:
     corners, nz = faces(tris, unit)
     treads = np.nonzero(nz >= FLAT)[0]
     marked, risers = _edge_steps(corners, treads)
-    marked |= _ground_steps(corners, nz, treads)
+    marked |= _ground_steps(corners, nz, treads) | _ramp_steps(corners, nz)
     out_mats = [stairs_of(m) if i in marked else m for i, m in enumerate(materials)]
     added = [(tuple(tuple(c / unit) for c in face), stairs_of(materials[i]))
              for i, p, q, low, out in risers for face in _riser_faces(p, q, low, out)]

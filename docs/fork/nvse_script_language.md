@@ -1,6 +1,6 @@
 # xNVSE script language on Fallout 4
 
-**Code:** `script_convert/static_scripts/fallout4/CRUI_Array.psc`,
+**Code:** Cleanroom UI's `papyrus/CRUI_Array.psc` (shipped through `fo4_import/cleanroom.py`),
 `script_convert/nvse_falloutnv.py` (expressions and assignments),
 `script_convert/loop_jumps.py`, `script_convert/udf_fallout4.py`, and the
 parser in `script_convert/tes4/`.

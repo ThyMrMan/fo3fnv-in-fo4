@@ -4,7 +4,7 @@
 material, each with its collision filter); `compressed()` gives the packfile
 objects; `triangles()` decodes a written mesh tree back to triangles. Triangles
 pair into quads across a shared edge, primitives split into sections of at most
-128 primitives and 255 vertices, each section quantized 11/11/10 bits on its own
+127 primitives and 255 vertices, each section quantized 11/11/10 bits on its own
 box, and both trees' boxes coded as square-root insets of their parent's.
 Ported from NifSkope Wild Wasteland Edition's encoder (src/gl/hknpencode.cpp);
 its BSD-3 notice is in NIFSKOPE_LICENSE.txt beside this file.
@@ -22,11 +22,13 @@ import numpy as np
 STEPS = np.array([2047.0, 2047.0, 1023.0])
 SHARED_STEPS = np.array([0x1FFFFF, 0x1FFFFF, 0x3FFFFF], float)
 #: A section's limits: a mesh-tree leaf holds twice its primitive index in a byte; vertex indices are a byte.
-SECTION_PRIMITIVES, SECTION_VERTICES = 128, 255
+SECTION_PRIMITIVES, SECTION_VERTICES = 127, 255
 #: A section-tree node's inner flag in its 16 data bits (hiData << 8 | loData).
 INNER = 0x8000
 #: A quad is flat when its fourth corner lies within this of the first three's plane (Elric's build tolerance).
 FLAT = 0.01
+#: A quad corner turning back by at most this share of its quad's squared normal still counts as straight.
+STRAIGHT = 1e-6
 #: Shape constants on every Elric compressed mesh: flags, dispatch type, the material-table property key.
 SHAPE_FLAGS, DISPATCH_COMPOSITE, MATERIALS_KEY = 516, 2, 0xF601
 #: hkReal's largest value as Havok writes an empty box.
@@ -52,14 +54,18 @@ class Mesh:
 
 
 def _strip(raw: bytes) -> tuple:
-    """(points, triangles, material CRC) of one NiTriStripsData as collision.tri_strips_data writes it."""
+    """(points, triangles, material CRC) of one NiTriStripsData as collision.tri_strips_data writes it, less
+    triangles naming a point twice: written as (a, b, b, b) the game reads one as a custom primitive.
+    See: docs/fork/fo4_hknp_writer.md#mesh-writer
+    """
     n = struct.unpack_from('<H', raw, 4)[0]
     points = np.array(struct.unpack_from(f'<{3 * n}f', raw, 9)).reshape(-1, 3) / GAME_PER_HAVOK
     at = 9 + 12 * n
     crc = struct.unpack_from('<I', raw, at + 2)[0]
     count = struct.unpack_from('<H', raw, at + 30)[0]
     at += 34 + 2 * count + 1
-    return points, np.array(struct.unpack_from(f'<{3 * count}H', raw, at)).reshape(-1, 3), crc
+    tris = np.array(struct.unpack_from(f'<{3 * count}H', raw, at)).reshape(-1, 3)
+    return points, tris[(tris[:, 0] != tris[:, 1]) & (tris[:, 1] != tris[:, 2]) & (tris[:, 2] != tris[:, 0])], crc
 
 
 def read(blocks: list, index: int) -> 'Mesh | None':
@@ -91,15 +97,30 @@ def _normal(points: np.ndarray, tri) -> np.ndarray:
     return n / length if length > 0 else n
 
 
+def _convex(points: np.ndarray, prim: list) -> bool:
+    """Whether flat quad `prim` (a, b, c, d) is convex: no corner turns against its first triangle's facing (a
+    straight corner allowed)."""
+    corners = points[prim]
+    normal = np.cross(corners[1] - corners[0], corners[2] - corners[0])
+    turns = np.cross(np.roll(corners, -1, 0) - corners, np.roll(corners, -2, 0) - np.roll(corners, -1, 0))
+    return bool(np.all(turns @ normal >= -STRAIGHT * (normal @ normal)))
+
+
 def _partner(mesh: Mesh, i: int, edges: dict, used: list) -> 'tuple | None':
     """(score, -other triangle, edge of i, edge of other) of the flattest unused same-strip triangle sharing an
-    edge with triangle i in the opposite direction; None when there is none."""
+    edge with triangle i in the opposite direction whose quad is flat and convex; None when there is none.
+    The game collides a quad as the convex hull of its corners, so any other pair is a solid it must not be.
+    See: docs/fork/fo4_hknp_writer.md#mesh-writer
+    """
     tri, best = mesh.tris[i], None
     normal = _normal(mesh.points, tri)
     for e in range(3):
         for other, slot in edges.get((tri[(e + 1) % 3], tri[e]), ()):
             far = mesh.tris[other][(slot + 2) % 3]
             if used[other] or mesh.strip[other] != mesh.strip[i] or far == tri[(e + 2) % 3]:
+                continue
+            prim = [tri[(e + 1) % 3], tri[(e + 2) % 3], tri[e], far]
+            if not (flat(mesh.points, prim) and _convex(mesh.points, prim)):
                 continue
             score = (float(normal @ _normal(mesh.points, mesh.tris[other])), -other, e, slot)
             best = max(best, score) if best else score
@@ -269,7 +290,7 @@ def _section(mesh: Mesh, prims: list, members: list, state: dict) -> dict:
 
 def _keys(groups: list) -> tuple:
     """(key bits, primitive bits, largest key) for sections `groups`."""
-    prim_bits = (2 * max(len(g) for g in groups)).bit_length()
+    prim_bits = 8 if len(groups) > 1 else (2 * len(groups[0])).bit_length()
     bits = (len(groups) - 1).bit_length() + prim_bits
     return bits, prim_bits, (len(groups) - 1) << prim_bits | 2 * len(groups[-1]) - 1
 

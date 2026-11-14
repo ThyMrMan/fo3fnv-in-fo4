@@ -838,6 +838,10 @@ fourth (2026-10-31):
     Weathers' `00136DFA`, GetItemCount; Cass's `0015C795`, IsSpellTarget),
     and the scene of that line's Choices is built with nothing to start
     it. 58 of them are behind the blockers above.
+- *Census and fixes (2026-11-12, not built).* What the whole-map build
+  still leaves out, by cause, and the fixes for empty actor parameters,
+  race and class tests, items the build cannot make and uncounted menu
+  answers: [dialogue gaps](fo4_dialogue_gaps.md).
 - *Quest conditions.* An FNV quest's own conditions gate all its dialogue
   (vDialogueEDE: `GetIsID` ED-E; Doctors: DoctorsDialogueFaction, not Doc
   Mitchell's voice type). `say_topics.with_quest` ANDs them into each line,
@@ -2293,6 +2297,21 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
   Every DOOR base now carries `F3NV_DoorCloser` beside its own script: an
   NPC's OnOpen registers a distance event, and once the NPC is 200 units
   away the door closes if still open. Doors the player opens stay as left.
+- <a id="allies-join"></a>**Allies join a scripted fight on the player
+  (proposed 2026-11-13, not built).** FNV puts an actor that starts combat in a
+  combat group with its Allies and Friends, and each joins as its Assistance
+  allows (GECK AI Data and Factions pages). Fallout 4 does not: at the Las Vegas
+  Boulevard Station `VStripMonorailWarning2TriggerSCRIPT` starts
+  `VStripNCRTrooperMonorail1REF` on the player, and the second trooper, NCR's
+  Ally with Assistance 2 standing beside him, never fought (played 2026-11-13).
+  Vanilla Fallout 4 brings a group in by script (`SetEnemy`,
+  `SendAssaultAlarm` after `StartCombat`). `ForceCombatNow` now hands an NPC's
+  fight on the player to `RallyAllies`, which walks the loaded actors within
+  8192 units of the attacker and starts each one `_Assists` (alive, not
+  fighting, not a teammate, the attacker's Ally with Assistance 1 or more or
+  Friend with 2, not the player's Ally or Friend, detecting either side) on the
+  player, in `PlayerEnemyFaction` as the attacker is. 738 converted FNV call
+  sites start an NPC on the player.
 - **Patrol start (played 2026-10-17: Victor runs his circuit).** An FNV Patrol starts at its location reference (FNV
   PLDT near reference, e.g. Victor's circuit marker). The FO4 copy's
   Patrol Start is that reference; before, it was the actor's linked
@@ -3070,6 +3089,14 @@ but a collision-only box has none.
   keep one side, so their mass is not changed.
 - Elric accepts the doubled meshes; the wall's physics bounds are
   unchanged.
+- With both sides present the winding repair decides nothing, so these
+  bodies skip it ([still bodies](fo4_build_speed.md#still-bodies-skip-repair)).
+  Dynamic bodies keep one side and the repair.
+- FO4 has no two-sided switch to use instead, as far as vanilla shows.
+  All 701 vanilla compressed meshes WWE compared carry shape flags 516
+  ([shape](fo4_hknp_writer.md)). `triangleIsInterior` is a welding hint on
+  creased, fully shared triangles, not a side. Doubling is still the
+  method.
 
 <a id="ragdolls"></a>**Joints** (skeletons standing up in Bison Steve).
 The `XRGD` pose was copied, but FO4 has nothing to pose: the bodies
@@ -3088,6 +3115,12 @@ were converted and the joints between them dropped.
   - Pivots are scaled to FO4 units. A baked `bhkRigidBodyT`'s transform
     moves its side's vectors.
   - The motor is written as none.
+  - FNV also lists Havok actions in a body's constraints
+    (`bhkOrientHingedBodyAction` on the sentry turret skeletons,
+    `bhkLiquidAction` on `dlc03flamerexplosion` and `nukagrenadeexplosion01`).
+    They have no `entities`, and reading them as constraints failed those
+    four meshes' conversion. FO4's physics (`hknpPhysicsSystemData`) has no
+    actions, so they are left out like any other kind we do not write.
 - A mesh with joints sets Articulated (`0x80`).
 - **Played: still a solid object with glitchy physics.** The collision
   converter hung each body on a new node off the root, and the visible
@@ -3982,6 +4015,23 @@ opened with Doc standing; he sat at the next break between stages (played
 4 too. Of the 7 converted uses, Big Sal's and Nero's already test
 `GetSitState() == 3`; the others are Doc's chair (2), the couch (player and
 Doc) and Vault 11's extermination chair (player).
+
+**Sitting down counts (2026-11-12, after play; not yet played).** Waiting
+for state 3 made Doc's pause before the psych test longer than FNV's. FNV
+names the furniture as its package picks it, before the sit
+(`FurnitureProcess` 0x917A70, `TryUseFurniture` 0x92A9B0 in the decomp), and
+`IsCurrentFurnitureRef` (0x59DF40) reads only that. The chair script's 2.5 s
+is its own allowance for the sit-down ("We assume he is in the chair after x
+amount of time"). Our chain waited for the sit-down to end, then ran the
+2.5 s, then the couch's 2.0 s. In both Papyrus traces of 2026-11-12, Doc
+entered the chair trigger 13.8 s and 14.4 s before the test's greeting
+(trace 18:49: 220.0 → 233.8 s; 20:35: 262.7 → 277.1 s), and his
+`weaponSheathe` came 9.2 to 9.3 s before it. FNV needs about 4.5 s from the
+trigger. The override now counts from sit state 2 (playing the sit-down,
+FO4 CK wiki `GetSitState`). State 1, still walking there, still does not
+count. Ruled out by the same traces: the scripts' timers count real seconds,
+no dialogue ran between stage 80 and the greeting, and no package fragment
+of Doc's ran in that span.
 
 ## <a id="before"></a>Before the pipeline: build and research
 
@@ -6071,6 +6121,17 @@ fill too. Scripts with a worldspace property: FalloutNV 43, Dead Money 5, Honest
 Lonesome Road 4, Old World Blues 7. No FormIDs moved; confirmed in game on Old
 World Blues.
 
+<a id="master-references"></a>**Master references in a mod's script properties
+(2026-11-14).** A mod build filled an ObjectReference property only from the
+references it places, so a master reference in a cell the mod does not edit was
+left None. JSawyer Ultimate's `NVJSawyerSetupQuestSCRIPT` moves four vendor
+chests out of its holding cell to master markers and stops once Mick's chest has
+left; `SecretSalesMarkerREF` (Mick and Ralph's) and `NellisJanetMarker3` were
+None, the `MoveTo` failed, and the setup ran every 5 seconds, showing "JSawyer
+Ultimate Edition Loaded" each time. `_master_places` now also holds the masters'
+named references their built plugins hold. A reference this build places still
+wins. No FormIDs move: only property values change.
+
 <a id="reached-worlds"></a>**`--world reached` (2026-10-25).** A whole build from the app passed
 only `--world WastelandNV`. When it ran into the MO2 folder, it replaced
 the 12-world deploy with WastelandNV alone (285 MB against 383), and
@@ -6430,11 +6491,14 @@ vertices, land 1,773), drawn with the land texture; through the holes it
 left, the tile skirts (edge vertices dropped to -14098, on every FNV
 tile) showed as grey walls from The Fort. `land_shape` now takes the
 shaded shape. That alone left The Fort's view unchanged: the land shapes
-carry skirts too, each border vertex repeated at -14098 (FO4's tiles,
-vanilla's and xLODGen's, have none), and where FO4 lowers or hides a
-neighbour they stand as walls. `without_skirts` drops every triangle
-touching a border vertex that lies under another at the same x, y (4.20.8:
-4,207 to 4,044 triangles, lowest vertex -14098 to 2600). The water shapes
+carry skirts too, each border vertex repeated at -14098, and where FO4
+lowers or hides a neighbour they stand as walls. `without_skirts` drops
+every triangle touching a border vertex that lies under another at the same
+x, y (4.20.8: 4,207 to 4,044 triangles, lowest vertex -14098 to 2600).
+With them gone the cracks between tiles showed, so `with_skirts` hangs
+vanilla's instead: every border point repeated 1,000 units below itself per
+level step (1,000 at level 4 to 4,000 at 32, as the Commonwealth's tiles),
+facing out ([Phase 0](fo4_terrain_lod_plan.md#p0)). The water shapes
 became each tile's `WATER` node on 2026-11-09 ([distant water](#distant-water));
 FNV's land under the lake is flattened to its surface with a lake-coloured
 diffuse, and stays under the water as FNV's does. The
@@ -6803,6 +6867,26 @@ refuses as a plain step. Census over every FNV mesh:
   8 lip).
 - It keeps the ruined slide's ladder steps (22 to 24) and the train
   station bench (15 and 18, within 1 unit of 16).
+
+<a id="ramp-lips"></a>**Collision-ramp stairs get their lips marked (proposed 2026-11-13, not yet played).**
+Lucky 38's curved staircase (REFR 00116689, `NVLucky38Stairs03`) "isn't
+always smooth". Its collision has no treads: FNV built it as a faceted
+ramp (27–44°, material 0, no stairs bit) from a 12.5-unit plain riser at
+the foot (80 → 93) to 362, then a 54–63° lip 19.5 tall onto the floor at
+381.7. The stairs pass found no flight and left both plain; a plain 19.5
+step is past what FO4 climbs. Vanilla's own curved stairs
+(`BldWoodPSmStairsSpiral01`) carry a stepped mesh plus a layer-31
+`hknpDynamicCompoundShape` of 10 planar 8-corner helper slabs, one per
+36° sector, level across the radius. `stairs._ramp_steps` now marks a
+face too steep to walk (under `WALKABLE`), 16 to 24 tall, between a ramp
+face and a level face (or the mesh's lowest point, below), each at least
+24 square and the ramp rising more than 8, with the faces it joins. Old
+vs new over every FNV mesh: 511 of 14,885 meshes change (334 placed,
+5,688 placements); no ramp is added or moved. Stair cases among them:
+the Lucky 38 stairs 01/01a/03/04, Novac's motel riser (15.8, the stuck
+spot above), vault hall stairs (`vhallsmstairs01`, 24-unit lips onto
+landings). The rest are rocks, curbs, roads, walls and vehicle beds with
+a 16–24 lip at a ramp's edge; they take only the stairs material.
 
 <a id="glass-texture"></a>**Textured glass at full strength (built 2026-10-25; Madrid played).** FNV glass
 converts to vanilla's beaker BGEM, whose base colour is a dark grey (0.18,

@@ -3,7 +3,9 @@
 See: docs/fork/fo4_facegen_plan.md#own-heads
 """
 
+import collections
 import struct
+from types import SimpleNamespace
 
 import numpy as np
 from scipy.spatial import cKDTree
@@ -160,16 +162,17 @@ def test_an_own_race_face_keeps_only_its_brows_and_takes_the_face_textures_tone(
     """Own hair, eyes and race: the hair and eyes are swapped (eyes with their extras), FTST names the face set,
     and the tint fit keeps its brow at its value, every other option at 0, the face texture's tone."""
     monkeypatch.setattr(OH.tint, 'load_basis', lambda female: (None, [5, 7, 9], None, [7]))
+    monkeypatch.setattr(OH.fnv_npc, 'worn_parts', lambda export_dir, form_id: [])
     heads = OH.OwnHeads(None, 'export')
     heads.own = {'HAIR': {'H'}, 'EYES': {'E'}, 'RACE': {'R'}}
     heads._hair = lambda npc, female, assets: 0x900
     heads._eyes = lambda npc, female, vanilla, assets: 0x901
     heads._face = lambda npc, female, assets: (0x902, np.full(3, 1.2))
     assets = _assets({0x100: (3, [0x101]), 0x200: (2, [0x201])})
-    npc = {'HNAM.Hair': 'H', 'ENAM.Eyes': 'E', 'RNAM.Race': 'R'}
-    swaps, face, tinted = heads.of(npc, True, HeadChoice(hair=0x100, eyes=0x200), ([0.3, 0.6, 0.2], 1.0, 0.5),
+    npc = {'HNAM.Hair': 'H', 'ENAM.Eyes': 'E', 'RNAM.Race': 'R', 'FormID': '01000001'}
+    swaps, worn, face, tinted = heads.of(npc, True, HeadChoice(hair=0x100, eyes=0x200), ([0.3, 0.6, 0.2], 1.0, 0.5),
                                    assets)
-    assert swaps == {0x100: [0x900], 0x200: [0x901, 0x201]}
+    assert swaps == {0x100: [0x900], 0x200: [0x901, 0x201]} and worn == []
     assert dict(subrecords(face(pack_subrecord('QNAM', bytes(16)))))[b'FTST'] == struct.pack('<I', 0x902)
     assert np.array_equal(tinted[0], [0.0, 0.6, 0.0]) and np.array_equal(tinted[1], np.full(3, 1.2))
 
@@ -177,11 +180,64 @@ def test_an_own_race_face_keeps_only_its_brows_and_takes_the_face_textures_tone(
 def test_an_own_race_on_fnvs_stock_skin_keeps_the_slider_face(monkeypatch):
     """A mod's race wearing FNV's stock head skin: no face set, the tint fit as it was."""
     monkeypatch.setattr(OH.fnv_npc, 'fnv_face', lambda export_dir, edid: ('head', ('stock', 'offset', None)))
+    monkeypatch.setattr(OH.fnv_npc, 'worn_parts', lambda export_dir, form_id: [])
     heads = OH.OwnHeads(None, 'export')
     heads.own = {'HAIR': set(), 'EYES': set(), 'RACE': {'R'}}
     fit = ([0.3, 0.6, 0.2], 1.0, 0.5)
     npc = {'RNAM.Race': 'R', 'FormID': '01000001', 'EditorID': 'Test'}
-    assert heads.of(npc, True, HeadChoice(), fit, _assets({})) == ({}, None, fit)
+    assert heads.of(npc, True, HeadChoice(), fit, _assets({})) == ({}, [], None, fit)
+
+
+#: FNV's eyepatch head part as worn_parts gives it.
+EYEPATCH = (0x73D56, 'Eyepatch', 'Characters\\Hair\\Eyepatch.NIF')
+
+
+def _worn_heads(tmp_path, on_head: bool = True) -> tuple:
+    """(OwnHeads over a fake builder in `tmp_path`, {(site, key): FormID} derived, [(sig, record)] added, [head_worn
+    slots asked]); head_worn gives b'NIF' when `on_head`, else None."""
+    derived, added, asked = {}, [], []
+    writer = SimpleNamespace(derive_formid=lambda site, key: derived.setdefault((site, key), 0x800 + len(derived)),
+                             add_record=lambda sig, raw: added.append((sig, raw)))
+    equipment = SimpleNamespace(head_worn=lambda model, sex, slots: asked.append((model, sex, slots)) or (
+        ('fnv\\characters\\hair\\eyepatch.nif', b'NIF') if on_head else None))
+    builder = SimpleNamespace(writer=writer, equipment=equipment, data_dir=tmp_path, counts=collections.Counter())
+    heads = OH.OwnHeads(builder, 'export')
+    heads.own = {'HAIR': set(), 'EYES': set(), 'RACE': set()}
+    heads._hair_tri = lambda mesh, female, assets: mesh[0][:-4] + 'Chargen.tri'
+    return heads, derived, added, asked
+
+
+def test_a_part_not_drawn_as_hair_is_worn_as_a_new_misc_head_part_per_sex(monkeypatch, tmp_path):
+    """Two men and a woman with FNV's eyepatch: one Misc HDPT per sex, keyed by the FNV HDPT FormID and sex, on
+    its mesh worn in FaceGen Head (32) and written once, with its chargen .tri; each NPC lists its sex's."""
+    monkeypatch.setattr(OH.fnv_npc, 'worn_parts', lambda export_dir, form_id: [EYEPATCH])
+    heads, derived, added, asked = _worn_heads(tmp_path)
+    worn = [heads.of({'FormID': f'0000000{i}'}, female, HeadChoice(), None, None)[1]
+            for i, female in ((1, False), (2, False), (3, True))]
+    assert list(derived) == [(OH.SITE, 'PART 00073D56 male'), (OH.SITE, 'PART 00073D56 female')]
+    assert worn == [[0x800], [0x800], [0x801]] and [a[1:] for a in asked] == [('male', (32,)), ('female', (32,))]
+    subs = dict(subrecords(added[0][1][24:]))
+    assert [sig for sig, _ in added] == ['HDPT', 'HDPT'] and subs[b'EDID'] == b'FNV_Eyepatch_male\0'
+    assert subs[b'PNAM'] == struct.pack('<I', OH.MISC) and subs[b'DATA'] == bytes([hair.MALE])
+    assert subs[b'MODL'] == b'fnv\\own\\Eyepatch_male.nif\0' and subs[b'NAM1'] == b'fnv\\own\\Eyepatch_maleChargen.tri\0'
+    assert (tmp_path / 'Meshes' / 'fnv' / 'own' / 'Eyepatch_female.nif').read_bytes() == b'NIF'
+
+
+def test_a_worn_part_off_the_head_adds_nothing(monkeypatch, tmp_path):
+    """A part whose mesh is not drawn on the head: no record, asked once."""
+    monkeypatch.setattr(OH.fnv_npc, 'worn_parts', lambda export_dir, form_id: [EYEPATCH])
+    heads, derived, added, asked = _worn_heads(tmp_path, on_head=False)
+    for i in range(2):
+        assert heads.of({'FormID': f'0000000{i}'}, False, HeadChoice(), None, None)[1] == []
+    assert not derived and not added and len(asked) == 1
+
+
+def test_worn_parts_follow_the_chosen_parts():
+    """The worn parts join the chosen ones; the stand-in's own Misc part stays."""
+    assets = _assets({0x100: (3, []), 0x300: (3, []), 0x500: (0, [])})
+    subs = b''.join(pack_subrecord('PNAM', struct.pack('<I', p)) for p in (0x300, 0x500))
+    edit = head_parts_edit(HeadChoice(hair=0x100), assets, None, [0x800])
+    assert [struct.unpack('<I', d)[0] for t, d in subrecords(edit(subs)) if t == b'PNAM'] == [0x100, 0x800, 0x500]
 
 
 def test_the_shown_factor_moves_only_the_tone():

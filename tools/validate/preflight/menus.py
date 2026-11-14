@@ -1,7 +1,7 @@
 """The menu checks: a built plugin's dialogue menus against its links file (fo4_import.dialogue_menu), and our
 movies' translation keys against the English file (fo4_import.base.translations).
 
-F3NV.dll lists a Player Dialogue action's option only when the links file
+CleanroomDialogue.dll lists a Player Dialogue action's option only when the links file
 links it to an answer topic holding a line, so: every option of the
 plugin's own menus has a link; every link names such an option and an answer
 topic (the plugin's or a built master's) with a line; every skill check names
@@ -100,17 +100,26 @@ def link_rows(records: Records, options: set, links: list, checks: list) -> dict
                                               if not kind(i, 'INFO') or not kind(v, 'AVIF')]}
 
 
+def links_path(plugin: Path) -> Path:
+    """Built `plugin`'s links file."""
+    return Path(plugin).parent / LINKS / f'{Path(plugin).stem}.txt'
+
+
+def plugin_links(index, plugin: Path) -> tuple:
+    """read_links of built `plugin`'s links file, FormIDs in `index`'s numbering."""
+    return read_links(links_path(plugin), [m.lower() for m in index.masters] + [Path(plugin).name.lower()])
+
+
 def audit(game: str, index, plugin: Path, masters: list) -> list:
     """One error per kind of links fault in built `plugin` (masters: its built masters' paths)."""
     topics = player_topics(index)
     options = {info.form_id for info in index.by_type['INFO'] if info.parent_dial in topics and index.is_own(
         info.form_id)}
-    path = Path(plugin).parent / LINKS / f'{Path(plugin).stem}.txt'
+    path = links_path(plugin)
     if options and not path.is_file():
         return [Finding('dialogue', f'dialogue|{game}|menu|no links file', 'error',
                         f'{len(options)} menu options but no {path.name}: F3NV.dll lists none of them', ())]
-    names = [m.lower() for m in index.masters] + [Path(plugin).name.lower()]
-    found = link_rows(Records(index, masters), options, *read_links(path, names))
+    found = link_rows(Records(index, masters), options, *plugin_links(index, plugin))
     return [Finding('dialogue', f'dialogue|{game}|menu|{kind}', 'error', f'{len(rows)} {kind} in {path.name}',
                     tuple(rows[:SAMPLES])) for kind, rows in found.items() if rows]
 

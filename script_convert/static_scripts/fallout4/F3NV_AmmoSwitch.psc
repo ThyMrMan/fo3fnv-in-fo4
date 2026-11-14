@@ -1,5 +1,5 @@
 ScriptName F3NV_AmmoSwitch extends Quest Hidden
-{FNV's Ammo Type hotkey on Fallout 4. Cycle() loads the equipped gun's next round of its FNV ammo list that the player carries, wrapping around, by attaching that round's ammo mod to the gun (AttachModToInventoryItem, vanilla Papyrus), and shows the round's name. The lists come from every plugin's rows (F3NV_AmmoSwitchSource, the game's on this quest), registered in Sources; Gather() merges them by list keyword into Lists/Starts/Rounds/Mods/Loaded/Notes (a group g's rounds are Rounds[Starts[g]] to [Starts[g + 1] - 1]) at start, on each game load and when a plugin registers. The quest gives the player the hotkey item once, and hands the lists to the F3NV plugin for the Pip-Boy's ammo list (F3NV_PipboyAmmo), whose choice it loads. See docs/fork/fo4_pipeline.md#ammo-switch-sources}
+{FNV's Ammo Type hotkey on Fallout 4. Cycle() loads the equipped gun's next round of its FNV ammo list that the player carries, wrapping around, by attaching that round's ammo mod to the gun (AttachModToInventoryItem, vanilla Papyrus), and shows the round's name. The lists come from every plugin's rows (F3NV_AmmoSwitchSource, the game's on this quest), registered in Sources; Gather() merges them by list keyword into Lists/Starts/Rounds/Mods/Loaded/Notes (a group g's rounds are Rounds[Starts[g]] to [Starts[g + 1] - 1]) at start, on each game load and when a plugin registers. The quest gives the player the hotkey item once, and hands the lists to the F3NV plugin for the Pip-Boy's ammo list (CRUI_PipboyAmmo), whose choice it loads. See docs/fork/fo4_pipeline.md#ammo-switch-sources}
 
 FormList Property Sources Auto Const
 {Every plugin's ammo lists (F3NV_AmmoSwitchSource quests), each added by its quest as it starts.}
@@ -23,12 +23,12 @@ Event OnQuestInit()
     player.AddItem(Hotkey, 1, True)
   EndIf
   RegisterForRemoteEvent(player, "OnPlayerLoadGame")
-  RegisterForExternalEvent("FNVAmmoSwitch", "OnPipboyAmmo")
+  RegisterForExternalEvent("CRUI_AmmoSwitch", "OnPipboyAmmo")
   Gather()
 EndEvent
 
 Event Actor.OnPlayerLoadGame(Actor akSender)
-  RegisterForExternalEvent("FNVAmmoSwitch", "OnPipboyAmmo")
+  RegisterForExternalEvent("CRUI_AmmoSwitch", "OnPipboyAmmo")
   Gather()
 EndEvent
 
@@ -65,7 +65,7 @@ Function Gather()
     i += 1
   EndWhile
   Starts.Add(Rounds.Length)
-  F3NV_PipboyAmmo.SetLists(Lists, Starts, Rounds, Mods)
+  CRUI_PipboyAmmo.SetLists(Lists, Starts, Rounds, Mods)
 EndFunction
 
 Function GatherList(Form akList)
@@ -96,9 +96,9 @@ Function GatherList(Form akList)
 EndFunction
 
 Function OnPipboyAmmo()
-  {Load the round chosen in the Pip-Boy's ammo list (the plugin sends FNVAmmoSwitch as it is confirmed).}
-  Weapon gun = F3NV_PipboyAmmo.ChosenGun() as Weapon
-  Int m = F3NV_PipboyAmmo.TakeChoice()
+  {Load the round chosen in the Pip-Boy's ammo list (the plugin sends CRUI_AmmoSwitch as it is confirmed).}
+  Weapon gun = CRUI_PipboyAmmo.ChosenGun() as Weapon
+  Int m = CRUI_PipboyAmmo.TakeChoice()
   Debug.Trace("TES4AmmoSwitch|Pip-Boy|" + gun + "|round " + m)
   If gun && m >= 0
     Load(Game.GetPlayer(), gun, m)

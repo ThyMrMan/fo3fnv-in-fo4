@@ -12,6 +12,7 @@ import shutil
 
 from asset_convert.collision.collision_extract import bounds_cache_is_current
 from core.plugin_masters import masters_from_export_header
+from fo4_import import cleanroom
 from fo4_import.base.bink import source_movies
 from output_layout import assets_for
 from script_convert.cross_ref import CrossRefGraph, export_dirs_with_masters
@@ -86,10 +87,11 @@ def load_bounds_cache(export_dir: str) -> str:
 
 
 def _static_scripts() -> dict:
-    """{name: path} of static .psc for the target; fallout4/ overrides on FO4."""
+    """{name: path} of static .psc for the target; on FO4, fallout4/ overrides and Cleanroom UI's scripts."""
     dirs = [_STATIC_DIR] + ([os.path.join(_STATIC_DIR, 'fallout4')] if is_fallout4() else [])
-    return {n: os.path.join(d, n) for d in dirs if os.path.isdir(d)
-            for n in os.listdir(d) if n.endswith('.psc') and not (is_fallout4() and is_unused(n[:-4]))}
+    found = {n: os.path.join(d, n) for d in dirs if os.path.isdir(d)
+             for n in os.listdir(d) if n.endswith('.psc') and not (is_fallout4() and is_unused(n[:-4]))}
+    return {**found, **({n: str(p) for n, p in cleanroom.scripts().items()} if is_fallout4() else {})}
 
 
 def _deploy_static(path: str, dest: str) -> None:

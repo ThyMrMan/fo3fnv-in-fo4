@@ -158,7 +158,7 @@ FNV-folder clips go to the CK's AnimTextData run.
 | 2 | [Step 4](#fall-through): vanilla fall-through clips with the left hand carried | built |
 | 3 | [Step 3](#third-person-ik): every on-gun third-person clip's target carried | built |
 | 4 | A third-person keyword for the 14 guns without an entry | follow-up |
-| 5 | [Step 1](#third-person-clips): FNV's own third-person clips | open |
+| 5 | [Step 1](#third-person-clips): FNV's own third-person clips | built |
 
 ## <a id="third-person-clips"></a>1. FNV's own third-person clips
 
@@ -178,6 +178,44 @@ the vanilla third-person names, in the gun's folder.
 - Done when the five played guns look the same in third person as in first:
   the left hand on the gun while standing, walking, sighted, firing and
   reloading.
+
+**Built 2026-11-13, not played** (`gun_third`, the third `VIEWS` entry).
+Third person writes `PLAN[1]`'s clips from FNV's `characters\_male` clips
+onto FO4's human skeleton, in `Actors\FNV\Character\Animations\<gun>`, which
+every third-person entry of the gun searches first (`_with_targets`).
+- Vanilla's third-person weapon clips are whole poses (blend hint 0, every
+  one of the Hunting Rifle entry's 412), not upper-body layers, and the
+  moving ones move the legs (pelvis and leg rotation ranges up to 0.74 rad).
+  So the standing clips play FNV's whole pose. A moving clip is a **stride**
+  (`PLAN[0]`'s `'stride'`): FNV's aim pose held for vanilla's length at 30
+  fps, its Root, COM position, Pelvis and legs vanilla's per frame
+  (`walk_legs`), so the feet land where vanilla's do and COM keeps FNV's turn.
+- FO4 keeps separate `Player\` walk and run clips beside the NPC ones (the
+  10mm, LaserGun and SubmachineGun templates all do), and an entry's speed
+  data is its own clip's. So one stride is written per vanilla clip it
+  stands in for, in the gun's mirror of that clip's folder (`_strides`,
+  `gun_folder`). A single stride from the player's walk put the NPC walk's
+  feet 30–60 units off vanilla's.
+- `WeaponIKTargetL` is FNV's left hand on our mesh in every third-person
+  clip. Off-screen moves, the first-person fall-through copies
+  (`_carried`) and the neutral additive layers stay first person only: NPCs
+  aim with vanilla's layers.
+- `GUN_CLIPS_VERSION` 4: every gun's clips rebuild.
+
+Measured with `gun_quick_convert` on the 9mm Pistol, Assault Carbine,
+Flamer and Tesla Cannon (the Hunting Rifle is a replacement, not converted):
+- Stride feet against the vanilla clip each stands in for, NPC and player
+  walk and run: within 0.01 units on all four.
+- Left-hand target to our mesh while standing, sighted, firing and walking:
+  9mm 3.6, carbine 4.9–5.2, Tesla 5.0; the Flamer 17.3 idle and 6.4 firing,
+  where vanilla's own flamer target sits 14.7 from vanilla's mesh. The left
+  middle finger is 2.8 off the 9mm. In reloads the hand leaves the gun
+  (41–55).
+- The Weapon bone, relative to Root, sits 10–49 units from the template's
+  in the same clip: FNV's hold, not FO4's (largest in the 9mm's run).
+- AnimTextData: all 528 (9mm) and 193 (carbine) third-person entries have
+  their file data, each listing the template's clip count, every clip on
+  disk or in vanilla's archives.
 
 ## <a id="entry-variants"></a>2. Every entry variant, and power armor
 
@@ -259,6 +297,11 @@ no longer match them. Write those entries' offsets the way
 
 Done when the gun entries' AnimTextData comes from the CK, and NPCs aim the
 converted guns at the player (played).
+
+**Covered by step 1, not played.** `gun_anim_text.copied_entries` copies
+only entries whose file data names no FNV clip the graph plays. Every
+third-person gun entry now names some, so `anim_text.own_clips` computes
+their offsets from our clips, with the template's speed and stance data.
 
 ## <a id="fov"></a>6. FNV's on-screen size
 

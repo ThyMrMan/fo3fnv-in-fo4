@@ -110,6 +110,23 @@ def target_features(target: Path, model: dict) -> 'tuple | None':
     return eta_inputs.export_features(own, eta_inputs.has_masters(target), model), False
 
 
+def planned(stamp: Path, profile: str = 'full') -> 'dict | None':
+    """{group: seconds} a rebuild of the plugin whose finished `.build.json` is `stamp` should take on this machine
+    (its counts, as cached as they were); None without a finished build."""
+    model = load()
+    found = target_features(Path(stamp), model)
+    return predict(model, found[0], None, benchmark(), profile) if found else None
+
+
+def overran(plan: dict, stages: dict, top: int = 2) -> list:
+    """The stages (of {stage: seconds}) of the `top` groups that ran furthest past their `plan` ({group: seconds}),
+    each group's slowest stage: what to profile next (F3NV_PROFILE_STAGES)."""
+    spent = eta_inputs.grouped(stages)
+    over = sorted(spent, key=lambda g: plan.get(g, 0.0) - spent[g])[:top]
+    return [max((s for s in stages if eta_inputs.group_of(s) == g), key=stages.get) for g in over
+            if spent[g] > plan.get(g, 0.0)]
+
+
 def minutes(seconds: float) -> str:
     """'N min', at least 1."""
     return f'{max(1, round(seconds / 60))} min'

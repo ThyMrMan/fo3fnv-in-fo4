@@ -3916,8 +3916,16 @@ BA2s (GNRL, and DX10 as a one-mip DDS), so no reference copy is read.
   fitted to the rest). FO4's base face texture has brows painted in, as
   FNV's does, and FO4's brow options are all dark: for Doc (silver brows
   over dark painted ones) none is chosen.
-- **FNV head parts** have no type: centred below the eye mesh they are facial
-  hair, above it brows, otherwise reported. The FNV export has no NPC PNAM
+- **FNV head parts** have no type: a part drawn as hair, centred below the
+  eye mesh, is facial hair, above it brows, otherwise reported. Drawn as hair
+  means its mesh's texture set names a hair layer (slot 2, the `_hl`): all 20
+  beard and brow meshes of FalloutNV.esm and its DLCs do and are
+  alpha-blended; the one other mesh, `Eyepatch.NIF` (opaque, no `_hl`), does
+  not. Placed by its centre alone the eyepatch (strap above the eyes) was a
+  brow: painted in hair colour onto the face texture over the eye and across
+  the brow, and fitted as brow tint (13 FalloutNV NPCs, Tommy Torini among
+  them). It is now worn as its own Misc head part
+  ([worn parts](fo4_facegen_plan.md#worn-parts)). The FNV export has no NPC PNAM
   and dumps HDPT as sizes, so both are read from FalloutNV.esm. `export\` is
   shared with the Skyrim fork, whose exporter has moved on, so the export is
   not redone from this repo.
@@ -4740,8 +4748,9 @@ it settles for a converter that has none of those:
     `meleeStart_Left` and `meleeStart_Power` were "not processed by the
     graph". The working one is a state's own transition; every ignored
     one is a state machine's wildcard transition. Cause: every vanilla
-    wildcard transition carries `FLAG_IS_LOCAL_WILDCARD` (0x800; 842 alone,
-    321 with `ALLOW_SELF_TRANSITION_BY_TRANSITION_FROM_ANY_STATE`, 0xA00),
+    wildcard transition carries `FLAG_IS_LOCAL_WILDCARD` (0x800) or the global
+    flag 0x400 (over all 147 actor graphs: 1,299, 360 and 229 with both, none
+    with neither; [graph check](fo4_own_rig.md#graph-check)),
     state transitions mostly 0 (2,210); our builder wrote 0 on wildcards,
     so Havok never matched them (the root's `Ragdoll` wildcards included:
     the gecko could never ragdoll). Fixed in the builder; test 15 rebuilt
@@ -4860,8 +4869,9 @@ it settles for a converter that has none of those:
     launches; with only ours, frozen in 8 of 8; ours rewritten in the new
     layout (forward 62.5 / 578.6 / 1012.6, the FNV clips' root speeds),
     moved in 8 of 8 (test 40). Rules: write `SPED` in the layout of the
-    form version written, and give a creature graph only its own
-    `iState_` variable. Ruled out on the way, each by a freeze: the
+    form version written, and give no two `iState_` variables the value
+    the graph starts at (vanilla graphs have several, each at its own value:
+    [graph check](fo4_own_rig.md#graph-check)). Ruled out on the way, each by a freeze: the
     subgraph entry, attack data, CK-generated AnimTextData, our clips and
     skeleton, IDLE and action lookup (`PlayIdleAction` worked while
     frozen), graph-driven movement. A Papyrus trace (`GeckoTrace`) and a
