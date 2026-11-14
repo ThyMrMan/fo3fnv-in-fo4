@@ -795,7 +795,7 @@ class ScriptConverter:
         if stmt.op:
             if self._is_global_target(target):
                 return f'{target}.SetValue({self._global_read(target)} {stmt.op} {value})'
-            return f'{target} = {target} {stmt.op} {value}'
+            return self._typed_assign(target, f'{target} {stmt.op} {value}', stmt.value, extends)
         say, delay = _split_say(self, stmt.value, extends)
         if say is not None:
             return self._emit_say_line(target, say, delay)

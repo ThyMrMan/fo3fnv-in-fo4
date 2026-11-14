@@ -88,7 +88,8 @@ def _called_live(text: str, callee: str) -> bool:
 
 def _declare(text: str, forms: list, is_function: bool) -> str:
     """`text` declaring `forms` it does not: a function's TES4Call gains parameters, any other script properties."""
-    missing = [(p, t) for p, t in forms if not re.search(rf'\b\w+(?:\[\])?\s+(?:Property\s+)?{p}\b', text, re.I)]
+    code = re.sub(r';[^\n]*', '', text)
+    missing = [(p, t) for p, t in forms if not re.search(rf'\b\w+(?:\[\])?\s+(?:Property\s+)?{p}\b', code, re.I)]
     if not missing:
         return text
     if is_function:

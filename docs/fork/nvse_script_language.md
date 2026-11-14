@@ -24,6 +24,11 @@ Oblivion.esm (2,393) before and after: the output is byte-identical.
 `+= -= *= /= ^=` all become one assignment; a compound one is spelled out
 (`x = x + e`), and `^=` becomes `Math.Pow`. `int a, b` and `int i = 5`
 declare every name and keep the value as an assignment where it was.
+A compound one is cast to its target's type as a `set` is: Extra Goodies'
+`NVDLC02FollowersBanterSCRIPT` writes `fTimer -= GetSecondsPassed` into a
+`short`, and `fTimer = fTimer - TES4_SecondsPassed` (Float into Int) failed
+to compile. `let array_var x := e` also declares `x` (Better Brotherhood's
+self-destruct terminal handler).
 `if eval e` and `while eval e` drop the `eval`; Papyrus evaluates the whole
 expression anyway. A script that declares its own variable `Eval`
 (Oblivion's `Dark17FollowingScript`) keeps reading it as that variable.
@@ -110,6 +115,10 @@ bases to Actor types and filled the Papyrus log with wrong-type errors.
 A function calling another passes the callee's forms too, so
 `udf_fallout4.finish_calls` closes the set over the call graph after every
 script has converted and rewrites the calls and declarations once.
+
+A command with an implicit reference (`GetItemCount X`, `RemoveItem X`)
+acts on the calling reference, `akCallingRef`; written bare in a Global
+function it named nothing (Goodies' `GoodiesSecuritronUpgradeUDF`).
 
 `SetFunctionValue v` sets the result variable; `Return` returns it.
 Typed parameters (`Begin Function {ref rItem, int iCount}`) are declared

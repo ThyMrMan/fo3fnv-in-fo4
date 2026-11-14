@@ -253,7 +253,14 @@ def _bare(conv, call, papyrus_func: str, args: str, needs_self: bool,
         # compile at exactly this point).
         return (f'{conv._resolve_objref_ref(None, extends)}'
                 f'.{papyrus_func}({args})')
-    return f'{papyrus_func}({args})'
+    return _udf_self(conv, needs_self) + f'{papyrus_func}({args})'
+
+
+def _udf_self(conv, needs_self: bool) -> str:
+    """`Self.` for an implicit-reference call in a UDF (its calling ref), else ''.
+    See: docs/fork/nvse_script_language.md#functions
+    """
+    return 'Self.' if needs_self and conv.sc.in_udf else ''
 
 
 def as_statement(conv, result: str) -> str:
