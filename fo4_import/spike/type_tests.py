@@ -28,6 +28,10 @@ CREATURE_TYPES = ('Animal', 'MutatedAnimal', 'MutatedInsect', 'Abomination', 'Su
                   'Giant')
 #: EditorID prefix of the creature type keywords (also the converted scripts' property names).
 CREATURE_TYPE_PREFIX = 'FNV_CreatureType'
+#: EditorID prefix of the keywords marking an armor's FNV biped slots (BMDT flags 0-19), and FO4 ARMO's tag before KSIZ.
+BIPED_SLOT_PREFIX, BIPED_SLOTS, ARMO_KEYWORDS_AFTER = 'FNV_BipedSlot', 20, (b'RNAM',)
+#: FNV's weapon biped slot (GetEquippedObject 5 is the weapon held).
+WEAPON_SLOT = 5
 #: FNV WEAP DNAM offsets of the animation type (u32) and skill (s32 actor value); CREA DATA offset of the type (u8).
 DNAM_ANIM, DNAM_SKILL, DATA_TYPE = 0, 104, 0
 #: FNV WEAP: CRDT's Crit % Mult (float at 4); DNAM's Flags1 (byte 12, 0x2 automatic) and Fire Rate (float at 64).
@@ -70,6 +74,10 @@ class TypeKeywords:
                 subs = dict(subrecords(rec.body))
                 self.fields[rec.form_id] = weapon_names(subs) if rec.sig == b'WEAP' else creature_names(subs)
         return self.fields
+
+    def slots(self, flags: int) -> list:
+        """The keywords marking each FNV biped slot set in BMDT biped `flags`."""
+        return [self.keyword(f'{BIPED_SLOT_PREFIX}{n}') for n in range(BIPED_SLOTS) if flags >> n & 1]
 
     def of(self, fnv: int) -> list:
         """The keywords marking FNV weapon or creature `fnv`."""
@@ -132,16 +140,26 @@ def skill_keyword(skill: int) -> str:
     return 'FNV_WeaponSkill' + C.FNV_AV_NAMES[skill].replace(' ', '')
 
 
+def equipped_slot(arg: str) -> 'int | None':
+    """The FNV biped slot `arg` names; None for a variable or out of range."""
+    text = arg.strip()
+    return int(text) if text.isdigit() and int(text) < BIPED_SLOTS else None
+
+
 def creature_keyword(kind: int) -> str:
     """EditorID of the keyword of FNV creature type `kind`."""
     return f'{CREATURE_TYPE_PREFIX}{CREATURE_TYPES[kind]}'
 
 
-def with_keywords(subs: list, keywords: list) -> list:
-    """Subrecords [(tag, data)] with `keywords` added to KSIZ/KWDA; unchanged without a KWDA or keywords."""
+def with_keywords(subs: list, keywords: list, after: tuple = ()) -> list:
+    """Subrecords [(tag, data)] with `keywords` added to KSIZ/KWDA, which follow the last of `after` when there
+    are none; unchanged without keywords, or without a KWDA and any of `after`."""
     have = next((d for t, d in subs if t == b'KWDA'), None)
-    if not keywords or have is None:
+    at = max((i for i, (tag, _) in enumerate(subs) if tag in after), default=None)
+    if not keywords or have is None and at is None:
         return subs
+    if have is None:
+        subs, have = subs[:at + 1] + [(b'KSIZ', struct.pack('<I', 0)), (b'KWDA', b'')] + subs[at + 1:], b''
     ids = list(struct.unpack(f'<{len(have) // 4}I', have)) + [k for k in keywords if struct.pack('<I', k) not in have]
     return [(t, struct.pack('<I', len(ids)) if t == b'KSIZ' else struct.pack(f'<{len(ids)}I', *ids) if t == b'KWDA'
              else d) for t, d in subs]
@@ -155,11 +173,8 @@ def keywords_edit(keywords: list):
 
     def edit(subs: bytes) -> bytes:
         """The subrecords with the keywords added."""
-        found = list(subrecords(subs))
-        if not any(tag == b'KWDA' for tag, _ in found):
-            last = max(i for i, (tag, _) in enumerate(found) if tag in NPC_KEYWORDS_AFTER)
-            found[last + 1:last + 1] = [(b'KSIZ', struct.pack('<I', 0)), (b'KWDA', b'')]
-        return b''.join(pack_subrecord(t.decode(), d) for t, d in with_keywords(found, keywords))
+        found = with_keywords(list(subrecords(subs)), keywords, NPC_KEYWORDS_AFTER)
+        return b''.join(pack_subrecord(t.decode(), d) for t, d in found)
     return edit
 
 

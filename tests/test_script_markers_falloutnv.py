@@ -10,6 +10,7 @@ from script_convert.converter import ScriptConverter
 from script_convert.cross_ref import CrossRefGraph, authored_trigger_blocks
 from script_convert.constants import papyrus_script_name
 from script_convert.emit import script as _S
+from script_convert import symbols as _symbols
 from script_convert.tes4 import nodes as N
 from script_convert.tes4.parser import Mode, parse
 
@@ -193,6 +194,19 @@ def test_creature_type_stays_in_an_and_guard(converter):
     out = _lines(converter, source, 'ActiveMagicEffect')
     assert 'BoxRef.HasKeyword(FNV_CreatureTypeRobot)' in out and ';NE:' not in out
     assert converter.sc.property_refs['FNV_CreatureTypeRobot'] == 'Keyword'
+
+
+def test_equipped_object_reads_the_slot(converter):
+    """GetEquippedObject 0 is the armor marked FNV_BipedSlot0; slot 5 is the weapon held."""
+    out = _lines(converter, 'if (rNPC.GetEquippedObject 0 == 0 && rNPC.GetEquippedObject 5 == 0)\nendif', 'Quest')
+    assert 'F3NV_Items.EquippedIn(' in out and 'FNV_BipedSlot0)' in out and '.GetEquippedWeapon()' in out
+    assert converter.sc.property_refs['FNV_BipedSlot0'] == 'Keyword' and ';NE:' not in out
+
+
+def test_equipped_object_of_a_biped_slot_is_armor(converter):
+    """A variable set from GetEquippedObject 2 holds Armor; from slot 5, a Weapon."""
+    calls = parse('scn X\nbegin GameMode\nset r to Player.GetEquippedObject 2\nset r to GetEquippedObject 5\nend')
+    assert [_symbols.type_of_expr(s.value, lambda name: '') for s in calls.blocks[0].body] == ['Armor', 'Weapon']
 
 
 def test_dlc_installed_asks_for_the_plugin(converter):

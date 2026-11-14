@@ -33,6 +33,8 @@ from script_convert.tes4 import nodes as N
 from dataclasses import dataclass, field
 
 from fo4_import.cleanroom import SCRIPTS as CLEANROOM_SCRIPTS
+from fo4_import.spike.type_tests import WEAPON_SLOT, equipped_slot
+from script_convert.target import is_fallout4
 
 from script_convert.constants import (
     AXIS_COMMANDS, KNOWN_GLOBALS, NUMERIC_RANK, RETURN_TYPES,
@@ -110,13 +112,22 @@ def _call_type(node) -> str:
     """A call's return type: command_return_type, the axis folded in (`GetAngle Z` is Papyrus `GetAngleZ`),
     or Float for a global's read (`GetGlobalValue <g>` is `<g>.GetValue()`)."""
     low = node.name.lower()
-    hit = command_return_type(low)
+    hit = _equipped_type(node) or command_return_type(low)
     axis = _bare(node.args[0]).strip().lower() if not hit and low in AXIS_COMMANDS and node.args else ''
     if axis in ('x', 'y', 'z'):
         return RETURN_TYPES.get(AXIS_COMMANDS[low] + axis, '')
     if not hit and low in ('getglobalvalue', 'getglobal'):
         return 'Float'
     return hit or ''
+
+
+def _equipped_type(node) -> str:
+    """Armor for FNV GetEquippedObject of a non-weapon slot on Fallout 4.
+    See: docs/fork/fo4_perks.md#biped-slots
+    """
+    named = node.args and node.name.lower() == 'getequippedobject' and isinstance(node.args[0], N.Literal)
+    slot = equipped_slot(node.args[0].text) if named else None
+    return 'Armor' if is_fallout4() and slot not in (None, WEAPON_SLOT) else ''
 
 
 def _binop_type(node, lookup) -> str:

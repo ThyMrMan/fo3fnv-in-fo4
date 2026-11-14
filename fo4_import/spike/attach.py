@@ -31,7 +31,7 @@ from fo4_import.spike.say_topics import blocker, conditions_of, conditions_under
 from script_convert.quest_var_mirrors import PREFIX as QVAR_PREFIX
 from fo4_import.spike.script import base_forms, declared_properties, fill, prefix
 from fo4_import.spike.script_effects import ScriptEffects
-from fo4_import.spike.type_tests import CREATURE_TYPE_PREFIX
+from fo4_import.spike.type_tests import BIPED_SLOT_PREFIX, CREATURE_TYPE_PREFIX
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.writer import pack_string_subrecord
 from tes5_import.record_types.crime_falloutnv import ENEMY_LIST_EDID
@@ -69,7 +69,7 @@ NAMED_MAKERS = {'ImageSpaceModifier': ('imods', 'modifier'), 'Package': ('packag
 #: (Papyrus type, name prefix) -> the ObjectScripts method making such a property's form.
 PREFIXED_MAKERS = {('MatSwap', FALLOUT4_SWAP_PREFIX): '_swap', ('Armor', FALLOUT4_SCREEN_PREFIX): '_screen',
                    ('ObjectReference', FALLOUT4_POSE_PREFIX): '_pose', ('Keyword', FAMILY_PREFIX): '_family',
-                   ('Keyword', CREATURE_TYPE_PREFIX): '_type_keyword'}
+                   ('Keyword', CREATURE_TYPE_PREFIX): '_type_keyword', ('Keyword', BIPED_SLOT_PREFIX): '_type_keyword'}
 #: Papyrus type -> the ObjectScripts method making a property of that type by its name.
 TYPED_MAKERS = {'GlobalVariable': '_global_form', 'FormList': '_list_form', 'Spell': '_spell_form',
                 'ActorBase': 'actor_base'}
@@ -202,7 +202,7 @@ class ObjectScripts:
         return self.effects.family_named(prop)
 
     def _type_keyword(self, prop: str) -> int:
-        """An `FNV_CreatureType<type>` keyword (type_tests.TypeKeywords)."""
+        """A creature type or biped slot keyword (type_tests.TypeKeywords)."""
         return self.builder.type_keywords.keyword(prop)
 
     def _global_form(self, prop: str) -> 'int | None':

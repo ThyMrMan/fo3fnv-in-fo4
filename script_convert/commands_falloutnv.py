@@ -12,7 +12,7 @@ See: docs/commentary/script_convert.md#getfactionrelation-has-two-receivers
 """
 
 from fo4_import.base.bink import movie_key
-from fo4_import.spike.type_tests import CREATURE_TYPES, creature_keyword
+from fo4_import.spike.type_tests import BIPED_SLOT_PREFIX, CREATURE_TYPES, WEAPON_SLOT, creature_keyword, equipped_slot
 from script_convert.constants import (FALLOUT4_POSE_PREFIX, fallout4_screen_property, fallout4_swap_property,
                                       papyrus_script_name, safe_property_name, typed_already)
 from script_convert.anim_action_falloutnv import anim_action
@@ -308,6 +308,23 @@ def creature_type(ctx, call):
     return emit_row(ctx, row, call.ref, call.raw_name, '', call.extends)
 
 
+def equipped_object(ctx, call):
+    """FNV `GetEquippedObject <slot>` on Fallout 4: the weapon slot's GetEquippedWeapon, another biped slot's
+    F3NV_Items.EquippedIn (the armor the build marks with that slot's keyword); declines elsewhere.
+    See: docs/fork/fo4_perks.md#biped-slots
+    """
+    if not is_fallout4():
+        return None
+    slot = equipped_slot(call.arg(0))
+    if slot is None:
+        return ctx.note(f'NE: GetEquippedObject {call.arg(0).strip()} - the slot must be a number', 'None')
+    keyword = f'{BIPED_SLOT_PREFIX}{slot}'
+    row = (Cmd('{ref}.GetEquippedWeapon()', ACTOR, flags='actor_only', max_args=0) if slot == WEAPON_SLOT else
+           Cmd(f'F3NV_Items.EquippedIn({{ref}}, {keyword})', ACTOR, self_type=(keyword, 'Keyword'),
+               flags='actor_only', max_args=0))
+    return emit_row(ctx, row, call.ref, call.raw_name, '', call.extends)
+
+
 def dlc_installed(ctx, call):
     """FNV `IsDLCInstalled "<name>"` on Fallout 4: Game.IsPluginInstalled of the name's plugin (spaces dropped,
     `.esm`: "Tribal Pack" is TribalPack.esm); declines elsewhere or without a name.
@@ -546,6 +563,7 @@ FALLOUT_HANDLERS = {'getfactionrelation': faction_relation,
                     'isactorrefessential': is_essential,
                     'getiscreaturetype': creature_type,
                     'isdlcinstalled': dlc_installed,
+                    'getequippedobject': equipped_object,
                     'setbroadcaststate': broadcast_state,
                     'startradioconversation': start_radio_conversation,
                     'setnpcradio': npc_radio,

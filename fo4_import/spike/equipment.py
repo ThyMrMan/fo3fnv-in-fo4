@@ -36,7 +36,7 @@ See: docs/fork/fo4_spikes.md#spike-4-outfits
 import struct
 from pathlib import Path
 
-from fo4_import.spike.type_tests import with_keywords
+from fo4_import.spike.type_tests import ARMO_KEYWORDS_AFTER, with_keywords
 from fo4_import.spike.ammo_mods import AmmoMods
 from fo4_import.spike.condition import Condition
 from fo4_import.base import strings
@@ -425,7 +425,9 @@ class Equipment:
         own = self._own_models(fnv, rec, template) if self._entry(rec).mode == 'fnv' else None
         subs.update(own or {})
         dropped = tuple(s for s in OWN_MODEL_DROPPED if b'MOD2' in subs or s not in WORLD_MODEL_DATA) if own else ()
-        return self._write('ARMO', fnv, self._enchant(fnv, rec, self._copy(rec, subs, [] if own else None, dropped)))
+        copy = self._enchant(fnv, rec, self._copy(rec, subs, [] if own else None, dropped))
+        slots = self.builder.type_keywords.slots(int(rec.get('BMDT.BipedFlags', 0)))
+        return self._write('ARMO', fnv, with_keywords(copy, slots, ARMO_KEYWORDS_AFTER))
 
     def _own_models(self, fnv: int, rec: dict, template: dict) -> 'dict | None':
         """_headgear() or _outfit() of FNV ARMO `rec`; None, counted by why (_on_template, or a source fault, which
