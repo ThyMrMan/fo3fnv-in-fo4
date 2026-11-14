@@ -152,20 +152,24 @@ def converted_prefix(scripts_dir: Path) -> str:
     return namespace_for(record_dir(ROOT / 'export', scripts_dir.name)).upper() + '_'
 
 
-def with_types(scripts_dir: Path, names, prefix: str) -> set:
-    """`names` and every converted script (`prefix` names) they name, transitively: a script whose types are
-    missing does not link. Each script's named types are kept between builds by file stamp (file_stamps)."""
-    known = {p.stem.upper(): p.stem for p in scripts_dir.glob(f'{prefix}*.psc')}
+def with_types(dirs: list, names, prefix: str) -> set:
+    """`names` and every converted script (`prefix` names) they name, transitively, found in `dirs` (the first
+    wins): a script whose types are missing does not link. Each script's named types are kept between builds by
+    file stamp (file_stamps).
+    See: docs/fork/fo4_plugin_layout.md#adopted-types
+    """
+    known = {p.stem.upper(): p for d in reversed(dirs) for p in Path(d).glob(f'{prefix}*.psc')}
     converted = re.compile(rf'\b{re.escape(prefix)}\w+', re.I)
     found = lambda path: sorted({t.upper() for t in converted.findall(path.read_text(encoding='utf-8'))})
-    stamps = Stamps(STAGE / f'types_{hashlib.sha1(f"{scripts_dir}|{prefix}".lower().encode()).hexdigest()[:12]}.json')
+    stamps = Stamps(STAGE / f'types_{hashlib.sha1(f"{dirs[0]}|{prefix}".lower().encode()).hexdigest()[:12]}.json')
     todo, seen = list(names), set()
     while todo:
         name = todo.pop()
         if name in seen:
             continue
         seen.add(name)
-        todo += [known[t] for t in stamps.value(scripts_dir / f'{name}.psc', found) if t in known]
+        path = known.get(name.upper())
+        todo += [known[t].stem for t in (stamps.value(path, found) if path else ()) if t in known]
     stamps.save()
     return seen
 
@@ -203,9 +207,8 @@ def compile_into(scripts_dir: Path, data_dir: Path, fragments: list = (), master
     out.mkdir(parents=True, exist_ok=True)
     prefix = converted_prefix(scripts_dir)
     roots = [DOC_SCRIPT] if (scripts_dir / f'{DOC_SCRIPT}.psc').exists() else []
-    own = [f for f in fragments if not masters or (scripts_dir / f'{f}.psc').exists()]
-    adopted = adopted_scripts([f for f in fragments if f not in own], masters, shipped)
-    wanted = with_types(scripts_dir, [*roots, *own], prefix)
+    wanted = with_types([scripts_dir, *masters], [*roots, *fragments], prefix)
+    adopted = adopted_scripts(sorted(n for n in wanted if not (scripts_dir / f'{n}.psc').exists()), masters, shipped)
     keep = {p.name for p in scripts_dir.glob('*.psc') if p.stem in wanted or not p.stem.upper().startswith(prefix)}
     keep |= {path.name for path in adopted}
     sources = {**{name: scripts_dir / name for name in keep}, **{path.name: path for path in adopted}}

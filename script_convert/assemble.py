@@ -23,7 +23,7 @@ from script_convert.constants import (
 from script_convert.command_rows import (
     COMMAND_ROWS, ACTOR_ONLY_FUNCTIONS, OBJREF_SHARED_FUNCTIONS
 )
-from script_convert import anim_action_falloutnv as _anim, anim_playing_falloutnv as _anim_playing, \
+from script_convert import anim_action_falloutnv as _anim, \
     atomic_adds as _adds, quest_var_mirrors as _quest_vars, symbols as _symbols, trace_points as _trace, \
     udf_fallout4 as _udf4
 from script_convert.poll_motion import relative_sets
@@ -508,11 +508,15 @@ _SELF_RE = re.compile(r'\bSelf\b')
 
 
 def _returning_udf(rtype: str, sig: str, lines: list) -> list:
-    """`TES4Call` returning the `SetFunctionValue` result, at its end and every `return`.
+    """`TES4Call` returning the `SetFunctionValue` result, at its end and every `return`; Int when no value set
+    the type, and a bare 0 set as the result reads None when the function returns a form.
 
     See: docs/commentary/script_convert.md#set-function-value
     """
+    rtype = rtype or 'Int'
     init = {'Int': '0', 'Float': '0.0', 'String': '""', 'Bool': 'False'}.get(rtype, 'None')
+    if init == 'None':
+        lines = [re.sub(rf'^(\s*{UDF_RESULT_VAR} = )0$', r'\1None', line) for line in lines]
     tail = [] if lines and lines[-1].strip().startswith('Return') \
         else [f'  Return {UDF_RESULT_VAR}']
     return ([f'{rtype} Function TES4Call({sig})', f'  {rtype} {UDF_RESULT_VAR} = {init}']
@@ -599,7 +603,7 @@ def events(conv, tree, extends: str, skip_poll: bool = False) -> list:
            + _record_last_activator(conv, merged, order)
            + _track_holder(conv, tree, merged, order)
            + _trigger_repeat(merged, order)
-           + _listen_for_fire(tree, merged, order) + _anim.listen(conv, merged, order) + _anim_playing.declare(conv))
+           + _listen_for_fire(tree, merged, order) + _anim.listen(conv, merged, order))
     for header in order:
         opener, closer = header
         if opener == BLOCK_MAP['ontrigger'][0]:

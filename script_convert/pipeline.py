@@ -52,6 +52,7 @@ from script_convert.poll_interval import quest_script_delays
 from script_convert.quest_fragments import (quest_fragment_psc,
                                             scripted_count, stage_fragments)
 from script_convert.say_durations import scan_voice_durations
+from script_convert.script_helpers import with_helpers
 from script_convert.speech_challenges_falloutnv import reroll_line, speech_helper
 from tes5_import.dialogue.speech_chance_falloutnv import NEED_GLOBALS, rerolls
 from script_convert.force_greet_lines import in_menu_only, menu_only_infos
@@ -498,7 +499,7 @@ def write_psc(output_dir: str, script_name: str, text: str) -> None:
     See: docs/commentary/script_convert.md#dangling-cross-script-read
     """
     path = os.path.join(output_dir, script_name + '.psc')
-    data = _comment_dangling(text).replace('\n', os.linesep).encode('utf-8')
+    data = with_helpers(_comment_dangling(text)).replace('\n', os.linesep).encode('utf-8')
     if _file_bytes(path) != data:
         with open(path, 'wb') as fh:
             fh.write(data)

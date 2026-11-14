@@ -6132,6 +6132,28 @@ Ultimate Edition Loaded" each time. `_master_places` now also holds the masters'
 named references their built plugins hold. A reference this build places still
 wins. No FormIDs move: only property values change.
 
+<a id="formid-properties"></a>**References a script names by FormID
+(2026-11-14).** FNV scripts may name a reference by its quoted FormID
+(YUP's `"15F316".bDoOnce`, `MoveTo "03015284"`), most of them references
+with no EditorID, which a property bound by name could not reach: the
+converter wrote `d15F316`, declared nothing, and the script failed to
+compile. Such a reference is now the property `TES4Form_<FormID>`
+(`constants.formid_property_name`, the export's 8-digit FormID), typed by
+its script as a named one is. The build names every placed reference,
+actor and creature with no EditorID the same way: its own
+(`_ref_name`) and its masters' (`_master_places`; a master's actor through
+the master's ledger, read only). No FormIDs move.
+
+<a id="unique-actors"></a>**An NPC base named where a reference is meant
+(2026-11-14).** FNV resolves a unique NPC's base EditorID to its placed
+actor (`Willow.MoveTo`, `SarahWeintraub.GetDead`), and the converter types
+that property `Actor` or by the NPC's script. The build bound the NPC_ base,
+which FO4's VM refuses ("is not the right type"): Willow, the Vault 21,
+Better Brotherhood and TLD scripts. A property of a reference type
+(`attach._is_reference_type`) whose name is an NPC or creature base placed
+exactly once, by this build or a built master (`cell._unique_actors`), now
+binds that actor; an `ActorBase` property (EDE, Joshua) keeps the base.
+
 <a id="reached-worlds"></a>**`--world reached` (2026-10-25).** A whole build from the app passed
 only `--world WastelandNV`. When it ran into the MO2 folder, it replaced
 the 12-world deploy with WastelandNV alone (285 MB against 383), and

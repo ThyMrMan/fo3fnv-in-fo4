@@ -17,6 +17,7 @@ from script_convert.constants import (FALLOUT4_POSE_PREFIX, fallout4_screen_prop
                                       papyrus_script_name, safe_property_name, typed_already)
 from script_convert.anim_action_falloutnv import anim_action
 from script_convert.anim_playing_falloutnv import anim_playing
+from script_convert.script_helpers import PC_MOVED_CELL
 from script_convert.command_rows import ACTOR, OBJREF, Cmd
 from script_convert.constants_falloutnv import ITEM_TYPE_LISTS
 from script_convert.emit.commands import emit_row
@@ -243,7 +244,8 @@ def weapon_anim_type(ctx, call) -> str:
     differently (a converted rifle is a crossbow).
     See: docs/commentary/script_convert.md#fallout-weapon-anim-type
     """
-    ref = ctx._convert_ref(call.ref, call.extends, as_receiver=True) if call.ref else 'Self'
+    ref = ctx._convert_ref(call.ref, call.extends, as_receiver=True) if call.ref else \
+        ctx._self_reference(call.extends)
     weapon = f'({ref} as Actor).GetEquippedWeapon()'
     for name in WEAPON_ANIM_LISTS.values():
         ctx.sc.property_refs[name] = 'FormList'
@@ -274,6 +276,13 @@ def force_sneak(ctx, call):
     if not is_fallout4() or call.arg(0).strip() != '1':
         return None
     return emit_row(ctx, START_SNEAKING, call.ref, call.raw_name, '', call.extends)
+
+
+def pc_moved_cell(ctx, call):
+    """JIP GetPCMovedCell on Fallout 4: the script's TES4_PCMovedCell().
+    See: docs/fork/nvse_script_language.md#script-helpers
+    """
+    return f'{PC_MOVED_CELL}()' if is_fallout4() else None
 
 
 def set_open_state(ctx, call):
@@ -521,6 +530,7 @@ FALLOUT_HANDLERS = {'getfactionrelation': faction_relation,
                     'entertrigger': enter_trigger,
                     'getanimaction': anim_action,
                     'isanimplaying': anim_playing,
+                    'getpcmovedcell': pc_moved_cell,
                     'setforcesneak': force_sneak,
                     'playbink': play_bink,
                     'isplayertagskill': tag_skill,

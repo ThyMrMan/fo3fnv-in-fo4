@@ -281,9 +281,9 @@ def udf_call(ctx, call) -> str:
     target = call.source(0).strip().rstrip(',')
     if not target:
         return None
-    if not re.fullmatch(r'\w+', target):
-        return ctx.note(f'Call {target} - a function chosen at run time')
     fid = ctx.xref.edid_to_formid.get(target.lower(), '') if ctx.xref else ''
+    if not re.fullmatch(r'\w+', target) or (not fid and target.lower() in ctx.sc.var_types):
+        return ctx.note(f'Call {target} - a function chosen at run time')
     canon = ctx.xref.formid_to_edid.get(fid, target) if fid else target
     prop = papyrus_script_name(canon) if is_fallout4() else safe_property_name(canon)
     if not is_fallout4():

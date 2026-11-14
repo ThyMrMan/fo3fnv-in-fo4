@@ -101,6 +101,13 @@ class NameMap(dict):
             self[key] = value
 
 
+def _is_reference_type(kind: str) -> bool:
+    """Whether a `kind` property holds a placed reference.
+    See: docs/fork/fo4_pipeline.md#unique-actors
+    """
+    return kind in ('Actor', 'ObjectReference') or kind.lower().startswith(prefix().lower())
+
+
 def _kept(_cond: dict) -> None:
     """No test settled up front: each converts or blocks."""
     return None
@@ -122,7 +129,7 @@ class ObjectScripts:
         self.named, self.talks = NameMap([PLAYER]), {}
         self.quest_ids = {r['EditorID'].lower(): r['FormID'] for r in export_records(export_dir, 'QUST')
                           if r.get('EditorID')}
-        self.export_dir, self.actor_bases, self.base_names = export_dir, None, None
+        self.export_dir, self.actor_bases, self.base_names, self.unique_actors = export_dir, None, None, {}
 
     def name(self, scpt: int) -> 'str | None':
         """The converted script of FNV script `scpt`; None when it was not converted."""
@@ -143,8 +150,10 @@ class ObjectScripts:
         talks = {prop: self.talk(prop) for kind, prop in declared
                  if kind == 'Scene' and prop.startswith((FALLOUT4_TALK_PREFIX, FALLOUT4_CHAT_PREFIX))}
         made, named = {prop: self._made(kind, prop) for kind, prop in declared}, self.named_lower()
+        placed = {prop: self.unique_actors[prop.lower()] for kind, prop in declared
+                  if prop.lower() in self.unique_actors and _is_reference_type(kind)}
         return {**props, **talks, **{p: f for p, f in made.items() if f},
-                **{prop: named[prop.lower()] for _, prop in declared if prop.lower() in named}}
+                **{prop: named[prop.lower()] for _, prop in declared if prop.lower() in named}, **placed}
 
     def named_lower(self) -> dict:
         """`named` keyed by lower-case name (NameMap.lower; read only)."""

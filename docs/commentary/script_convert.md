@@ -572,6 +572,31 @@ which has a Papyrus spelling. Highest-frequency, with their real equivalents:
 Making the fallthrough inert is what lets those rows land incrementally: the
 corpus compiles at every step instead of only once the last row is written.
 
+### <a id="bare-self-reads"></a>Bare self-reads: what `Self` is, disabled against destroyed
+
+**Code:** `_fixed_reading` in `script_convert/resolve_name.py`
+
+A bare `IsInInterior`, `GetDisabled`, `GetDestroyed` or `Reset` acts on the
+script's own reference, which `ScriptConverter._self_reference` names by
+script type: `GetTargetActor()` in an effect, `akSpeakerRef` in a dialogue
+fragment, `Self` on a reference. A second copy (`_self_ref`) answered `Self`
+in a dialogue fragment, where `Self` is the TopicInfo; YUP's
+`FALLOUTNV_PM__00177BD8` (`Self.GetParentCell()`) failed to compile
+(2026-11-14).
+
+`GetDisabled` goes through `TES4Polyfill.GetDisabled`, not the bare native:
+a destroyed reference must not report as disabled. Oblivion keeps the two as
+independent bits, and closing a gate sets only destroyed, so its poll
+preambles were never meant to fire for a closed gate.
+
+`GetDestroyed` is neither `IsDisabled()` nor `GetCurrentDestructionStage()`:
+destroyed, disabled and destruction stage are three different engine states.
+Skyrim exposes no reader for the destroyed flag, and the conversion writes no
+DEST subrecord, so `GetCurrentDestructionStage()` is 0 for every converted
+record, a read that can never become true. That broke every quest advancing
+off its own destruction: MS48's Kvatch gate has the only `setstage 50` in
+its chain, so it stuck at stage 10.
+
 ## Silent mis-conversion — the unmarked loss
 <a id="silent-mis-conversion-unmarked-loss"></a>
 

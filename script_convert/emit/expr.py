@@ -31,6 +31,7 @@ from script_convert import resolve_name as _resolve
 from script_convert import symbols as _symbols
 from script_convert.target import is_fallout4, self_as_actor
 from script_convert.tes4 import lexer as L, nodes as N
+from script_convert.tes4.parser import LAMBDA_TEXT
 
 # Papyrus binds `as` tighter than the arithmetic operators, so a cast applied
 # to one operand does not type the whole expression.  These are the operators
@@ -259,7 +260,7 @@ def emit(conv, node: N.Expr, extends: str) -> str:
         return _binop(conv, node, extends)
 
     if isinstance(node, N.Raw):
-        return node.text
+        return conv.note(f'{LAMBDA_TEXT} - not converted', 'None') if node.text == LAMBDA_TEXT else node.text
 
     return ''
 

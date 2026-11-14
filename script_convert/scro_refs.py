@@ -12,8 +12,9 @@ See: docs/commentary/script_convert.md#scro-table-outranks-script-text
 import re
 
 from script_convert.command_rows import KNOWN_COMMANDS
-from script_convert.constants import record_type_to_papyrus, safe_property_name
+from script_convert.constants import safe_property_name
 from script_convert.cross_ref import CrossRefGraph
+from script_convert.resolve_name import papyrus_type_for
 
 #: PlayerRef 0x14 and the player base NPC_ 0x07: both are the `player` keyword, never a bound property.
 _PLAYER_FORMIDS = frozenset({'00000014', '00000007'})
@@ -132,7 +133,7 @@ def add_scro_ref(conv, fid: str, xref: CrossRefGraph) -> None:
     if not edid:
         return
     rtype = xref.record_type.get(fid, '')
-    ptype = record_type_to_papyrus(rtype)
+    ptype = papyrus_type_for(xref, fid, rtype)
     if rtype != 'QUST':
         ptype = xref.get_record_script_type(edid) or ptype
     key = safe_property_name(edid)

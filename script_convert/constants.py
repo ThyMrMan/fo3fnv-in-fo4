@@ -429,6 +429,13 @@ def papyrus_script_name(edid: str, prefix: str = None) -> str:
     return f'{name[:keep]}_{digest}'
 
 
+def formid_property_name(fid: str) -> str:
+    """The property naming an unnamed placed reference by its FormID.
+    See: docs/fork/fo4_pipeline.md#formid-properties
+    """
+    return f'TES4Form_{fid.upper().zfill(8)}'
+
+
 def safe_property_name(name: str) -> str:
     """Return a Papyrus-safe property name, renaming reserved words."""
     # Oblivion's parser accepts quotes around any EditorID and Nehrim's authors

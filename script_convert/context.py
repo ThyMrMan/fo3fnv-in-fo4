@@ -87,8 +87,8 @@ class ScriptContext:
     udf_returns: bool = False
     #: Set while a user function's body converts: its `Self` is the calling reference.
     in_udf: bool = False
-    #: Papyrus type of the first `SetFunctionValue`, the UDF's return type.
-    udf_return_type: str = 'Int'
+    #: Papyrus type of the first `SetFunctionValue` other than a bare 0, the UDF's return type ('' none yet: Int).
+    udf_return_type: str = ''
     #: Parameter types of this script's OBSE user function, in order; None
     #: when it declares no TES4Call at all.
     udf_signature: list = None
