@@ -24,6 +24,8 @@ import sys
 import tempfile
 import shutil
 import xml.etree.ElementTree as ET
+
+import numpy as np
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -215,16 +217,6 @@ def _align(offset, alignment=4):
     return offset + (alignment - r) if r else offset
 
 
-def _read_8bit_scalar(data, offset, mn, mx):
-    val = data[offset]
-    return mn + (mx - mn) * (val / 255.0), offset + 1
-
-
-def _read_16bit_scalar(data, offset, mn, mx):
-    val = struct.unpack_from('<H', data, offset)[0]
-    return mn + (mx - mn) * (val / 65535.0), offset + 2
-
-
 def _read_32bit_quat(data, offset):
     cval = struct.unpack_from('<I', data, offset)[0]
     r_mask = (1 << 10) - 1
@@ -248,70 +240,85 @@ def _read_32bit_quat(data, offset):
     return _quat_normalize(result), offset + 4
 
 
-def _read_40bit_quat(data, offset):
-    FRACTAL = 0.000345436
-    raw = int.from_bytes(data[offset:offset + 5], 'little')
-    a = (raw >> 0) & 0xFFF
-    b = (raw >> 12) & 0xFFF
-    c = (raw >> 24) & 0xFFF
-    vals = [(v - 2049) * FRACTAL for v in (a, b, c)]
-    sum_sq = sum(v * v for v in vals)
-    w = math.sqrt(max(0, 1.0 - sum_sq))
-    if (raw >> 38) & 1:
-        w = -w
-    shift = (raw >> 36) & 3
-    if shift == 0:
-        result = [w, vals[0], vals[1], vals[2]]
-    elif shift == 1:
-        result = [vals[0], w, vals[1], vals[2]]
-    elif shift == 2:
-        result = [vals[0], vals[1], w, vals[2]]
-    else:
-        result = [vals[0], vals[1], vals[2], w]
-    return _quat_normalize(result), offset + 5
-
-
-def _read_48bit_quat(data, offset):
-    FRACTAL = 0.000043161
-    MASK = (1 << 15) - 1
-    HALF = MASK >> 1
-    x_raw, y_raw, z_raw = struct.unpack_from('<HHH', data, offset)
-    shift = ((y_raw >> 14) & 2) | ((x_raw >> 15) & 1)
-    r_sign = (z_raw >> 15) != 0
-    vals = [((v & MASK) - HALF) * FRACTAL for v in (x_raw, y_raw, z_raw)]
-    sum_sq = sum(v * v for v in vals)
-    w = math.sqrt(max(0, 1.0 - sum_sq))
-    if r_sign:
-        w = -w
-    if shift == 0:
-        result = [w, vals[0], vals[1], vals[2]]
-    elif shift == 1:
-        result = [vals[0], w, vals[1], vals[2]]
-    elif shift == 2:
-        result = [vals[0], vals[1], w, vals[2]]
-    else:
-        result = [vals[0], vals[1], vals[2], w]
-    return _quat_normalize(result), offset + 6
-
-
 def _read_uncompressed_quat(data, offset):
     x, y, z, w = struct.unpack_from('<ffff', data, offset)
     return _quat_normalize([x, y, z, w]), offset + 16
 
 
-_QUAT_READERS = {
-    0: _read_32bit_quat,
-    1: _read_40bit_quat,
-    2: _read_48bit_quat,
-    5: _read_uncompressed_quat,
-}
+#: Step between quanta of a 48-bit (format 2) and a 40-bit (format 1) quaternion component.
+_FRACTAL_48, _FRACTAL_40 = 0.000043161, 0.000345436
+#: The other three components, in order, beside each largest one (whose index goes in the spare bits).
+_OTHERS = np.array([[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]])
 
 _QUAT_ALIGN = {0: 4, 1: 1, 2: 2, 3: 1, 4: 2, 5: 4}
 
 
-def _read_quat(fmt, data, offset):
-    reader = _QUAT_READERS.get(fmt, _read_40bit_quat)
-    return reader(data, offset)
+def _py_sum(terms: list) -> np.ndarray:
+    """Elementwise, Python's `sum` of the arrays `terms`: from int 0, then as CPython (3.12+) sums floats, with
+    Neumaier compensation added at the end when nonzero and finite. Array code then matches per-value code that
+    calls `sum` exactly.
+    See: docs/fork/fo4_build_speed.md#codec-steps
+    """
+    total = 0.0 + terms[0]
+    comp = np.zeros_like(total)
+    with np.errstate(over='ignore', invalid='ignore'):
+        for x in terms[1:]:
+            t = total + x
+            comp = comp + np.where(np.abs(total) >= np.abs(x), (total - t) + x, (x - t) + total)
+            total = t
+        return np.where((comp != 0) & np.isfinite(comp), total + comp, total)
+
+
+def _normalized(q: np.ndarray) -> np.ndarray:
+    """Quaternions `q` [n, 4] over their lengths, as _quat_normalize; under 1e-10, identity."""
+    length = np.sqrt(_py_sum([q[:, i] * q[:, i] for i in range(4)]))
+    with np.errstate(divide='ignore', invalid='ignore'):
+        unit = q / length[:, None]
+    unit[length < 1e-10] = (0.0, 0.0, 0.0, 1.0)
+    return unit
+
+
+def _chain_signs(q: np.ndarray, resets: 'np.ndarray | None' = None) -> np.ndarray:
+    """Per quaternion of `q` [n, 4], -1.0 where its dot with the one before (as kept) is negative, else 1.0; 1.0
+    where `resets` is set. The kept one before is the raw one times its sign, so its dot is the raw dot times that
+    sign, exactly."""
+    dots = _py_sum([q[1:, i] * q[:-1, i] for i in range(4)])
+    fresh = resets.tolist() if resets is not None else [False] * len(q)
+    signs = [1.0]
+    for k, dot in enumerate(dots.tolist(), 1):
+        signs.append(-1.0 if not fresh[k] and dot * signs[-1] < 0 else 1.0)
+    return np.array(signs)
+
+
+def _unpacked(data, off: int, n: int, fmt: int) -> tuple:
+    """(three smaller components [n, 3], the largest one's index, whether it is negative, offset after) of `n`
+    48-bit (`fmt` 2) or 40-bit (else) quaternions at `off`."""
+    if fmt == 2:
+        raw = np.frombuffer(data, '<u2', 3 * n, off).reshape(n, 3).astype(np.int64)
+        shift = (raw[:, 1] >> 14 & 2) | (raw[:, 0] >> 15 & 1)
+        return ((raw & 0x7FFF) - 16383) * _FRACTAL_48, shift, raw[:, 2] >> 15 != 0, off + 6 * n
+    raw = (np.frombuffer(data, np.uint8, 5 * n, off).reshape(n, 5).astype(np.int64) << np.arange(0, 40, 8)).sum(1)
+    parts = np.stack([raw, raw >> 12, raw >> 24], 1) & 0xFFF
+    return (parts - 2049) * _FRACTAL_40, raw >> 36 & 3, (raw >> 38 & 1) != 0, off + 5 * n
+
+
+def _read_quats(fmt: int, data, off: int, n: int) -> tuple:
+    """(`n` normalized quaternions [n, 4] (x, y, z, w) of format `fmt` at `off`, offset after). Formats 0 and 5 go
+    one at a time through their readers; any other but 2 reads as 40-bit."""
+    if fmt in (0, 5):
+        reader = _read_32bit_quat if fmt == 0 else _read_uncompressed_quat
+        rows = []
+        for _ in range(n):
+            q, off = reader(data, off)
+            rows.append(q)
+        return np.array(rows, float).reshape(n, 4), off
+    vals, shift, negative, off = _unpacked(data, off, n, fmt)
+    w = np.sqrt(np.maximum(0.0, 1.0 - _py_sum([vals[:, i] * vals[:, i] for i in range(3)])))
+    q = np.empty((n, 4))
+    rows = np.arange(n)
+    q[rows[:, None], _OTHERS[shift]] = vals
+    q[rows, shift] = np.where(negative, -w, w)
+    return _normalized(q), off
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -336,288 +343,253 @@ def _find_knot_span(degree, value, num_cp, knots):
     return mid
 
 
-def _eval_bspline(knot_span, degree, t, knots, control_points):
-    if len(control_points) == 0:
-        return 0.0
-    if len(control_points) == 1:
-        return control_points[0]
+#: Bytes per quaternion of formats 0, 1, 2 and 5; any other reads as 40-bit.
+_QUAT_SIZE = {0: 4, 1: 5, 2: 6, 5: 16}
 
-    N = [0.0] * (degree + 1)
-    N[0] = 1.0
+
+def _runs(starts, counts, step=1) -> np.ndarray:
+    """start + k * step for k below count, run by run; `step` per run or one."""
+    counts = np.asarray(counts, np.int64)
+    k = np.arange(counts.sum()) - np.repeat(np.cumsum(counts) - counts, counts)
+    return np.repeat(np.asarray(starts, np.int64), counts) + k * np.repeat(np.broadcast_to(step, counts.shape), counts)
+
+
+def _padded(knots: list) -> np.ndarray:
+    """Knot tuples as rows of one array, padded with infinity."""
+    width = max(map(len, knots))
+    return np.array([k + (math.inf,) * (width - len(k)) for k in knots])
+
+
+def _basis_row(knot_span: int, degree: int, t: float, knots) -> list:
+    """The degree + 1 nonzero B-spline basis values at `t` in `knot_span` (de Boor)."""
+    values = [0.0] * (degree + 1)
+    values[0] = 1.0
     for i in range(1, degree + 1):
         for j in range(i - 1, -1, -1):
             denom = knots[knot_span + i - j] - knots[knot_span - j]
-            A = (t - knots[knot_span - j]) / denom if denom >= 1e-10 else 0.0
-            tmp = N[j] * A
-            if j + 1 < len(N):
-                N[j + 1] += N[j] - tmp
-            N[j] = tmp
+            ratio = (t - knots[knot_span - j]) / denom if denom >= 1e-10 else 0.0
+            tmp = values[j] * ratio
+            values[j + 1] += values[j] - tmp
+            values[j] = tmp
+    return values
 
-    # Scalar track
-    if isinstance(control_points[0], (int, float)):
-        result = 0.0
-        for i in range(degree + 1):
-            idx = knot_span - i
-            if 0 <= idx < len(control_points):
-                result += control_points[idx] * N[i]
-        return result
 
-    # Vector track (quaternion)
-    dim = len(control_points[0])
-    result = [0.0] * dim
+def _spans_weights(degree: int, knots: list, n_cps: np.ndarray, frames: int) -> tuple:
+    """([spline, frame] knot spans, [spline, frame, degree + 1] basis values) of frames 0..frames-1, as
+    _find_knot_span and _basis_row give them. With sorted knots and degree below the point count, the span is the
+    last knot at or below the frame, clamped to [degree, n_cp - 1]; other splines of 2+ points go frame by frame."""
+    padded = _padded(knots)
+    t = np.arange(frames, dtype=float)
+    spans = np.clip((padded[:, None, :] <= t[None, :, None]).sum(2) - 1, degree, (n_cps - 1)[:, None])
+    weight = _weights(degree, padded, spans, frames)
+    with np.errstate(invalid='ignore'):
+        odd = ((np.diff(padded, axis=1) < 0).any(1) | (n_cps <= degree)) & (n_cps > 1)
+    for row in np.flatnonzero(odd).tolist():
+        k, n = knots[row], int(n_cps[row])
+        spans[row] = [_find_knot_span(degree, float(f), n, k) for f in range(frames)]
+        weight[row] = [_basis_row(s, degree, float(f), k) for f, s in enumerate(spans[row].tolist())]
+    return spans, weight
+
+
+def _weights(degree: int, padded: np.ndarray, spans: np.ndarray, frames: int) -> np.ndarray:
+    """[spline, frame, degree + 1] B-spline basis values at `spans` (de Boor), each operation as per value."""
+    t = np.arange(frames, dtype=float)
+    out = np.zeros(spans.shape + (degree + 1,))
+    out[..., 0] = 1.0
+    with np.errstate(divide='ignore', invalid='ignore'):
+        for i in range(1, degree + 1):
+            for j in range(i - 1, -1, -1):
+                low = np.take_along_axis(padded, spans - j, 1)
+                denom = np.take_along_axis(padded, spans + i - j, 1) - low
+                ratio = np.where(denom >= 1e-10, (t - low) / denom, 0.0)
+                tmp = out[..., j] * ratio
+                out[..., j + 1] += out[..., j] - tmp
+                out[..., j] = tmp
+    return out
+
+
+def _spline_values(points: np.ndarray, rows: list, degree: int, frames: int) -> np.ndarray:
+    """[spline, frame, width] values of `rows` (first, stride, degree, knots, n_cp) of one `degree`, point p of a
+    spline at points[first + p * stride]: terms added to 0.0 in span order; a one-point spline is its point."""
+    first, stride, _, knots, n_cps = (np.array(c) if i != 3 else c for i, c in enumerate(zip(*rows)))
+    spans, weight = _spans_weights(degree, knots, n_cps, frames)
+    out = np.zeros((len(rows), frames, points.shape[1]))
     for i in range(degree + 1):
-        idx = knot_span - i
-        if 0 <= idx < len(control_points):
-            for d in range(dim):
-                result[d] += control_points[idx][d] * N[i]
-    return result
+        index = spans - i
+        exists = (index >= 0) & (index < n_cps[:, None])
+        picked = points[first[:, None] + np.clip(index, 0, (n_cps - 1)[:, None]) * stride[:, None]]
+        out = out + np.where(exists[..., None], picked * weight[..., i:i + 1], 0.0)
+    one = n_cps == 1
+    out[one] = points[first[one]][:, None, :]
+    return out
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Track mask
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class _TrackMask:
-    __slots__ = ('pos_quant', 'rot_quant', 'scale_quant',
-                 'pos_flags', 'rot_flags', 'scale_flags')
-
-    def __init__(self, b0, b1, b2, b3):
-        self.pos_quant = b0 & 0x03
-        self.rot_quant = (b0 >> 2) & 0x0F
-        self.scale_quant = (b0 >> 6) & 0x03
-        self.pos_flags = b1
-        self.rot_flags = b2
-        self.scale_flags = b3
-
-    def pos_type(self, axis):
-        spline_bit = (self.pos_flags >> (axis + 4)) & 1
-        if spline_bit:
-            return 'spline'
-        if (self.pos_flags >> axis) & 1:
-            return 'static'
-        return 'identity'
-
-    def rot_type(self):
-        if (self.rot_flags >> 4) & 0x0F:
-            return 'spline'
-        if self.rot_flags & 0x0F:
-            return 'static'
-        return 'identity'
-
-    def scale_type(self, axis):
-        spline_bit = (self.scale_flags >> (axis + 4)) & 1
-        if spline_bit:
-            return 'spline'
-        if (self.scale_flags >> axis) & 1:
-            return 'static'
-        return 'identity'
-
-    def has_any_pos_spline(self):
-        return any(self.pos_type(a) == 'spline' for a in range(3))
-
-    def has_any_scale_spline(self):
-        return any(self.scale_type(a) == 'spline' for a in range(3))
+def _evaluate(points: np.ndarray, rows: list, frames: int) -> np.ndarray:
+    """[row, frame, width] values of spline `rows` (first, stride, degree, knots, n_cp) over `points` [n, width]."""
+    out = np.empty((len(rows), frames, points.shape[1]))
+    for degree in sorted({row[2] for row in rows}):
+        pick = [i for i, row in enumerate(rows) if row[2] == degree]
+        out[pick] = _spline_values(points, [rows[i] for i in pick], degree, frames)
+    return out
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Spline decompression — main routine
-# ═══════════════════════════════════════════════════════════════════════════════
+def _read_spline_header(data, off: int, align: int) -> tuple:
+    """(degree, float knots, point count, aligned offset after) of a spline."""
+    num_items, degree = struct.unpack_from('<HB', data, off)
+    knots = tuple(map(float, data[off + 3:off + 3 + num_items + degree + 2]))
+    return degree, knots, num_items + 1, _align(off + 3 + len(knots), align)
+
+
+def _flag_kinds(flags: int) -> list:
+    """Axis kinds (0 identity, 1 static, 2 spline) of a mask byte."""
+    return [2 if flags >> axis + 4 & 1 else flags >> axis & 1 for axis in range(3)]
+
+
+class _Layout:
+    """Where one block's values sit, noted track by track: statics (channel, track, axis, value), scalar splines
+    (channel, track, axes, degree, knots, n_cp, offset, size, bounds) and quaternions (track, format, count,
+    offset, degree, knots, kind); channel 0 is position, 2 scale."""
+
+    def __init__(self):
+        """No notes yet."""
+        self.statics, self.scalars, self.quats = [], [], []
+
+
+def _layout_scalar(data, off: int, kinds: list, quant: int, track: int, channel: int, out: _Layout) -> int:
+    """Note a position or scale channel at `off` by axis `kinds` (0 identity, 1 static, 2 spline), control points
+    8-bit at `quant` 0 else 16-bit, into `out`; the offset after padding to 4."""
+    spline = [axis for axis in range(3) if kinds[axis] == 2]
+    if spline:
+        degree, knots, n_cp, off = _read_spline_header(data, off, 4)
+    bounds = []
+    for axis in range(3):
+        if kinds[axis] == 1:
+            out.statics.append((channel, track, axis, struct.unpack_from('<f', data, off)[0]))
+        elif kinds[axis] == 2:
+            bounds.append(struct.unpack_from('<2f', data, off))
+        off += 4 * kinds[axis]
+    if spline:
+        size = 1 if quant == 0 else 2
+        out.scalars.append((channel, track, spline, degree, knots, n_cp, off, size, bounds))
+        off += n_cp * len(spline) * size
+    return _align(off, 4)
+
+
+def _layout_rotation(data, off: int, kind: int, fmt: int, track: int, out: _Layout) -> int:
+    """Note a rotation channel at `off` (`kind` 2 spline, 1 static, 0 identity) into `out`; the offset after
+    padding to 4."""
+    align = _QUAT_ALIGN.get(fmt, 4)
+    if kind == 0:
+        return _align(off, 4)
+    if kind == 2:
+        degree, knots, n_cp, off = _read_spline_header(data, off, align)
+    else:
+        degree, knots, n_cp, off = 0, (), 1, _align(off, align)
+    out.quats.append((track, fmt, n_cp, off, degree, knots, kind))
+    return _align(off + n_cp * _QUAT_SIZE.get(fmt, 5), 4)
+
+
+def _layout_track(data, off: int, track: int, mask: bytes, out: _Layout) -> int:
+    """Note track `track`'s channels at `off` by its four `mask` bytes into `out`; the offset after."""
+    quant, pos_flags, rot_flags, scale_flags = mask
+    off = _layout_scalar(data, off, _flag_kinds(pos_flags), quant & 3, track, 0, out)
+    rot_kind = 2 if rot_flags >> 4 & 0xF else 1 if rot_flags & 0xF else 0
+    off = _layout_rotation(data, off, rot_kind, quant >> 2 & 0xF, track, out)
+    return _layout_scalar(data, off, _flag_kinds(scale_flags), quant >> 6 & 3, track, 2, out)
+
+
+def _scalar_points(data8: np.ndarray, jobs: list) -> np.ndarray:
+    """[n, 1] every control point of scalar spline `jobs`, job by job, point-major then axis, as
+    low + (high - low) * (raw / top) with top 255 (8-bit) or 65535 (16-bit)."""
+    counts = [job[5] * len(job[2]) for job in jobs]
+    sizes = np.repeat([job[7] for job in jobs], counts)
+    at = _runs([job[6] for job in jobs], counts, [job[7] for job in jobs])
+    raw = data8[at].astype(np.int64) + np.where(sizes == 2, data8[at + 1].astype(np.int64) << 8, 0)
+    low = np.array([b[0] for job in jobs for _ in range(job[5]) for b in job[8]])
+    high = np.array([b[1] for job in jobs for _ in range(job[5]) for b in job[8]])
+    return (low + (high - low) * (raw / np.where(sizes == 2, 65535.0, 255.0)))[:, None]
+
+
+def _place_scalars(data8: np.ndarray, jobs: list, channels: dict, frames: int) -> None:
+    """Evaluate every scalar spline of `jobs` into `channels` ({0: positions, 2: scales})."""
+    points = _scalar_points(data8, jobs)
+    rows, targets, first = [], [], 0
+    for channel, track, axes, degree, knots, n_cp, *_ in jobs:
+        for k, axis in enumerate(axes):
+            rows.append((first + k, len(axes), degree, knots, n_cp))
+            targets.append((channel, track, axis))
+        first += n_cp * len(axes)
+    for (channel, track, axis), values in zip(targets, _evaluate(points, rows, frames)[..., 0]):
+        channels[channel][track, :, axis] = values
+
+
+def _quat_points(data8: np.ndarray, jobs: list) -> np.ndarray:
+    """[n, 4] every quaternion of `jobs`, job by job, normalized as read."""
+    counts = [job[2] for job in jobs]
+    out = np.empty((sum(counts), 4))
+    firsts = np.cumsum([0] + counts[:-1])
+    for fmt in sorted({job[1] for job in jobs}):
+        pick = [i for i, job in enumerate(jobs) if job[1] == fmt]
+        size = _QUAT_SIZE.get(fmt, 5)
+        at = _runs([jobs[i][3] for i in pick], [counts[i] for i in pick], size)
+        raw = data8[at[:, None] + np.arange(size)].tobytes()
+        out[_runs(firsts[pick], [counts[i] for i in pick])] = _read_quats(fmt, raw, 0, len(at))[0]
+    return out
+
+
+def _place_quats(data8: np.ndarray, jobs: list, rot: np.ndarray, frames: int) -> None:
+    """Read every quaternion of `jobs` into `rot`: a static one as read; a spline's points sign-chained,
+    evaluated and normalized."""
+    points = _quat_points(data8, jobs)
+    firsts = np.cumsum([0] + [job[2] for job in jobs[:-1]]).tolist()
+    resets = np.zeros(len(points), bool)
+    resets[firsts] = True
+    chained = points * _chain_signs(points, resets)[:, None]
+    splines = [(first, job) for first, job in zip(firsts, jobs) if job[6] == 2]
+    for first, job in zip(firsts, jobs):
+        if job[6] == 1:
+            rot[job[0]] = points[first]
+    if splines:
+        values = _evaluate(chained, [(first, 1, job[4], job[5], job[2]) for first, job in splines], frames)
+        rot[[job[0] for _, job in splines]] = _normalized(values.reshape(-1, 4)).reshape(values.shape)
+
+
+def _block_values(data8: np.ndarray, layout: _Layout, tracks: int, frames: int) -> tuple:
+    """(positions, rotations, scales), each [track, frame, axis], of one block from its `layout`."""
+    pos, scale = np.zeros((tracks, frames, 3)), np.ones((tracks, frames, 3))
+    rot = np.tile((0.0, 0.0, 0.0, 1.0), (tracks, frames, 1))
+    channels = {0: pos, 2: scale}
+    for channel, track, axis, value in layout.statics:
+        channels[channel][track, :, axis] = value
+    if layout.scalars:
+        _place_scalars(data8, layout.scalars, channels, frames)
+    if layout.quats:
+        _place_quats(data8, layout.quats, rot, frames)
+    return pos, rot, scale
+
 
 def _decompress_spline(data_bytes, num_tracks, num_frames, num_blocks,
                        max_frames_per_block, block_offsets,
                        mask_and_quant_size=0):
-    """Decompress hkaSplineCompressedAnimation data blob.
-
-    Returns list of TrackData (one per track), with per-frame translations,
-    rotations, and scales fully evaluated.
-
-    mask_and_quant_size: total size of the mask+quantization block at the start
-    of each data block (includes transform masks + float track quantization bytes).
-    If 0, computed as _align(4 * num_tracks, 4).
-    """
+    """Decompress hkaSplineCompressedAnimation data blob into one TrackData per track, every frame's translations,
+    rotations and scales evaluated. mask_and_quant_size: the size of each block's masks plus float track
+    quantization bytes; 0 means _align(4 * num_tracks, 4)."""
     all_tracks = [TrackData() for _ in range(num_tracks)]
-    if not mask_and_quant_size:
-        mask_and_quant_size = _align(4 * num_tracks, 4)
-
+    size = mask_and_quant_size or _align(4 * num_tracks, 4)
+    data = bytes(data_bytes)
+    data8 = np.frombuffer(data + b'\0', np.uint8)
     for block_idx in range(num_blocks):
-        block_start = block_offsets[block_idx]
+        start = block_offsets[block_idx]
         first_frame = block_idx * max_frames_per_block
-        if block_idx == num_blocks - 1:
-            frames_in_block = num_frames - first_frame
-        else:
-            frames_in_block = max_frames_per_block
-
-        # ── Parse masks (4 bytes per track) ──
-        masks = []
-        off = block_start
-        for _ in range(num_tracks):
-            masks.append(_TrackMask(data_bytes[off], data_bytes[off + 1],
-                                    data_bytes[off + 2], data_bytes[off + 3]))
-            off += 4
-        # Skip past float track quantization bytes and any padding
-        off = block_start + mask_and_quant_size
-
-        # ── Per-track data ──
-        for track_idx in range(num_tracks):
-            mask = masks[track_idx]
-            track = all_tracks[track_idx]
-
-            # ─── POSITION ───
-            pos_frames = []
-            if mask.has_any_pos_spline():
-                num_items = struct.unpack_from('<H', data_bytes, off)[0]
-                degree = data_bytes[off + 2]
-                off += 3
-                num_knots = num_items + degree + 2
-                knots = [float(data_bytes[off + k]) for k in range(num_knots)]
-                off += num_knots
-                off = _align(off, 4)
-
-                axis_info = []
-                for axis in range(3):
-                    ptype = mask.pos_type(axis)
-                    if ptype == 'spline':
-                        mn = struct.unpack_from('<f', data_bytes, off)[0]; off += 4
-                        mx = struct.unpack_from('<f', data_bytes, off)[0]; off += 4
-                        axis_info.append(('spline', mn, mx))
-                    elif ptype == 'static':
-                        val = struct.unpack_from('<f', data_bytes, off)[0]; off += 4
-                        axis_info.append(('static', val, val))
-                    else:
-                        axis_info.append(('identity', 0.0, 0.0))
-
-                cps = [[] for _ in range(3)]
-                for _ in range(num_items + 1):
-                    for axis in range(3):
-                        atype, mn, mx = axis_info[axis]
-                        if atype == 'spline':
-                            if mask.pos_quant == 0:
-                                val, off = _read_8bit_scalar(data_bytes, off, mn, mx)
-                            else:
-                                val, off = _read_16bit_scalar(data_bytes, off, mn, mx)
-                            cps[axis].append(val)
-                off = _align(off, 4)
-
-                for f in range(frames_in_block):
-                    ft = float(f)
-                    pos = [0.0, 0.0, 0.0]
-                    for axis in range(3):
-                        atype = axis_info[axis][0]
-                        if atype == 'spline':
-                            span = _find_knot_span(degree, ft, len(cps[axis]), knots)
-                            pos[axis] = _eval_bspline(span, degree, ft, knots, cps[axis])
-                        elif atype == 'static':
-                            pos[axis] = axis_info[axis][1]
-                    pos_frames.append(pos)
-            else:
-                pos = [0.0, 0.0, 0.0]
-                for axis in range(3):
-                    if mask.pos_type(axis) == 'static':
-                        pos[axis] = struct.unpack_from('<f', data_bytes, off)[0]; off += 4
-                pos_frames = [list(pos) for _ in range(frames_in_block)]
-
-            off = _align(off, 4)
-            track.translations.extend(pos_frames)
-
-            # ─── ROTATION ───
-            rot_frames = []
-            rot_type = mask.rot_type()
-            qfmt = mask.rot_quant
-            qalign = _QUAT_ALIGN.get(qfmt, 4)
-
-            if rot_type == 'spline':
-                num_items = struct.unpack_from('<H', data_bytes, off)[0]
-                degree = data_bytes[off + 2]
-                off += 3
-                num_knots = num_items + degree + 2
-                knots = [float(data_bytes[off + k]) for k in range(num_knots)]
-                off += num_knots
-                if qalign > 1:
-                    off = _align(off, qalign)
-
-                quat_cps = []
-                for _ in range(num_items + 1):
-                    q, off = _read_quat(qfmt, data_bytes, off)
-                    if quat_cps:
-                        dot = sum(a * b for a, b in zip(q, quat_cps[-1]))
-                        if dot < 0:
-                            q = [-c for c in q]
-                    quat_cps.append(q)
-
-                for f in range(frames_in_block):
-                    ft = float(f)
-                    span = _find_knot_span(degree, ft, len(quat_cps), knots)
-                    q = _eval_bspline(span, degree, ft, knots, quat_cps)
-                    rot_frames.append(_quat_normalize(q))
-
-            elif rot_type == 'static':
-                if qalign > 1:
-                    off = _align(off, qalign)
-                q, off = _read_quat(qfmt, data_bytes, off)
-                rot_frames = [list(q) for _ in range(frames_in_block)]
-            else:
-                rot_frames = [[0.0, 0.0, 0.0, 1.0] for _ in range(frames_in_block)]
-
-            off = _align(off, 4)
-            track.rotations.extend(rot_frames)
-
-            # ─── SCALE ───
-            scale_frames = []
-            if mask.has_any_scale_spline():
-                num_items = struct.unpack_from('<H', data_bytes, off)[0]
-                degree = data_bytes[off + 2]
-                off += 3
-                num_knots = num_items + degree + 2
-                knots = [float(data_bytes[off + k]) for k in range(num_knots)]
-                off += num_knots
-                off = _align(off, 4)
-
-                axis_info = []
-                for axis in range(3):
-                    stype = mask.scale_type(axis)
-                    if stype == 'spline':
-                        mn = struct.unpack_from('<f', data_bytes, off)[0]; off += 4
-                        mx = struct.unpack_from('<f', data_bytes, off)[0]; off += 4
-                        axis_info.append(('spline', mn, mx))
-                    elif stype == 'static':
-                        val = struct.unpack_from('<f', data_bytes, off)[0]; off += 4
-                        axis_info.append(('static', val, val))
-                    else:
-                        axis_info.append(('identity', 1.0, 1.0))
-
-                cps = [[] for _ in range(3)]
-                for _ in range(num_items + 1):
-                    for axis in range(3):
-                        atype, mn, mx = axis_info[axis]
-                        if atype == 'spline':
-                            if mask.scale_quant == 0:
-                                val, off = _read_8bit_scalar(data_bytes, off, mn, mx)
-                            else:
-                                val, off = _read_16bit_scalar(data_bytes, off, mn, mx)
-                            cps[axis].append(val)
-                off = _align(off, 4)
-
-                for f in range(frames_in_block):
-                    ft = float(f)
-                    s = [1.0, 1.0, 1.0]
-                    for axis in range(3):
-                        atype = axis_info[axis][0]
-                        if atype == 'spline':
-                            span = _find_knot_span(degree, ft, len(cps[axis]), knots)
-                            s[axis] = _eval_bspline(span, degree, ft, knots, cps[axis])
-                        elif atype == 'static':
-                            s[axis] = axis_info[axis][1]
-                    scale_frames.append(s)
-            else:
-                s = [1.0, 1.0, 1.0]
-                for axis in range(3):
-                    if mask.scale_type(axis) == 'static':
-                        s[axis] = struct.unpack_from('<f', data_bytes, off)[0]; off += 4
-                scale_frames = [list(s) for _ in range(frames_in_block)]
-
-            off = _align(off, 4)
-            track.scales.extend(scale_frames)
-
+        frames = num_frames - first_frame if block_idx == num_blocks - 1 else max_frames_per_block
+        layout, off = _Layout(), start + size
+        for track in range(num_tracks):
+            off = _layout_track(data, off, track, data[start + 4 * track:start + 4 * track + 4], layout)
+        values = (v.tolist() for v in _block_values(data8, layout, num_tracks, frames))
+        for track, pos, rot, scale in zip(all_tracks, *values):
+            track.translations.extend(pos)
+            track.rotations.extend(rot)
+            track.scales.extend(scale)
     return all_tracks
 
 
@@ -1242,92 +1214,51 @@ def _hkarray(count: int) -> bytes:
     return _w_u64(0) + _w_u32(count) + _w_u32(cap)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Export: Quaternion encoding (48-bit, format 2)
-# ═══════════════════════════════════════════════════════════════════════════════
+def _packed_quats(q: np.ndarray, rot_quant: int) -> bytes:
+    """Quaternions `q` [n, 4] (x, y, z, w) packed 40-bit at rot_quant 1, else 48-bit, as _read_quats unpacks
+    them: the three smaller components quantized, the largest one's index and sign in the
+    spare bits."""
+    shift = np.abs(q).argmax(1)
+    sign = (q[np.arange(len(q)), shift] < 0).astype(np.int64)
+    rest = np.take_along_axis(q, _OTHERS[shift], 1)
+    if rot_quant == 1:
+        raw = np.clip(np.rint(rest / _FRACTAL_40 + 2049), 0, 0xFFF).astype(np.int64)
+        packed = raw[:, 0] | raw[:, 1] << 12 | raw[:, 2] << 24 | shift << 36 | sign << 38
+        return packed.astype('<u8').view(np.uint8).reshape(-1, 8)[:, :5].tobytes()
+    raw = np.clip(np.rint(rest / _FRACTAL_48 + 16383), 0, 0x7FFF).astype(np.int64)
+    raw |= np.stack([shift & 1, shift >> 1 & 1, sign], 1) << 15
+    return raw.astype('<u2').tobytes()
+
 
 def _write_48bit_quat(q) -> bytes:
-    """Encode a unit quaternion [x,y,z,w] as 6 bytes (48-bit compressed).
-
-    Matches the reader's _read_48bit_quat exactly.
-    """
-    FRACTAL = 0.000043161
-    MASK = (1 << 15) - 1
-    HALF = MASK >> 1  # 16383
-
-    # Find component with largest absolute value — it gets reconstructed
-    abs_q = [abs(c) for c in q]
-    shift = abs_q.index(max(abs_q))
-    r_sign = q[shift] < 0
-
-    # The 3 stored components (excluding the largest)
-    vals = [q[j] for j in range(4) if j != shift]
-
-    # Quantize each to 15-bit signed value
-    raw = [min(MASK, max(0, int(round(v / FRACTAL + HALF)))) for v in vals]
-
-    x_raw = raw[0] & MASK
-    y_raw = raw[1] & MASK
-    z_raw = raw[2] & MASK
-
-    # Encode shift into high bits of x and y
-    x_raw |= (shift & 1) << 15
-    y_raw |= ((shift >> 1) & 1) << 15
-
-    # Encode sign into high bit of z
-    if r_sign:
-        z_raw |= 1 << 15
-
-    return struct.pack('<HHH', x_raw, y_raw, z_raw)
+    """Quaternion `q` (x, y, z, w) as 6 bytes, as _read_quats reads it."""
+    return _packed_quats(np.array([q], float), 2)
 
 
 def _write_40bit_quat(q) -> bytes:
-    """Encode a unit quaternion [x,y,z,w] as 5 bytes (40-bit compressed).
-
-    Matches the reader's _read_40bit_quat exactly.
-    3 components stored as 12-bit unsigned, 4th reconstructed.
-    """
-    FRACTAL = 0.000345436
-
-    # Find component with largest absolute value — it gets reconstructed
-    abs_q = [abs(c) for c in q]
-    shift = abs_q.index(max(abs_q))
-    r_sign = q[shift] < 0
-
-    # The 3 stored components (excluding the largest)
-    vals = [q[j] for j in range(4) if j != shift]
-
-    # Quantize: value = (raw - 2049) * FRACTAL → raw = value / FRACTAL + 2049
-    raw = [min(0xFFF, max(0, int(round(v / FRACTAL + 2049)))) for v in vals]
-
-    packed = (raw[0] & 0xFFF) | ((raw[1] & 0xFFF) << 12) | ((raw[2] & 0xFFF) << 24)
-    packed |= (shift & 3) << 36
-    if r_sign:
-        packed |= 1 << 38
-
-    return packed.to_bytes(5, 'little')
+    """Quaternion `q` (x, y, z, w) as 5 bytes, as _read_quats reads it."""
+    return _packed_quats(np.array([q], float), 1)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Export: Scalar quantization
-# ═══════════════════════════════════════════════════════════════════════════════
+def _quantized(values: np.ndarray, lows, highs, quant: int) -> bytes:
+    """`values` [n, k] as fractions of each column's [low, high], 8-bit at quant 0 else 16-bit, row by row; 0 in a
+    column whose high - low is under 1e-30."""
+    top = 255 if quant == 0 else 65535
+    span = np.subtract(highs, lows)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        scaled = np.clip(np.rint((values - lows) / span * top), 0, top)
+    return np.where(np.abs(span) < 1e-30, 0, scaled).astype('<u1' if quant == 0 else '<u2').tobytes()
+
 
 def _write_16bit_scalar(val: float, mn: float, mx: float) -> bytes:
-    if abs(mx - mn) < 1e-30:
-        return _w_u16(0)
-    t = (val - mn) / (mx - mn)
-    return _w_u16(min(65535, max(0, int(round(t * 65535)))))
+    """`val` as a 16-bit fraction of [mn, mx]."""
+    return _quantized(np.array([[val]], float), [mn], [mx], 1)
+
 
 def _write_8bit_scalar(val: float, mn: float, mx: float) -> bytes:
-    if abs(mx - mn) < 1e-30:
-        return _w_u8(0)
-    t = (val - mn) / (mx - mn)
-    return _w_u8(min(255, max(0, int(round(t * 255)))))
+    """`val` as an 8-bit fraction of [mn, mx]."""
+    return _quantized(np.array([[val]], float), [mn], [mx], 0)
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Export: B-spline fitting
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def _make_clamped_knots(n_cp: int, degree: int) -> List[int]:
     """Build a clamped uniform knot vector with integer values (uint8-storable).
@@ -1351,405 +1282,113 @@ def _make_clamped_knots(n_cp: int, degree: int) -> List[int]:
     return knots
 
 
-def _bspline_basis_row(degree: int, t: float, n_cp: int, knots: List) -> List[float]:
-    """Evaluate all n_cp basis functions at parameter t.
-
-    Returns a list of n_cp floats.
-    """
-    row = [0.0] * n_cp
-    span = _find_knot_span(degree, t, n_cp, knots)
-
-    # de Boor basis: compute the (degree+1) nonzero basis values
-    N = [0.0] * (degree + 1)
-    N[0] = 1.0
-    for i in range(1, degree + 1):
-        for j in range(i - 1, -1, -1):
-            denom = knots[span + i - j] - knots[span - j]
-            A = (t - knots[span - j]) / denom if denom >= 1e-10 else 0.0
-            tmp = N[j] * A
-            if j + 1 < len(N):
-                N[j + 1] += N[j] - tmp
-            N[j] = tmp
-
-    for i in range(degree + 1):
-        idx = span - i
-        if 0 <= idx < n_cp:
-            row[idx] = N[i]
-    return row
+#: Tolerance for the identity and static tests.
+_EPS = 1e-5
+#: FO4's quantizations: 16-bit positions, 48-bit quaternions (Skyrim's 40-bit is rot_quant 1), 16-bit scales.
+_POS_QUANT, _ROT_QUANT, _SCALE_QUANT = 1, 2, 1
 
 
-def _solve_banded(matrix: List[List[float]], rhs: List[float]) -> List[float]:
-    """Solve a banded linear system via Gaussian elimination with partial pivoting.
+def _kinds(near: np.ndarray, values: np.ndarray, axes) -> np.ndarray:
+    """Per track: 0 if `near` over `axes`, else 1 if static (_EPS), else 2."""
+    still = np.abs(values - values[:, :1]) < _EPS
+    return np.where(near.all(axes), 0, np.where(still.all(axes), 1, 2))
 
-    matrix is N×N, rhs is length N. Returns solution vector.
-    Modifies matrix and rhs in place.
-    """
-    n = len(rhs)
-    for col in range(n):
-        # Partial pivot
-        max_row = col
-        max_val = abs(matrix[col][col])
-        for row in range(col + 1, min(col + 8, n)):
-            if abs(matrix[row][col]) > max_val:
-                max_val = abs(matrix[row][col])
-                max_row = row
-        if max_row != col:
-            matrix[col], matrix[max_row] = matrix[max_row], matrix[col]
-            rhs[col], rhs[max_row] = rhs[max_row], rhs[col]
 
-        pivot = matrix[col][col]
-        if abs(pivot) < 1e-30:
+def _axis_flags(kinds: np.ndarray) -> np.ndarray:
+    """Per track, mask bit `axis` if static, `axis + 4` if a spline."""
+    return ((kinds == 1) << np.arange(3)).sum(1) | ((kinds == 2) << np.arange(4, 7)).sum(1)
+
+
+def _masks(pos: np.ndarray, rot: np.ndarray, scale: np.ndarray, rot_quant: int) -> bytes:
+    """Every track's four mask bytes from its kinds: the quantizations, then position, rotation and scale flags."""
+    quant = _POS_QUANT & 3 | (rot_quant & 0xF) << 2 | (_SCALE_QUANT & 3) << 6
+    turn = np.where(rot == 1, 0x0F, np.where(rot == 2, 0xF0, 0))
+    rows = [np.full(len(rot), quant), _axis_flags(pos), turn, _axis_flags(scale)]
+    return np.stack(rows, 1).astype(np.uint8).tobytes()
+
+
+def _align_out(out: bytearray, align: int) -> None:
+    """Zeros onto `out` until its length is a multiple of `align`."""
+    out.extend(bytes(-len(out) % align))
+
+
+def _spline_header(out: bytearray, n_cp: int, align: int) -> None:
+    """A spline's control point count less one (u16), degree (1, or 0 for one point) and clamped knots (u8),
+    aligned to `align`."""
+    degree = min(1, n_cp - 1)
+    out.extend(_w_u16(n_cp - 1))
+    out.append(degree)
+    out.extend(min(255, k) for k in _make_clamped_knots(n_cp, degree))
+    _align_out(out, align)
+
+
+def _scalar_channel(out: bytearray, values: np.ndarray, kinds: np.ndarray, quant: int) -> None:
+    """A position or scale channel of `values` [frame, axis] by axis `kinds` (0 identity, 1 static, 2 spline): a
+    spline header when any axis is a spline; per axis, a static value or a spline's (min, max) as f32; then each
+    frame's spline axes quantized (8-bit at quant 0, else 16-bit); padded to 4. Frames are the control points."""
+    spline = kinds == 2
+    if spline.any():
+        _spline_header(out, len(values), 4)
+    lows, highs = [], []
+    for axis in np.flatnonzero(kinds).tolist():
+        if kinds[axis] == 1:
+            out.extend(_w_f32(values[0, axis].item()))
             continue
-
-        for row in range(col + 1, min(col + 8, n)):
-            factor = matrix[row][col] / pivot
-            if abs(factor) < 1e-30:
-                continue
-            for k in range(col, min(col + 8, n)):
-                matrix[row][k] -= factor * matrix[col][k]
-            rhs[row] -= factor * rhs[col]
-
-    # Back substitution
-    result = [0.0] * n
-    for i in range(n - 1, -1, -1):
-        s = rhs[i]
-        for j in range(i + 1, min(i + 8, n)):
-            s -= matrix[i][j] * result[j]
-        if abs(matrix[i][i]) > 1e-30:
-            result[i] = s / matrix[i][i]
-    return result
-
-
-def _fit_bspline_scalar(degree: int, knots: List, n_cp: int,
-                        frame_values: List[float]) -> List[float]:
-    """Find control points that exactly interpolate frame_values at t=0,1,...,N-1.
-
-    Returns n_cp control points.
-    """
-    n_frames = len(frame_values)
-    assert n_cp == n_frames, "Exact interpolation requires n_cp == n_frames"
-
-    # Build collocation matrix
-    matrix = [_bspline_basis_row(degree, float(i), n_cp, knots) for i in range(n_frames)]
-    rhs = list(frame_values)
-    return _solve_banded(matrix, rhs)
-
-
-def _fit_bspline_quat(degree: int, knots: List, n_cp: int,
-                      frame_quats: List[List[float]]) -> List[List[float]]:
-    """Find quaternion control points by fitting each component independently.
-
-    Returns n_cp quaternion control points [x,y,z,w].
-    """
-    cps = []
-    for comp in range(4):
-        vals = [q[comp] for q in frame_quats]
-        cp_comp = _fit_bspline_scalar(degree, knots, n_cp, vals)
-        cps.append(cp_comp)
-    return [[cps[c][i] for c in range(4)] for i in range(n_cp)]
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Export: Spline compression
-# ═══════════════════════════════════════════════════════════════════════════════
-
-_EPS = 1e-5   # Tolerance for static/identity detection
-
-# Default quantization (FO4). Skyrim uses rot_quant=1 (40-bit).
-_POS_QUANT = 1      # 16-bit position quantization
-_ROT_QUANT = 2      # 48-bit quaternion
-_SCALE_QUANT = 1    # 16-bit scale quantization
-
-
-def _classify_axis(values: List[float], identity_val: float = 0.0) -> str:
-    """Classify a single axis as 'identity', 'static', or 'spline'."""
-    if all(abs(v - identity_val) < _EPS for v in values):
-        return 'identity'
-    v0 = values[0]
-    if all(abs(v - v0) < _EPS for v in values):
-        return 'static'
-    return 'spline'
-
-
-def _build_mask_bytes(track: TrackData, n_frames: int,
-                      pos_quant: int = _POS_QUANT, rot_quant: int = _ROT_QUANT,
-                      scale_quant: int = _SCALE_QUANT) -> Tuple[bytes, dict]:
-    """Build the 4 mask bytes for a track and return axis classification info."""
-    # Position
-    pos_types = []
-    for axis in range(3):
-        vals = [track.translations[f][axis] for f in range(n_frames)]
-        pos_types.append(_classify_axis(vals, 0.0))
-
-    # Rotation
-    quats = track.rotations[:n_frames]
-    is_identity_rot = all(
-        abs(q[0]) < _EPS and abs(q[1]) < _EPS and abs(q[2]) < _EPS and abs(abs(q[3]) - 1.0) < _EPS
-        for q in quats)
-    q0 = quats[0]
-    is_static_rot = all(
-        all(abs(q[j] - q0[j]) < _EPS for j in range(4))
-        for q in quats)
-    if is_identity_rot:
-        rot_type = 'identity'
-    elif is_static_rot:
-        rot_type = 'static'
-    else:
-        rot_type = 'spline'
-
-    # Scale
-    scale_types = []
-    for axis in range(3):
-        vals = [track.scales[f][axis] for f in range(n_frames)]
-        scale_types.append(_classify_axis(vals, 1.0))
-
-    # Encode byte 0: quantization
-    b0 = (pos_quant & 0x03) | ((rot_quant & 0x0F) << 2) | ((scale_quant & 0x03) << 6)
-
-    # Encode byte 1: position flags
-    b1 = 0
-    for axis in range(3):
-        if pos_types[axis] == 'static':
-            b1 |= (1 << axis)
-        elif pos_types[axis] == 'spline':
-            b1 |= (1 << (axis + 4))
-
-    # Encode byte 2: rotation flags
-    b2 = 0
-    if rot_type == 'static':
-        b2 = 0x0F
-    elif rot_type == 'spline':
-        b2 = 0xF0
-
-    # Encode byte 3: scale flags
-    b3 = 0
-    for axis in range(3):
-        if scale_types[axis] == 'static':
-            b3 |= (1 << axis)
-        elif scale_types[axis] == 'spline':
-            b3 |= (1 << (axis + 4))
-
-    info = {'pos_types': pos_types, 'rot_type': rot_type, 'scale_types': scale_types}
-    return bytes([b0, b1, b2, b3]), info
-
-
-def _compress_block(all_tracks: List[TrackData], block_start_frame: int,
-                    frames_in_block: int, rot_quant: int = _ROT_QUANT) -> bytes:
-    """Compress one block of animation data for all tracks.
-
-    Returns the compressed byte blob for this block.
-    """
-    num_tracks = len(all_tracks)
-    out = bytearray()
-
-    # 1. Write track masks
-    masks = []
-    infos = []
-    for track in all_tracks:
-        mask_bytes, info = _build_mask_bytes(track, frames_in_block,
-                                             rot_quant=rot_quant)
-        masks.append(mask_bytes)
-        infos.append(info)
-        out.extend(mask_bytes)
+        column = values[:, axis].tolist()
+        low, high = min(column), max(column)
+        high = low + 1e-6 if abs(high - low) < 1e-30 else high
+        out.extend(_w_f32(low) + _w_f32(high))
+        lows.append(low)
+        highs.append(high)
+    if lows:
+        out.extend(_quantized(values[:, spline], lows, highs, quant))
     _pad4(out)
 
-    # 2. Per-track data
-    for t_idx in range(num_tracks):
-        track = all_tracks[t_idx]
-        info = infos[t_idx]
-        f0 = block_start_frame
-        f1 = f0 + frames_in_block
 
-        # ─── POSITION ───
-        pos_types = info['pos_types']
-        any_pos_spline = any(pt == 'spline' for pt in pos_types)
+def _rotation_channel(out: bytearray, quats: np.ndarray, kind: int, rot_quant: int) -> None:
+    """A rotation channel of `quats` [frame, 4] (x, y, z, w) by `kind`: a spline's header and every frame sign-chained
+    and normalized, or the static first frame as is; packed for `rot_quant`; padded to 4."""
+    align = _QUAT_ALIGN.get(rot_quant, 4)
+    if kind == 2:
+        _spline_header(out, len(quats), align)
+        out.extend(_packed_quats(_normalized(quats * _chain_signs(quats)[:, None]), rot_quant))
+    elif kind == 1:
+        _align_out(out, align)
+        out.extend(_packed_quats(quats[:1], rot_quant))
+    _pad4(out)
 
-        if any_pos_spline:
-            n_cp = frames_in_block
-            degree = min(1, n_cp - 1)
-            knots = _make_clamped_knots(n_cp, degree)
 
-            # Header: num_items (u16) + degree (u8)
-            out.extend(_w_u16(n_cp - 1))
-            out.append(degree)
-            # Knot vector
-            for k in knots:
-                out.append(min(255, k))
-            _pad4(out)
-
-            # Per-axis: min/max for spline, value for static
-            axis_info = []
-            for axis in range(3):
-                ptype = pos_types[axis]
-                vals = [track.translations[f][axis] for f in range(f0, f1)]
-                if ptype == 'spline':
-                    mn, mx = min(vals), max(vals)
-                    if abs(mx - mn) < 1e-30:
-                        mx = mn + 1e-6
-                    out.extend(_w_f32(mn))
-                    out.extend(_w_f32(mx))
-                    axis_info.append(('spline', mn, mx, vals))
-                elif ptype == 'static':
-                    out.extend(_w_f32(vals[0]))
-                    axis_info.append(('static', vals[0], vals[0], vals))
-                else:
-                    axis_info.append(('identity', 0.0, 0.0, vals))
-
-            # Control points (interleaved across spline axes)
-            for ax_idx, (atype, mn, mx, vals) in enumerate(axis_info):
-                if atype == 'spline':
-                    cps = _fit_bspline_scalar(degree, knots, n_cp, vals)
-                    axis_info[ax_idx] = (atype, mn, mx, vals, cps)
-
-            for cp_i in range(n_cp):
-                for ax_idx, ai in enumerate(axis_info):
-                    if ai[0] == 'spline':
-                        cps = ai[4]
-                        if _POS_QUANT == 0:
-                            out.extend(_write_8bit_scalar(cps[cp_i], ai[1], ai[2]))
-                        else:
-                            out.extend(_write_16bit_scalar(cps[cp_i], ai[1], ai[2]))
-            _pad4(out)
-        else:
-            # No splines — write static values only
-            for axis in range(3):
-                if pos_types[axis] == 'static':
-                    val = track.translations[f0][axis]
-                    out.extend(_w_f32(val))
-
-        _pad4(out)
-
-        # ─── ROTATION ───
-        rot_type = info['rot_type']
-        qalign = _QUAT_ALIGN.get(rot_quant, 4)
-        _write_quat = _write_40bit_quat if rot_quant == 1 else _write_48bit_quat
-
-        if rot_type == 'spline':
-            quats = [track.rotations[f] for f in range(f0, f1)]
-            # Ensure quaternion continuity (flip if dot < 0)
-            for i in range(1, len(quats)):
-                dot = sum(quats[i][j] * quats[i-1][j] for j in range(4))
-                if dot < 0:
-                    quats[i] = [-c for c in quats[i]]
-
-            n_cp = frames_in_block
-            degree = min(1, n_cp - 1)
-            knots = _make_clamped_knots(n_cp, degree)
-
-            out.extend(_w_u16(n_cp - 1))
-            out.append(degree)
-            for k in knots:
-                out.append(min(255, k))
-            if qalign > 1:
-                while len(out) % qalign:
-                    out.append(0)
-
-            # Fit B-spline to quaternions and write control points
-            cps = _fit_bspline_quat(degree, knots, n_cp, quats)
-            # Ensure CP continuity
-            for i in range(1, len(cps)):
-                dot = sum(cps[i][j] * cps[i-1][j] for j in range(4))
-                if dot < 0:
-                    cps[i] = [-c for c in cps[i]]
-
-            for cp in cps:
-                cp_n = _quat_normalize(cp)
-                out.extend(_write_quat(cp_n))
-
-        elif rot_type == 'static':
-            if qalign > 1:
-                while len(out) % qalign:
-                    out.append(0)
-            out.extend(_write_quat(track.rotations[f0]))
-
-        # else identity: no data
-
-        _pad4(out)
-
-        # ─── SCALE ───
-        scale_types = info['scale_types']
-        any_scale_spline = any(st == 'spline' for st in scale_types)
-
-        if any_scale_spline:
-            n_cp = frames_in_block
-            degree = min(1, n_cp - 1)
-            knots = _make_clamped_knots(n_cp, degree)
-
-            out.extend(_w_u16(n_cp - 1))
-            out.append(degree)
-            for k in knots:
-                out.append(min(255, k))
-            _pad4(out)
-
-            axis_info = []
-            for axis in range(3):
-                stype = scale_types[axis]
-                vals = [track.scales[f][axis] for f in range(f0, f1)]
-                if stype == 'spline':
-                    mn, mx = min(vals), max(vals)
-                    if abs(mx - mn) < 1e-30:
-                        mx = mn + 1e-6
-                    out.extend(_w_f32(mn))
-                    out.extend(_w_f32(mx))
-                    axis_info.append(('spline', mn, mx, vals))
-                elif stype == 'static':
-                    out.extend(_w_f32(vals[0]))
-                    axis_info.append(('static', vals[0], vals[0], vals))
-                else:
-                    axis_info.append(('identity', 1.0, 1.0, vals))
-
-            for ax_idx, ai in enumerate(axis_info):
-                if ai[0] == 'spline':
-                    cps = _fit_bspline_scalar(degree, knots, n_cp, ai[3])
-                    axis_info[ax_idx] = (ai[0], ai[1], ai[2], ai[3], cps)
-
-            for cp_i in range(n_cp):
-                for ax_idx, ai in enumerate(axis_info):
-                    if ai[0] == 'spline':
-                        cps = ai[4]
-                        if _SCALE_QUANT == 0:
-                            out.extend(_write_8bit_scalar(cps[cp_i], ai[1], ai[2]))
-                        else:
-                            out.extend(_write_16bit_scalar(cps[cp_i], ai[1], ai[2]))
-            _pad4(out)
-        else:
-            for axis in range(3):
-                if scale_types[axis] == 'static':
-                    val = track.scales[f0][axis]
-                    out.extend(_w_f32(val))
-
-        _pad4(out)
-
+def _compress_block(pos: np.ndarray, rot: np.ndarray, scale: np.ndarray, rot_quant: int = _ROT_QUANT) -> bytes:
+    """One block's bytes from `pos`, `rot` (x, y, z, w) and `scale`, each [track, frame, axis]: every track's
+    mask, padded to 4, then per track its position, rotation and scale channels."""
+    kinds = (_kinds(np.abs(pos) < _EPS, pos, 1),
+             _kinds(np.abs(np.abs(rot) - (0.0, 0.0, 0.0, 1.0)) < _EPS, rot, (1, 2)),
+             _kinds(np.abs(scale - 1.0) < _EPS, scale, 1))
+    out = bytearray(_masks(*kinds, rot_quant))
+    _pad4(out)
+    for track in range(len(pos)):
+        _scalar_channel(out, pos[track], kinds[0][track], _POS_QUANT)
+        _rotation_channel(out, rot[track], kinds[1][track], rot_quant)
+        _scalar_channel(out, scale[track], kinds[2][track], _SCALE_QUANT)
     return bytes(out)
+
+
+def _channel(tracks: List[TrackData], name: str, width: int, frames: int) -> np.ndarray:
+    """The tracks' `name` over `frames` frames as [track, frame, width]."""
+    return np.array([getattr(t, name)[:frames] for t in tracks], float).reshape(len(tracks), frames, width)
 
 
 def _compress_all_blocks(anim: AnimationData, rot_quant: int = _ROT_QUANT) -> Tuple[bytes, List[int]]:
     """Compress all animation blocks. Returns (data_blob, block_offsets)."""
-    max_fpb = anim.max_frames_per_block or 256
-    num_blocks = anim.num_blocks or 1
-    data = bytearray()
-    block_offsets = []
-
+    max_fpb, num_blocks = anim.max_frames_per_block or 256, anim.num_blocks or 1
+    channels = [_channel(anim.tracks, name, width, anim.num_frames)
+                for name, width in (('translations', 3), ('rotations', 4), ('scales', 3))]
+    data, block_offsets = bytearray(), []
     for block_idx in range(num_blocks):
-        first_frame = block_idx * max_fpb
-        if block_idx == num_blocks - 1:
-            frames_in_block = anim.num_frames - first_frame
-        else:
-            frames_in_block = max_fpb
-
-        # Slice tracks to this block's frame range
-        block_tracks = []
-        for track in anim.tracks:
-            bt = TrackData()
-            bt.translations = track.translations[first_frame:first_frame + frames_in_block]
-            bt.rotations = track.rotations[first_frame:first_frame + frames_in_block]
-            bt.scales = track.scales[first_frame:first_frame + frames_in_block]
-            block_tracks.append(bt)
-
+        first = block_idx * max_fpb
+        last = anim.num_frames if block_idx == num_blocks - 1 else first + max_fpb
         block_offsets.append(len(data))
-        block_data = _compress_block(block_tracks, 0, frames_in_block, rot_quant=rot_quant)
-        data.extend(block_data)
-
+        data.extend(_compress_block(*(c[:, first:last] for c in channels), rot_quant))
     return bytes(data), block_offsets
 
 

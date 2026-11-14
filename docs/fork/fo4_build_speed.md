@@ -30,6 +30,7 @@ identity). This plan sets the order across them and adds what they lack.
 - [3. Cache keys that hold](#keys)
 - [4. Fixed costs every build pays](#fixed)
 - [5. Mod builds replay the game build](#replay)
+- [6. The clip reader and writer](#clip-codec)
 - [Routes considered and not taken](#left-out)
 - [Order](#order)
 - [Open questions](#open)
@@ -788,6 +789,187 @@ against 13.8. That is 2–4 minutes of reruns (less the 28% recording cost),
 plus mesh checks, setup and ledger work over the mod's records only. With
 change 4, both should be inside 1–2 minutes. Size: the journal L, as
 planned, plus M for changes 2–4.
+
+## <a id="clip-codec"></a>6. The clip reader and writer
+
+**Status: plan (2026-11-13), not started.** Measured with scratch probes in
+one process, on the 1.6 build tree of 2026-11-13; nothing here is in a build.
+
+**Goal.** Make reading and writing FO4 `.hkx` clips
+(`external/pynifly_hkx/anim_fo4.py`, from PyNifly, GPL-3.0 like our code)
+several times faster, with every written byte and every read double the
+same as today, so no cache has to rebuild and no version moves.
+
+### <a id="codec-users"></a>Who pays for it
+
+Every stage that makes a clip on a cold cache goes through the same
+reader (`parse_fo4_animation`) or writer (`write_fo4_animation`):
+
+| Caller | Reads | Writes | When it costs |
+|---|---|---|---|
+| Gun clips (`havok/gun_clips.py`) | vanilla clips, FNV clips retargeted | every clip a gun gets | a gun not in `versioned_gun_clips` |
+| Animation data (`havok/anim_text.py`) | a whole clip per new entry | – | an entry not in its table |
+| Idles (`spike/idles.py`) | vanilla idles | trimmed idles | every idle written |
+| Human clips (`havok/human_clip.py`) | – | FNV idles on FO4's skeleton | closing records (23 s of Goodies, profiled) |
+| Own-rig creatures (`rig/assets.py`) | – | creature clips | a rig built |
+| Hold poses (`havok/anim_props.py`) | one hold clip | – | small |
+
+The 2026-11-13 chain spent 3,603 s in `item WEAP`, mostly gun clips made
+cold after `GUN_CLIPS_VERSION` 4 ([gun profile](#codec-measured)).
+
+### <a id="codec-measured"></a>What was measured
+
+- **One gun, cold** (WeapNVRiotShotgun, profiled, 85 s of work, 298 clips
+  written): reading 679 vanilla clips 26 s (all `_decompress_spline`),
+  writing 298 clips 22 s (`_compress_block`), the retargeting itself about
+  8 s. Unprofiled the gun takes 36 s, so these are shares.
+- **Inside the reader** (same profile): `_eval_bspline` (2.06 million calls)
+  7.5 s, quaternion reads (`_read_quat`, 1.2 million) 6.4 s,
+  `_quat_normalize` (3.1 million) 5.4 s, the loop itself 5.6 s.
+- **40 vanilla clips** (random from the game's archives; median 41 frames,
+  most 660, median 95 tracks): reading 0.9 s (decompress 0.8 s), writing
+  them back 2.6 s, of which the spline fit 1.7 s over 8,103 axis fits.
+- **Vanilla's splines:** of 2,213 in 40 clips, 1,672 are degree 1 and 541
+  degree 3. Our writer always writes degree 1.
+
+### <a id="codec-findings"></a>What the code does that it need not
+
+1. **The writer's fit is the identity.** `_compress_block` writes one
+   control point per frame at degree 1 on `_make_clamped_knots`, whose
+   knots are 0, 0, 1, …, n−2, n−1, n−1. At every frame t the collocation
+   row is 1 at t and 0 elsewhere: checked for every block length 1–256, and
+   all 8,103 fits of the sample returned their input exactly. So
+   `_fit_bspline_scalar`, `_fit_bspline_quat`, `_bspline_basis_row` and
+   `_solve_banded` turn the frame values into themselves at about 65% of the
+   write time. The control points can be the frame values.
+2. **The reader works one number at a time.** It evaluates each axis of each
+   track at each frame through `_find_knot_span` and `_eval_bspline`, and
+   reads and normalizes each quaternion with Python lists, though every
+   track of a block uses one knot vector per degree.
+3. **The same vanilla clip is read many times.** The gun read 679 clips;
+   each template's clips repeat for every gun built on it, in every worker.
+   This belongs to the callers, not the codec (see
+   [step 5](#codec-steps)).
+
+**Exactness is reachable in numpy.** A prototype evaluated every spline of
+the sample at all frames with numpy, in `_eval_bspline`'s own order (the
+basis built with the same divisions, terms added from 0.0 in span order):
+all 2,213 splines gave bit-identical doubles. Spline by spline it was only
+1.6 times faster (0.31 s against 0.19 s), since the arrays are small; the
+gain comes from batching a block's tracks (step 3).
+
+### <a id="codec-steps"></a>Steps
+
+Each step lands alone, with a test that it changes nothing.
+
+1. **Write the frame values as control points** (S). Drop the fit from
+   `_compress_block`; delete `_fit_bspline_scalar`, `_fit_bspline_quat`,
+   `_bspline_basis_row` and `_solve_banded` once nothing calls them.
+   Expected writes about 2.9 times faster (2.6 s to 0.9 s on the sample).
+   *Built 2026-11-14.* The quaternion path's second sign pass went too: on
+   unchanged values it never flips. A corpus of 320 digests (100 vanilla
+   clips as read, the same 100 scaled, unnormalized and cut into 37-frame
+   blocks, and 120 clips from our built `FalloutNV - Main.ba2`, each written
+   as an FO4 file and as 40-bit blocks) matched byte for byte; the corpus
+   pass took 33 s against 88 s. The only inputs that differ are NaN or
+   infinite values: the fit spread NaN to the frames before one, which a
+   finite clip never has.
+2. **Vectorize the rest of the writer** (M). Per block, as arrays: the
+   static and identity tests (`_classify_axis`, the rotation tests), the
+   quaternion sign chain, the 48- and 40-bit packing, the 16- and 8-bit
+   scalar quantizing. Python's `round` and numpy's `rint` both round half to
+   even, and the clamps and divisions are the same operations, so the bytes
+   can match; the quaternion sign chain depends on the previous flip and
+   stays a short loop over signs.
+   *Built 2026-11-14.* `_compress_all_blocks` turns each channel into one
+   [track, frame, axis] array; a block's masks come from whole-array tests,
+   and each channel is quantized or packed in one call. Sums go through
+   `_py_sum`, explained below. The dot of the kept
+   (possibly negated) previous quaternion is the raw dot times its sign
+   exactly, so the loop runs on signs only. Mins and maxes stay Python's
+   `min`/`max`, which keep the first of `0.0` and `-0.0`. The single-value
+   writers `anim_skyrim` imports wrap the array ones. The 320 digests
+   matched, as did 40,000 quaternion and 200,000 scalar writes against the
+   old functions, ties and signed zeros included.
+   **`sum` is not left-to-right.** Since Python 3.12, `sum` over floats adds
+   with Neumaier compensation (from int 0, the compensation added at the end
+   when nonzero and finite). The old code's quaternion lengths, the 40/48-bit
+   readers' squared sums and both sign-chain dots use `sum`, so plain numpy
+   adds differ in the last bit: 945 of 5,000 random 48-bit quaternions read
+   differently. `_py_sum` repeats CPython's steps on arrays and matched
+   Python's `sum` on 400,000 rows (wide magnitudes, signed zeros,
+   infinities). The first step 2 build summed left to right and still
+   matched every corpus clip, since a last-bit change rarely moves a 48-bit
+   quantum; it now uses `_py_sum` too. Block writing on 40 vanilla clips:
+   0.53 s, against 2.49 s before step 1.
+3. **Batch the reader by block** (M). Read a block's masks first, then per
+   channel: all quaternion control points of all tracks with
+   `np.frombuffer` and the 48/40/32-bit formulas as array operations,
+   normalized as `((x*x + y*y) + z*z) + w*w` (the order of `sum`);
+   the basis once per (degree, knots) of the block; every track's frames as
+   one gather and the ordered sum the prototype used; results as arrays
+   (`TrackData` keeps lists only where a caller needs them).
+   *Built 2026-11-14.* A first build batched per track: exact, but only
+   1.05 s to 0.93 s on 56 clips, since most tracks are one static
+   quaternion and each degree-3 track has its own knots (1,512 basis-cache
+   misses in 2,848 splines). The reader now takes two passes per block. A
+   Python pass (`_Layout`) notes where each track's statics, spline points
+   and quaternions sit. Then numpy reads every control point of the block in
+   one gather per format, sign-chains all quaternions in one loop that
+   resets at each spline, and evaluates every spline of one degree together.
+   For sorted knots and degree below the point count, the span is the last
+   knot at or below the frame, clamped to `[degree, n_cp - 1]`, which is
+   what `_find_knot_span`'s search returns; any other spline of 2+ points
+   goes frame by frame through `_find_knot_span` and `_basis_row`, as
+   before. Formats 0 and 5 (sine and cosine, raw floats) still read one at a
+   time. `TrackData` stays lists of Python floats (`tolist`), as every
+   caller expects. Census of 300 vanilla clips: 40-bit quaternions
+   595,633, 48-bit 15,527, 16-bit scalars only, degrees 1 and 3, no unsorted
+   knots. Checks: the corpus now also digests every value read (vanilla
+   clips, our files read back, 40-bit blocks read back), and all 320
+   matched. 4,500 generated blocks matched too, covering 8-bit scalars,
+   formats 0 to 5 mixed in a block, degrees 0 to 3, one-point splines and
+   unsorted knots. Reading 56 vanilla clips: 0.32 s, against 1.05 s.
+4. **Native decoder, only if 1–3 leave the codec dominant** (L). A
+   `_hkxspline_native` module in `native/` beside `nifgeom`, built by
+   `native/build.py` and committed like the others. Built with
+   `/fp:precise` and no FMA contraction (`/fp:contract` off; `-ffp-contract=off`
+   off Windows) so its doubles match Python's. Costs a build per platform
+   the app supports ([native candidates](#native-candidates)).
+5. **Callers read each vanilla clip once** (S, outside the codec).
+   `gun_clips` keeps parsed vanilla clips per process (a bounded cache keyed
+   by archive path), and `gun_clip_pool` hands a worker its guns grouped by
+   template, so a template's clips are read once per worker.
+
+### <a id="codec-checks"></a>How each step is checked
+
+- **A recorded corpus.** A test reads a fixed list of vanilla clips (one per
+  skeleton and clip kind: human, first person, creature, additive,
+  annotated, multi-block, a single frame) and records the digest of every
+  read value and of every file written back, as `tests/fo4_versions` does
+  for the expensive caches. Each step must reproduce the digests; recorded
+  before step 1.
+- **Our own outputs.** The same check over clips our build writes (a gun's
+  first- and third-person clips, a human idle, a creature clip): parse,
+  write, compare bytes with the build's copy.
+- **Caches.** An edited function in a code record rebuilds that entry once.
+  Census of the work cache on 2026-11-14: of about 400,000 `.ran` records
+  over 24 sites, only the one `anim offsets records` entry names an
+  `anim_fo4` function. `gun_clip_files` (149,777) and `versioned_gun_clips`
+  (1,654) name none, so the gun clips keep. A plugin's own inputs record
+  does name the writer, so `build_plan` marks a plugin that wrote clips as
+  due, as for any edit to code it ran; that rebuild hits the caches.
+- **Timing** with the probes above, the gun profile repeated after each
+  step, and the next chain's `item WEAP` and closing-records times.
+
+### <a id="codec-expected"></a>What to expect *(estimates)*
+
+On the profiled gun, steps 1 and 3 together take the codec's 48 of 85
+profiled seconds to well under half, and step 5 removes most of the reads
+after a worker's first gun on a template. A cold gun-clip refill
+(the 2026-11-13 chain: 3,603 s in `item WEAP`) should fall by roughly half;
+the [pool's spread](#weap-profile-2026-11-13) and the third-person target
+clips' own count are separate work.
 
 ## <a id="left-out"></a>Routes considered and not taken
 
