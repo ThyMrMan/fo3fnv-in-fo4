@@ -20,7 +20,9 @@ The page describes the 2026-11-13 build of `FalloutNV.esm`,
 on it. It is the first build whose faces were all made by our own FaceGen
 instead of the Creation Kit (2,382 faces, none failed). With warm caches the
 game took 9 minutes and its faces 15, against about 18 and 39 minutes with
-the Creation Kit's faces.
+the Creation Kit's faces. A full rebuild with the 2026-11-14 fixes (the
+collision crash at Doc Mitchell's, mod scripts naming their masters'
+references) is running.
 
 **States:**
 
@@ -185,6 +187,7 @@ the Creation Kit's faces.
 | Projectiles | Bullets, lasers and explosions at New Vegas's range, speed and damage | Built, not played | Looks and sounds are Fallout 4 stand-ins. | [projectiles](fo4_pipeline.md#projectile-copies) |
 | Combat styles | How each kind of NPC fights | Built, not played | Rushing and fleeing are dropped: Fallout 4's styles have no field for them. | [styles](fo4_pipeline.md#combat-styles) |
 | No combat sprinting | NPCs don't sprint at you, as in New Vegas | Works | Applies to Fallout 4's own NPCs too. | [sprint](fo4_pipeline.md#combat-sprint) |
+| Allies join a fight | When a script turns an NPC on you, his allies and friends join in, as New Vegas's combat groups do | Built, not played | Fallout 4 left them standing (the Vegas Boulevard monorail troopers). Covers 738 scripted attacks on the player in 347 scripts. | [allies](fo4_pipeline.md#allies-join) |
 
 ### Items
 
@@ -241,6 +244,15 @@ the Creation Kit's faces.
   ([challenges](fo4_pipeline.md#challenges-left-out))
 - With CBBE installed, bare skin in converted outfits looks scrambled.
   ([body plan](fo4_bodies_cbbe.md))
+- With both `Fallout3.esm` and `FalloutNV.esm` on, both openings start at
+  once and you end up stuck in Vault 101's hallway. Keep each game in its
+  own MO2 profile. ([FO3 spike](fo4_fo3_plan.md))
+- In the mod builds: `TLD_Travelers.esm`'s two main scripts don't
+  compile, so about 25 scripts that need them don't either; YUP's and Better
+  Brotherhood's bobblehead scripts need a quest script no plugin ships; about
+  40 properties have the wrong type (JSawyer Ultimate, Better Brotherhood,
+  Autumn Leaves); 12 YUP scripts don't compile (boxing gloves, cattle prod).
+  ([mod builds](fo4_mod_builds.md))
 
 Please report what you find in
 [the issues](https://github.com/ThyMrMan/fo3fnv-in-fo4/issues).
@@ -280,9 +292,14 @@ Please report what you find in
   ([menu](fo4_menu_audit.md), [timing](fo4_timing_audit.md)).
 - **Mod builds:** about 20 New Vegas mods (YUP, NVMIM, Willow, the New Vegas
   Bounties series, JSawyer Ultimate and others) convert against the built game
-  and rebuild through `build_plan` in their own MO2 folders; none played yet
-  ([plan](fo4_mod_builds.md)). Overlay plugins (NVTUP and NVMIM) rebuild
-  through it once the chain-runner work merges.
+  and rebuild through `build_plan` in their own MO2 folders; played only in
+  Doc Mitchell's house so far ([plan](fo4_mod_builds.md)). Overlay plugins (NVTUP and NVMIM) rebuild
+  through it too. The first play with the whole mod list (2026-11-14), from
+  Doc Mitchell's house, found three bugs, all fixed: a crash as Doc walked
+  past NVMIM's end table (see the collision note in Parked), JSawyer
+  Ultimate's "Loaded" message repeating (its scripts now find the
+  references their masters own), and a mod that built before its masters
+  in one run. Its Papyrus log shows the mod bugs under Known bugs.
 - **Load order:** converted mods in the user's FNV order, a conflict report,
   a merged patch and LOOT rules ([plan](fo4_load_order.md)).
 - **Build time:** with warm caches the game builds in about 9 minutes and
@@ -295,10 +312,11 @@ Please report what you find in
   moving the hot spots to native code ([plan](fo4_build_speed.md)).
 - **Build safety:** a build chain that checks the setup first, watches every
   step for stalls, reruns faces after any base rebuild, stops on a hidden
-  link between plugins and resumes where it stopped (built on its own
-  branch, not merged). Merged already: a Creation Kit that writes nothing
-  in 30 minutes is closed, and `build_plan` stops instead of rebuilding a
-  plugin twice ([build plan](fo4_plugin_layout.md#build-plan)).
+  link between plugins and resumes where it stopped
+  (`tools.release.fo4_chain`). A Creation Kit that writes nothing in 30
+  minutes is closed, and `build_plan` stops instead of rebuilding a plugin
+  twice, unless one of its masters built after it
+  ([build plan](fo4_plugin_layout.md#build-plan)).
 - **Differences from New Vegas** that could be closed later: attack and equip
   speed perks, looting routines, per-pellet DT, Long Haul and Miss Fortune
   ([drift](fo4_drift.md)).
@@ -321,7 +339,7 @@ Please report what you find in
 | [Dialogue menu as its own mod](dialogue_menu_mod.md) (XDI replacement) | Phase 1 done (our own movie, played); phase 2 partly (the list on `mxmlc` with a hint bar and gamepad input through f3ui, not played); the standalone DLL is Cleanroom UI's `CleanroomDialogue.dll`, which the converter ships since 2026-11-13 (not played); later phases not started |
 | [Our own Flash menu framework](swf_framework.md) (dialogue, casino, Pip-Boy) | **Played:** spikes 1-5: the casino on `mxmlc` and `f3ui`, the HUD color in our own menu, the dialogue menu on its own movie, our movie in the vanilla Pip-Boy, translation files. **Built, not played:** the Pip-Boy framework (CND line, repair and ammo lists, F3NV_ItemCard.SetLine), FallUI support, the dialogue menu on `mxmlc`, our words as `$F3NV_` keys with English under every language, the level-up images and their spike, PRKF.dll's state in Papyrus (Cleanroom UI's CRUI_LevelUp, older saves' F3NV_LevelUp state moved over once), our own level-up menu (skills, perks, taken) opened from Papyrus in place of LevelUpMenu, Input and HintBar with the casino and dialogue menu moved onto them (keys, controls and hints the same on keyboard and gamepad), ScrollList and Modal with the dialogue list and the Pip-Boy's repair and ammo lists moved onto them, Images (texture paths, a missing file caught by F3NV.dll's new TextureExists) with the casino on it: every planned library class is built. **Not started:** gamepad play, the level-up menu's traits and tags, the HUD widget, the container and barter on a movie, the release. Piece by piece: [where each piece stands](swf_framework.md#where); order: [next](swf_framework.md#next) |
 | [Dynamic collision](dynamic_collision_mod.md) (smaller collision when crouching, like Skyrim's DCA) | Planned. Second shape slot read (free for us); next: the vanilla sneak test and a repo with a plugin that loads ([build-out](dynamic_collision_mod.md#build-out)) |
-| [The build without the Creation Kit](fo4_ck_replacements.md) (own BA2, Caprica only, AnimTextData, FaceGen, collision) | In progress. Built: our own texture BA2 writer, loudness lips, and AnimTextData (in every build since 2026-11-12; the first run filled its cache). Every New Vegas script compiles in our patched Caprica. Our own collision writer runs ahead of Elric for convex shapes, triangle meshes on still or keyframed bodies, spheres, capsules and list shapes (built, not played); ragdoll joints and flat shapes still go to Elric. Our own FaceGen made every face of the 2026-11-13 build with no Creation Kit run (see Own FaceGen heads above); it is still behind `--own-facegen`, with the Creation Kit as fallback. Precombines researched: ours look doable, previs stays the Creation Kit's |
+| [The build without the Creation Kit](fo4_ck_replacements.md) (own BA2, Caprica only, AnimTextData, FaceGen, collision) | In progress. Built: our own texture BA2 writer, loudness lips, and AnimTextData (in every build since 2026-11-12; the first run filled its cache). Every New Vegas script compiles in our patched Caprica. Our own collision writer runs ahead of Elric for convex shapes, triangle meshes on still or keyframed bodies, spheres, capsules and list shapes; ragdoll joints and flat shapes still go to Elric. First played 2026-11-14: a triangle naming one corner twice crashed the game (the game reads it as another kind of shape), and mesh sections now number their triangles as Elric does; both fixed, every build rebuilt. Our own FaceGen made every face of the 2026-11-13 build with no Creation Kit run (see Own FaceGen heads above); it is still behind `--own-facegen`, with the Creation Kit as fallback. Precombines researched: ours look doable, previs stays the Creation Kit's |
 | [Ideas the build without the CK makes possible](fo4_after_ck_ideas.md) (a dark-face fixer for any load order, rebuilding only what changed, a face comparison gallery, Caprica fixes upstream, an archive check, AnimTextData for any mod, and ideas for every replaced step) | Ideas only, nothing built |
 | [Appearance comparison](appearance_compare_tool.md) (two load orders' NPCs side by side, such as two character replacers, plus a dark-face check) | Plan only, no code |
 
