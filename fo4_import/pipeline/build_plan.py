@@ -31,8 +31,9 @@ from fo4_import.base.master_overrides import read_built
 from fo4_import.pipeline import creation_kit, mod_dirs
 from fo4_import.pipeline.build_inputs import inputs_path, listing, stamp
 from fo4_import.pipeline.build_steps import stamp_path
-from fo4_import.pipeline.code_identity import changed, rebase
+from fo4_import.pipeline.code_identity import changed, identity, rebase
 from fo4_import.pipeline.code_tag import ROOT
+from fo4_import.pipeline.ran_code import ARCHIVES
 from fo4_import.pipeline.stage_timer import clocked
 from tes5_import.base.tes5_reader import walk
 
@@ -43,6 +44,8 @@ STILL_BUILD, LEAKED, SCRATCH_MASTER = 3, 4, 5
 SCRATCH = (ROOT / 'temp',)
 #: The build modules a stamp's command can name, each replayed with its own retarget (build_command).
 RUN, OVERLAY = 'fo4_import.pipeline.run', 'fo4_import.pipeline.overlay'
+#: The archives replay (archive_replay) and its exit code for a plugin that needs a whole build after all.
+REPLAY, NEEDS_BUILD = 'fo4_import.pipeline.archive_replay', 6
 #: run's and overlay's flags that take one path.
 PATH_FLAGS = frozenset({'--export', '--out', '--data', '--scripts', '--mod-sources', '--replacements',
                         '--export-root'})
@@ -235,9 +238,21 @@ def verdict(plugin: Path) -> tuple:
         return BUILD, 'no finished build with an inputs record'
     key = changed(rec['code'])
     if key:
-        return BUILD, f'code {key}'
+        parts = stale_parts(rec)
+        return BUILD, f'code {key} (parts: {", ".join(sorted(parts)) if parts else "unknown"})'
     reason = _environment(rec) or _files(rec) or _asked(rec) or _masters(rec['masters'], plugin)
     return (BUILD, reason) if reason else (CURRENT, '')
+
+
+def stale_parts(rec: dict) -> 'frozenset | None':
+    """The build parts every changed code key of inputs record `rec` ran in; None when one ran in none (a record
+    from before parts were kept).
+    See: docs/fork/fo4_plugin_layout.md#build-parts
+    """
+    parts = {part: set(keys) for part, keys in rec.get('code_parts', {}).items()}
+    found = [{p for p, ran in parts.items() if key in ran} for key, value in rec['code'].items()
+             if value is None or identity(key) != value]
+    return None if not found or not all(found) else frozenset().union(*found)
 
 
 def masters_of(plugin: Path) -> list:
@@ -389,9 +404,25 @@ def master_dirs(plugin: Path, plugins: list) -> list:
     return sorted({Path(p).parent for p in plugins if Path(p).name.lower() in names})
 
 
+def replayable(plugin: Path) -> bool:
+    """Whether `plugin` (built by pipeline.run) changed only in code that ran in its archives part alone.
+    See: docs/fork/fo4_plugin_layout.md#build-parts
+    """
+    rec = record(plugin)
+    if rec is None or build_module(plugin) != RUN or stale_parts(rec) != {ARCHIVES}:
+        return False
+    return not (_environment(rec) or _files(rec) or _asked(rec) or _masters(rec['masters'], plugin))
+
+
 def rebuild(plugin: Path, dirs: list = ()) -> int:
-    """Build `plugin` again in its own folder with the module that built it, masters from `dirs`; the exit code
-    (2 for a module this cannot replay)."""
+    """Build `plugin` again in its own folder with the module that built it, masters from `dirs`, or only replay
+    its archives (replayable; a whole build after all when that says NEEDS_BUILD); the exit code (2 for a module
+    this cannot replay)."""
+    if replayable(plugin):
+        print(f'== replaying the archives of {plugin.name} ({REPLAY})', flush=True)
+        code = subprocess.call([sys.executable, '-m', REPLAY, str(plugin)], cwd=ROOT)
+        if code != NEEDS_BUILD:
+            return code
     module = build_module(plugin)
     if module not in (RUN, OVERLAY):
         print(f'{plugin.name} was built by {module}, which build_plan cannot replay', flush=True)

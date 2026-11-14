@@ -31,7 +31,8 @@ HASHED = 64 << 20
 _EVENTS = frozenset({'open', 'os.listdir', 'os.scandir', 'subprocess.Popen'})
 _WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
 #: This process's record: files read and written, folders listed, programs run, questions asked (asked), files left out.
-_SEEN = {'reads': set(), 'writes': set(), 'dirs': set(), 'programs': set(), 'asked': set(), 'covered': set()}
+_SEEN = {'reads': set(), 'writes': set(), 'dirs': set(), 'programs': set(), 'asked': set(), 'covered': set(),
+         'record_reads': set()}
 #: `on` while this process records; `main` in the process that writes the build's record (start()).
 _STATE = {'on': False, 'main': False}
 
@@ -67,8 +68,11 @@ def _audit(event: str, args: tuple) -> None:
         return
     if event == 'open':
         path = norm(args[0])
+        kind = 'writes' if _writes(args[1], args[2]) else 'reads'
         if path:
-            _SEEN['writes' if _writes(args[1], args[2]) else 'reads'].add(path)
+            _SEEN[kind].add(path)
+        if path and kind == 'reads' and ran_code.part_now() == ran_code.RECORDS:
+            _SEEN['record_reads'].add(path)
     elif event == 'subprocess.Popen':
         program = _program(args[0], args[1])
         if program:
@@ -96,16 +100,19 @@ def start(folder: Path) -> None:
     os.environ[ENV] = str(folder)
     _STATE['main'] = True
     resume()
+    ran_code.enter_part(ran_code.RECORDS)
 
 
 def resume() -> None:
-    """Record this process when its build records (ENV set); a worker's record is written to ENV's folder at exit."""
+    """Record this process when its build records (ENV set), in the build part it was started in (a worker: its
+    stage's); a worker's record is written to ENV's folder at exit."""
     if not os.environ.get(ENV) or _STATE['on']:
         return
     if not _STATE['main']:
         atexit.register(_dump)
     sys.addaudithook(_audit)
     ran_code.start()
+    ran_code.enter_part(os.environ.get(ran_code.PART_ENV))
     _STATE['on'] = True
 
 
@@ -134,7 +141,8 @@ def _natives() -> set:
 def _dump() -> None:
     """Write this process's record into ENV's folder as `<pid>.json`, whole or not at all (a reader globs *.json)."""
     _STATE['on'] = False
-    body = {**{k: sorted(v) for k, v in _SEEN.items()}, 'ran': sorted(ran_code.RAN), 'natives': sorted(_natives())}
+    body = {**{k: sorted(v) for k, v in _SEEN.items()}, 'ran': sorted(ran_code.RAN), 'natives': sorted(_natives()),
+            'parts': {p: sorted(keys) for p, keys in ran_code.PARTS.items()}}
     part = Path(os.environ[ENV]) / f'{os.getpid()}.json'
     part.with_suffix('.tmp').write_text(json.dumps(body), encoding='utf-8')
     os.replace(part.with_suffix('.tmp'), part)
@@ -246,10 +254,15 @@ class Held(frozenset):
 
 def _merged(folder: Path) -> dict:
     """This process's record and every worker's in `folder`, merged."""
-    out = {**{k: set(v) for k, v in _SEEN.items()}, 'ran': set(ran_code.RAN), 'natives': _natives()}
+    out = {**{k: set(v) for k, v in _SEEN.items()}, 'ran': set(ran_code.RAN), 'natives': _natives(),
+           'parts': {p: set(keys) for p, keys in ran_code.PARTS.items()}}
     for part in folder.glob('*.json'):
         for k, v in json.loads(part.read_text(encoding='utf-8')).items():
-            out[k] |= set(v)
+            if k == 'parts':
+                for name, keys in v.items():
+                    out['parts'].setdefault(name, set()).update(keys)
+            else:
+                out[k] |= set(v)
     return out
 
 
@@ -300,7 +313,9 @@ def write(plugin: Path, data_dir: Path, argv: list) -> Path:
             'programs': {p: s for p in sorted(seen['programs']) if (s := program(p))},
             'natives': {p: stamp(Path(p)) for p in sorted(seen['natives'])},
             'code': hashes(seen['ran']), 'masters': MASTERS.body(),
-            'asked': [json.loads(q) for q in sorted(seen['asked'])]}
+            'asked': [json.loads(q) for q in sorted(seen['asked'])],
+            'code_parts': {p: sorted(keys) for p, keys in sorted(seen['parts'].items())},
+            'made_reads': {p: s for p in sorted(seen['record_reads'] & seen['writes']) if (s := stamp(Path(p)))}}
     out = inputs_path(plugin)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(body, indent=0, sort_keys=True), encoding='utf-8')

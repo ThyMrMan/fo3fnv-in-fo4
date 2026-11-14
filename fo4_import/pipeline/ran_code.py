@@ -12,6 +12,7 @@ See: docs/fork/fo4_build_speed.md#keys
 import atexit
 import contextlib
 import functools
+import os
 import sys
 import threading
 
@@ -30,6 +31,14 @@ RAN_BY_FILE = {}
 SITES = {}
 #: (thread id, set) of each capture open now, innermost last.
 _CAPTURES = []
+#: Build parts (docs/fork/fo4_plugin_layout.md#build-parts): records (the default), finished meshes, archives.
+RECORDS, MESHES, ARCHIVES = 'records', 'meshes', 'archives'
+#: The environment variable naming the build part a process is in; a pool worker inherits its stage's.
+PART_ENV = 'F3NV_BUILD_PART'
+#: {build part: every repo function key that started while this process was in it} (enter_part).
+PARTS = {}
+#: The build part this process is in now ([None]: none entered).
+_PART = [None]
 
 
 def _started(code, offset: int):
@@ -42,6 +51,8 @@ def _started(code, offset: int):
     key, me = rel + SEP + code.co_qualname, threading.get_ident()
     RAN.add(key)
     RAN_BY_FILE.setdefault(rel, set()).add(key)
+    if _PART[0] is not None:
+        PARTS[_PART[0]].add(key)
     for owner, seen in tuple(_CAPTURES):
         if owner == me:
             seen.add(key)
@@ -56,6 +67,26 @@ def start() -> None:
     sys.monitoring.register_callback(TOOL, sys.monitoring.events.PY_START, _started)
     sys.monitoring.set_events(TOOL, sys.monitoring.events.PY_START)
     atexit.register(stop)
+
+
+def enter_part(part: 'str | None') -> 'str | None':
+    """Note each repo function's first start in build `part` from now on, the reports re-armed when the part
+    changes (None, or not reporting: nothing); the part this process was in.
+    See: docs/fork/fo4_plugin_layout.md#build-parts
+    """
+    was = _PART[0]
+    if not part or part == was or sys.monitoring.get_tool(TOOL) != NAME:
+        return was
+    _PART[0] = part
+    PARTS.setdefault(part, set())
+    os.environ[PART_ENV] = part
+    sys.monitoring.restart_events()
+    return was
+
+
+def part_now() -> 'str | None':
+    """The build part this process is in (enter_part), None outside one."""
+    return _PART[0]
 
 
 def stop() -> None:

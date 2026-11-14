@@ -25,6 +25,7 @@ from fo4_import.nif import weapon
 from fo4_import.pipeline import elric_cache, master_copies, mesh_cache, object_lod, stale_files
 from fo4_import.pipeline.build_inputs import MASTERS, master_scripts
 from fo4_import.pipeline.light_choice import finish_flag
+from fo4_import.pipeline.ran_code import ARCHIVES, MESHES
 from fo4_import.pipeline.stage_timer import timed
 from fo4_import.spike import (ammo_casings, ammo_switch, companion_barks, facegen, level_up_icons, list_adds,
                                script_overrides, skeleton, voice)
@@ -82,7 +83,7 @@ def _sounds(builder, export_dir: Path, data_dir: Path, plugin: str) -> None:
     builder.counts['sound files'] = voice.convert(todo, LIP_GENERATOR)
 
 
-@timed('main archive')
+@timed('main archive', ARCHIVES)
 def _main_archive(builder, data_dir: Path, plugin: str) -> None:
     """The Main and voices BA2s (pack_main), after every writer and the stale prune.
     See: docs/fork/fo4_pipeline.md#main-archive
@@ -149,7 +150,7 @@ def _finished(builder, data_dir: Path) -> tuple:
     return paths, [p for p in paths if p not in later]
 
 
-@timed('collision')
+@timed('collision', MESHES)
 def _collision(builder, data_dir: Path) -> None:
     """Elric's collision for every written mesh but those a master ships finished alike (master_copies.theirs),
     then the weapon meshes dressed; counted."""
@@ -163,7 +164,7 @@ def _collision(builder, data_dir: Path) -> None:
     builder.counts['weapon meshes'] = len(builder.weapons)
 
 
-@timed('object LOD')
+@timed('object LOD', MESHES)
 def _object_lod(builder, export_dir: Path, data_dir: Path) -> None:
     """Built worldspaces' object LOD (after Elric, before the texture BA2)."""
     builder.counts.update(object_lod.bake_all(export_dir, data_dir, builder.object_lod.worlds))
@@ -178,17 +179,23 @@ def _assets(builder, export_dir: Path, data_dir: Path, out: Path) -> None:
     level_up_icons.stage(builder, export_dir, data_dir)
 
 
-@timed('FaceGen and texture archive')
+@timed('FaceGen and texture archive', ARCHIVES)
 def _faces(builder, data_dir: Path, out: Path) -> None:
-    """After the plugin is written: drop FaceGen naming no NPC_ or drawing parts it no longer has
-    (facegen.outdated; the game draws those NPCs from the record), then pack the texture BA2; counted."""
-    stale = facegen.outdated(out, data_dir, master_copies.master_dirs(builder))
+    """After the plugin is written: faces_and_textures() for its NPC_ records; counted."""
+    npcs = [struct.unpack_from('<I', rec, 12)[0] for rec in builder.writer.top_records() if rec[:4] == b'NPC_']
+    builder.counts.update(faces_and_textures(data_dir, out, master_copies.master_dirs(builder), npcs))
+
+
+def faces_and_textures(data_dir: Path, out: Path, masters: list, npcs: list, prune: bool = True) -> dict:
+    """Drop FaceGen naming none of `npcs` (the plugin's NPC_ FormIDs) or drawing parts it no longer has
+    (facegen.outdated against `masters`' folders; the game draws those NPCs from the record), then pack the
+    texture BA2 (`prune`: pack_textures', off for a run that staged no texture); the counts."""
+    stale = facegen.outdated(out, data_dir, masters)
     for path in stale:
         path.unlink()
-    builder.counts['FaceGeom NIFs older than their NPC head parts removed (run the faces stage)'] = len(stale)
-    npcs = [struct.unpack_from('<I', rec, 12)[0] for rec in builder.writer.top_records() if rec[:4] == b'NPC_']
-    builder.counts['stale FaceGen files removed'] = facegen.prune(out.name, data_dir, npcs)
-    builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER, CLASSIC_FOLDER))
+    return {'FaceGeom NIFs older than their NPC head parts removed (run the faces stage)': len(stale),
+            'stale FaceGen files removed': facegen.prune(out.name, data_dir, npcs),
+            'textures packed': pack_textures(data_dir, out.name, (LUT_FOLDER, CLASSIC_FOLDER), prune)}
 
 
 @timed('script compile')
