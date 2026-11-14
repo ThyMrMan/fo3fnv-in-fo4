@@ -18,7 +18,7 @@ from core import build_resources
 from core.heavy_lock import hold_heavy_lock
 from core.process_job import create_pool_job
 from core.subprocess_flags import configure_multiprocessing
-from fo4_import.base.ba2_pack import drop_packed, restore_packed
+from fo4_import.base.ba2_pack import drop_packed, restore_packed, stashed
 from fo4_import.base.source_fault import report as fault_report, stamp as fault_stamp
 from fo4_import.pipeline import build_inputs, eta, eta_inputs
 from fo4_import.pipeline.build_steps import convert_scripts, source_state, stamp_path, write_stamp
@@ -28,7 +28,7 @@ from fo4_import.pipeline.light_choice import STAMP_KEY, choose
 from fo4_import.pipeline.master_space import UNCLASSIFIED
 from fo4_import.pipeline.mesh_cache import warm
 from fo4_import.pipeline.mod_dirs import plugin_dirs
-from fo4_import.pipeline.stage_timer import LISTENERS, charged, records, report, sample
+from fo4_import.pipeline.stage_timer import LISTENERS, charged, clocked, records, report, sample
 from fo4_import.spike import replacements
 from tools.script.compile_papyrus import TALLY
 from fo4_import.spike.cell import build, find_cell, placed_bases, world_model
@@ -173,7 +173,9 @@ def main():
     args.choice = choose(args.out, args.light, args.switch_plugin_type)
     stop_sampling = sample()
     print(resources_line())
-    print(f'loose files restored from the Main archive: {restore_packed(args.data, args.out.name)}')
+    way = 'moved back from the stash' if stashed(args.data, args.out.name) else 'written from the archive'
+    restored, took = clocked(restore_packed, args.data, args.out.name)
+    print(f'loose files restored from the Main archive: {restored} in {took:.1f}s ({way})')
     LISTENERS.append(estimate(args))
     started = time.time()
     extra = {'command': ' '.join(['fo4_import.pipeline.run'] + sys.argv[1:]), 'argv': sys.argv[1:], **source_state(),
@@ -183,9 +185,10 @@ def main():
     counts = {}
     try:
         counts = build_all(args, started)
-        build_inputs.write(args.out, args.data, sys.argv[1:])
+        print(f'inputs record written in {clocked(build_inputs.write, args.out, args.data, sys.argv[1:])[1]:.1f}s')
         if not args.keep_loose:
-            print(f'loose files the archives hold, removed: {drop_packed(args.data, args.out.name)}')
+            dropped, took = clocked(drop_packed, args.data, args.out.name)
+            print(f'loose files the archives hold, removed: {dropped} in {took:.1f}s')
     except BaseException:
         stop_sampling()
         write_stamp(args.out, 'failed', started, {**extra, **profile_stamp(counts)})

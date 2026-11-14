@@ -14,10 +14,13 @@ See: docs/fork/fo4_plugin_layout.md#build-plan
 """
 
 import argparse
+import functools
 import hashlib
 import importlib.metadata
 import json
+import os
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -30,6 +33,7 @@ from fo4_import.pipeline.build_inputs import inputs_path, listing, stamp
 from fo4_import.pipeline.build_steps import stamp_path
 from fo4_import.pipeline.code_identity import changed, rebase
 from fo4_import.pipeline.code_tag import ROOT
+from fo4_import.pipeline.stage_timer import clocked
 from tes5_import.base.tes5_reader import walk
 
 CURRENT, BUILD, AFTER = 'current', 'build', 'after'
@@ -53,17 +57,33 @@ def record(plugin: Path) -> 'dict | None':
     path, stamp_file = inputs_path(plugin), stamp_path(plugin)
     if not path.is_file() or not stamp_file.is_file() or not plugin.is_file():
         return None
+    return _record(path, stamp_file, path.stat().st_mtime_ns, stamp_file.stat().st_mtime_ns)
+
+
+@functools.lru_cache(maxsize=256)
+def _record(path: Path, stamp_file: Path, *_mtimes) -> 'dict | None':
+    """record() of `path`, read once per pair of file mtimes (`_mtimes`)."""
     if json.loads(stamp_file.read_text(encoding='utf-8')).get('status') != 'finished':
         return None
     return json.loads(path.read_text(encoding='utf-8'))
 
 
 def same_file(path: str, kept: list) -> bool:
-    """Whether file `path` still matches its kept [size, mtime_ns, SHA-1 or None]."""
-    now = stamp(Path(path))
-    if now is None or now[0] != kept[0]:
+    """Whether file `path` still matches its kept [size, mtime_ns, SHA-1 or None]: the same size, and the same
+    mtime or (hashed only then) the same bytes."""
+    now = file_stat(path)
+    if now is None or now.st_size != kept[0] or not stat.S_ISREG(now.st_mode):
         return False
-    return now[1] == kept[1] or (kept[2] is not None and now[2] == kept[2])
+    return now.st_mtime_ns == kept[1] or (kept[2] is not None and (stamp(Path(path)) or [None] * 3)[2] == kept[2])
+
+
+@functools.cache
+def file_stat(path: str) -> 'os.stat_result | None':
+    """os.stat of `path` (None when absent), taken once per plan() (which clears it)."""
+    try:
+        return os.stat(path)
+    except OSError:
+        return None
 
 
 def _files(rec: dict) -> 'str | None':
@@ -103,28 +123,45 @@ def _environment(rec: dict) -> 'str | None':
     return None
 
 
+@functools.cache
+def built_walk(path: str, masters: tuple, sigs: frozenset) -> dict:
+    """{FormID: (signature, body SHA-1 for `sigs`)} of `path` read for `masters`.
+    See: docs/fork/fo4_plugin_layout.md#plan-memos
+    """
+    return {rec.form_id: (rec.sig.decode('latin-1'), hashlib.sha1(rec.body).hexdigest() if rec.sig in sigs else None)
+            for rec, _ in walk(read_built(path, list(masters)), bodies=sigs)}
+
+
 def _records(paths: list, wanted: dict, masters: list) -> dict:
     """{FormID: [signature, SHA-1 of the body]} of `wanted` ({FormID: signature}) in plugins `paths`, the last
     one holding each, numbered as a build mastering `masters` reads them (as master_overrides.master_records)."""
-    out = {}
-    sigs = frozenset(s.encode('latin-1') for s in wanted.values())
+    out, sigs = {}, _sigs(wanted)
     for path in paths:
-        for rec, _ in walk(read_built(path, masters), bodies=sigs):
-            if wanted.get(rec.form_id) == rec.sig.decode('latin-1'):
-                out[rec.form_id] = [rec.sig.decode('latin-1'), hashlib.sha1(rec.body).hexdigest()]
+        found = built_walk(str(path), tuple(masters), sigs)
+        out.update({fid: list(found[fid]) for fid, sig in wanted.items() if found.get(fid, ('',))[0] == sig})
     return out
 
 
-def _held(paths: list, masters: list) -> frozenset:
-    """Every FormID in plugins `paths`, numbered for a build mastering `masters`.
-    See: docs/fork/fo4_plugin_layout.md#multi-master
-    """
-    return frozenset(rec.form_id for path in paths for rec, _ in walk(read_built(path, masters), bodies=()))
+def _sigs(wanted: dict) -> frozenset:
+    """The signatures (bytes) of `wanted` ({FormID: signature})."""
+    return frozenset(s.encode('latin-1') for s in wanted.values())
+
+
+@functools.cache
+def held(paths: tuple, masters: tuple, sigs: frozenset) -> frozenset:
+    """Every FormID in plugins `paths` read for `masters` (built_walk)."""
+    return frozenset(fid for path in paths for fid in built_walk(path, masters, sigs))
+
+
+@functools.cache
+def read_ledger(path: str) -> Ledger:
+    """The ledger at `path`, read once per plan()."""
+    return Ledger(Path(path))
 
 
 def _ledgers(log: dict, held: frozenset) -> 'str | None':
     """The first master ledger lookup that now answers differently."""
-    ledgers = {int(k.split(':')[1]): Ledger(Path(v[0])) for k, v in log['paths'].items() if k.startswith('ledger:')}
+    ledgers = {int(k.split(':')[1]): read_ledger(v[0]) for k, v in log['paths'].items() if k.startswith('ledger:')}
     for site, key, answer in log['ledgers']:
         now = None
         for index, ledger in sorted(ledgers.items()):
@@ -145,16 +182,17 @@ def _masters(log: dict, plugin: Path) -> 'str | None':
         if not Path(path).is_file() or file_masters(Path(path)) != masters:
             return f'master header {path}'
     own = file_masters(plugin) if plugins else []
-    held = _held(plugins, own) if plugins and (log['held'] or log['ledgers']) else frozenset()
-    moved = next((fid for fid, answer in log['held'].items() if (int(fid, 16) in held) != answer), None)
+    wanted = {int(fid, 16): sig for fid, (sig, _) in log['records'].items()}
+    asked = plugins and (log['held'] or log['ledgers'])
+    found = held(tuple(map(str, plugins)), tuple(own), _sigs(wanted)) if asked else frozenset()
+    moved = next((fid for fid, answer in log['held'].items() if (int(fid, 16) in found) != answer), None)
     if moved:
         return f'master holds {moved}'
-    wanted = {int(fid, 16): sig for fid, (sig, _) in log['records'].items()}
     now = _records(plugins, wanted, own) if wanted else {}
     moved = next((fid for fid, kept in log['records'].items() if now.get(int(fid, 16), [kept[0], None]) != kept), None)
     if moved:
         return f'master record {moved}'
-    return _ledgers(log, held) or _staged(log) or _scripts(log)
+    return _ledgers(log, found) or _staged(log) or _scripts(log)
 
 
 def _staged(log: dict) -> 'str | None':
@@ -177,6 +215,20 @@ def _scripts(log: dict) -> 'str | None':
 
 
 def check(plugin: Path) -> tuple:
+    """verdict() of `plugin` with the disk read afresh (fresh_reads)."""
+    fresh_reads()
+    return verdict(plugin)
+
+
+def fresh_reads() -> None:
+    """Forget the files, masters and ledgers read so far (each read once until the next call).
+    See: docs/fork/fo4_plugin_layout.md#plan-memos
+    """
+    for memo in (file_stat, built_walk, held, read_ledger):
+        memo.cache_clear()
+
+
+def verdict(plugin: Path) -> tuple:
     """(CURRENT or BUILD, the first changed input or '') of built `plugin`, its masters taken as they are now."""
     rec = record(plugin)
     if rec is None:
@@ -211,13 +263,14 @@ def plan(plugins: list) -> list:
     See: docs/fork/fo4_plugin_layout.md#build-plan
     """
     rebase()
+    fresh_reads()
     out, building = [], set()
     for plugin in ordered(plugins):
         waiting = [m for m in masters_of(plugin) if m.resolve() in building]
-        verdict = (AFTER, waiting[0].name) if waiting else check(plugin)
-        if verdict[0] != CURRENT:
+        found = (AFTER, waiting[0].name) if waiting else verdict(plugin)
+        if found[0] != CURRENT:
             building.add(plugin.resolve())
-        out.append((plugin, *verdict))
+        out.append((plugin, *found))
     return out
 
 
@@ -421,10 +474,11 @@ def run(plugins: list) -> int:
         return SCRATCH_MASTER
     built, before, last = set(), None, None
     while True:
-        code = faces_again(plugins)
+        code, faces = clocked(faces_again, plugins)
         if code:
             return code
-        rows = plan(plugins)
+        rows, planned = clocked(plan, plugins)
+        print(f'plan: {len(rows)} plugins in {planned:.1f}s (faces check {faces:.1f}s)', flush=True)
         found = leaked(rows, before, last, plugins) if last is not None else None
         if found:
             print(f'{found[0].name} needs a build after building {last.name}, which it does not depend on '
@@ -438,7 +492,8 @@ def run(plugins: list) -> int:
             print(f'{plugin.name} still needs a build after building it ({reason}); stopped', flush=True)
             return STILL_BUILD
         print(f'{plugin.name}: {reason}', flush=True)
-        code = rebuild(plugin, master_dirs(plugin, plugins))
+        code, took = clocked(rebuild, plugin, master_dirs(plugin, plugins))
+        print(f'{plugin.name}: build process {took:.0f}s, start to exit', flush=True)
         if code:
             return code
         built = (built - dependents(plugin, plugins)) | {plugin.resolve()}

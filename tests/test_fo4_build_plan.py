@@ -294,7 +294,7 @@ def test_master_formids_are_read_in_the_dependent_plugins_numbering(tmp_path):
     masters = ['Fallout4.esm', 'Game.esm', 'One.esm', 'Two.esm']
     one = _plugin(tmp_path / 'One.esm', masters[:2], [('FLST', 0x02000FD0, b'a')])
     two = _plugin(tmp_path / 'Two.esm', masters[:2], [('FLST', 0x02000AAA, b'b')])
-    held = BP._held([one, two], masters)
+    held = BP.held((str(one), str(two)), tuple(masters), frozenset())
     assert {0x02000FD0, 0x03000AAA} <= held
     assert 0x03000FD0 not in held and 0x02000AAA not in held
 
@@ -302,7 +302,7 @@ def test_master_formids_are_read_in_the_dependent_plugins_numbering(tmp_path):
 def _dlc_asks(game: Path, dlc_data: Path) -> Path:
     """A DLC build that asked the game whether it holds 0x01000900 and read record 0x01000901; its plugin."""
     masters = ['Fallout4.esm', game.name]
-    held = BI.Held(BP._held([game], masters))
+    held = BI.Held(BP.held((str(game),), tuple(masters), frozenset()))
     BI.MASTERS.cover('plugin', game)
     assert 0x01000900 in held
     body = BP._records([game], {0x01000901: 'FLST'}, masters)[0x01000901]

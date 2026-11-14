@@ -107,12 +107,12 @@ def texconv() -> str:
 
 def cached_files(src: facegeom.Sources, plugin: str, form_id: int, textures: bool = True) -> tuple:
     """(face_files(), why the work cache could not give it: '' when it did, else miss_reason()): kept by the NPC
-    record, the plugins' masters and texconv, and used while every other record and file it read (reads) and the
+    record, its plugin's masters and texconv, and used while every other record and file it read (reads) and the
     code that made it are unchanged.
     See: docs/fork/fo4_facegen_plan.md#own-cache
     """
     npc = src.records.get((plugin.lower(), form_id & 0xFFFFFF))
-    inputs = (plugin.lower(), form_id, held(npc), sorted(src.masters.items()), texconv(), textures)
+    inputs = (plugin.lower(), form_id, held(npc), src.masters.get(plugin.lower()), texconv(), textures)
     kept = work_cache.lookup(SITE, __name__, inputs)
     if kept is not None and unchanged(src, kept[0]):
         return kept[1], ''

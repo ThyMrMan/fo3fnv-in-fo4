@@ -137,13 +137,15 @@ def _kept_face(tmp_path, monkeypatch) -> tuple:
         return {'meshes/x.nif': texture} if texture else None
     monkeypatch.setattr(facegen_own, 'face_files', make)
 
-    def run(acbs: bytes, race: bytes, texture: bytes, other: bytes = b'o', misses: list = None) -> tuple:
+    def run(acbs: bytes, race: bytes, texture: bytes, other: bytes = b'o', misses: list = None,
+            loaded: dict = None) -> tuple:
         """One build's write of face 801 (ACBS `other`), then face 800 (its cache miss, if any, added to
-        `misses`); face 800's."""
+        `misses`), with the other plugins `loaded` {name: masters} in the load order; face 800's."""
         records = {('p.esp', 0x800): Rec('p.esp', b'NPC_', [(b'ACBS', acbs)]),
                    ('p.esp', 0x801): Rec('p.esp', b'NPC_', [(b'ACBS', other)]),
                    ('p.esp', 0x900): Rec('p.esp', b'RACE', [(b'DATA', race)])}
         src, out = _Src({'textures\\x.dds': texture}, records), tmp_path / f'mod{len(made)}'
+        src.masters.update(loaded or {})
         facegen_own.write_face(src, 'p.esp', 0x801, out)
         status = facegen_own.write_face(src, 'p.esp', 0x800, out, misses=misses)
         return status, (out / 'meshes/x.nif').read_bytes() if (out / 'meshes/x.nif').exists() else None
@@ -168,6 +170,15 @@ def test_a_cache_miss_says_why(tmp_path, monkeypatch):
         run(*build, misses=misses)
     assert misses == ['no entry (NPC record, masters or texconv)', 'read RACE record changed', 'read file changed',
                       'no entry (NPC record, masters or texconv)']
+
+
+def test_another_plugin_in_the_load_order_keeps_the_face(tmp_path, monkeypatch):
+    """A plugin added to the load order (a test ESL, another mod) leaves the face kept: only its own plugin's
+    masters key it."""
+    run, made = _kept_face(tmp_path, monkeypatch)
+    assert run(b'a', b'r', b'tex') == ('written', b'tex')
+    assert run(b'a', b'r', b'tex', loaded={'test.esl': [], 'mod.esp': ['p.esp']}) == ('kept', b'tex')
+    assert made.count(0x800) == 1
 
 
 def test_a_face_not_exported_is_kept_too(tmp_path, monkeypatch):
