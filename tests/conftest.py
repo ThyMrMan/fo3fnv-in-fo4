@@ -8,6 +8,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from asset_convert.game_paths import NAMESPACE_ENV, current_namespace, set_namespace
 from asset_convert.sources.source_registry import SELECTED_DIR_ENV, select_directory
+from fo4_import.pipeline import elric_cache
+
+
+@pytest.fixture(autouse=True)
+def _own_pre_elric_store(tmp_path, monkeypatch):
+    """Keep pre-Elric meshes a test finishes out of the real store."""
+    monkeypatch.setattr(elric_cache, 'INPUT_STORE', tmp_path / 'pre_elric_store')
 
 
 @pytest.fixture(autouse=True)

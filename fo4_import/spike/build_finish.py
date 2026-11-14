@@ -22,7 +22,7 @@ from fo4_import.base.ba2 import Archives
 from fo4_import.base.build_files import moved_in
 from fo4_import.havok import anim_text, gun_anim_text
 from fo4_import.nif import weapon
-from fo4_import.pipeline import elric_cache, master_copies, mesh_cache, object_lod, stale_files
+from fo4_import.pipeline import elric_cache, master_copies, mesh_cache, object_lod, replay_manifest, stale_files
 from fo4_import.pipeline.build_inputs import MASTERS, master_scripts
 from fo4_import.pipeline.light_choice import finish_flag
 from fo4_import.pipeline.ran_code import ARCHIVES, MESHES
@@ -155,13 +155,21 @@ def _collision(builder, data_dir: Path) -> None:
     """Elric's collision for every written mesh but those a master ships finished alike (master_copies.theirs),
     then the weapon meshes dressed; counted."""
     paths, alone = _finished(builder, data_dir)
-    failed = elric_cache.finish(paths, master_copies.theirs(builder, alone))
+    builder.finished_alike = master_copies.theirs(builder, alone)
+    failed = finish_meshes(data_dir, paths, builder.finished_alike, sorted(builder.weapons))
     builder.counts['meshes without collision (Elric failed)'] = len(failed)
     builder.counts["meshes left to the master's archive (finished alike)"] = len(elric_cache.LEFT)
     builder.counts['mesh vertices with a UV clamped to the half-float range'] = sum(mesh_cache.CLAMPED.values())
-    for model in sorted(builder.weapons):
-        weapon.dress_file(data_dir / 'Meshes' / model)
     builder.counts['weapon meshes'] = len(builder.weapons)
+
+
+def finish_meshes(data_dir: Path, paths: list, theirs: dict, weapons: list) -> list:
+    """elric_cache.finish() of `paths` (`theirs`: a master's finished-alike marks), then `weapons` (models under
+    Meshes) dressed; the paths left without collision."""
+    failed = elric_cache.finish(paths, theirs)
+    for model in weapons:
+        weapon.dress_file(data_dir / 'Meshes' / model)
+    return failed
 
 
 @timed('object LOD', MESHES)
@@ -268,8 +276,12 @@ def finish(builder, export_dir: Path, data_dir: Path, out: Path, scripts_dir, he
                                                                                     master_copies.master_dirs(builder))
     made = stale_files.made(data_dir, plugin_stem(export_dir), builder.started, bool(builder.built))
     builder.counts['stale meshes, materials and clips removed'] = len(stale_files.prune(out, data_dir, made))
+    finished = _finished(builder, data_dir)[1]
     builder.counts['finished meshes recorded for dependent builds'] = master_copies.write_meshes(
-        out, data_dir, _finished(builder, data_dir)[1], elric_cache.MARKS)
+        out, data_dir, finished, elric_cache.MARKS)
+    replay_manifest.write(out, {'pre_elric': elric_cache.INPUTS, 'theirs': builder.finished_alike,
+                                'weapons': sorted(builder.weapons), 'lod_worlds': builder.object_lod.worlds,
+                                'finished': [str(p) for p in finished], 'export': str(export_dir)})
     _main_archive(builder, data_dir, out.name)
     builder.counts['cache entries pruned (unused 14 days)'] = elric_cache.prune_caches(days=14)
     print(f'readiness entries: {builder.readiness.write(out.name)}')

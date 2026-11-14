@@ -28,12 +28,12 @@ from pathlib import Path
 from fo4_import.base.install import file_masters
 from fo4_import.base.ledger import ID, Ledger, ledger_path
 from fo4_import.base.master_overrides import read_built
-from fo4_import.pipeline import creation_kit, mod_dirs
+from fo4_import.pipeline import creation_kit, mod_dirs, replay_manifest
 from fo4_import.pipeline.build_inputs import inputs_path, listing, stamp
 from fo4_import.pipeline.build_steps import stamp_path
 from fo4_import.pipeline.code_identity import changed, identity, rebase
 from fo4_import.pipeline.code_tag import ROOT
-from fo4_import.pipeline.ran_code import ARCHIVES
+from fo4_import.pipeline.ran_code import ARCHIVES, MESHES
 from fo4_import.pipeline.stage_timer import clocked
 from tes5_import.base.tes5_reader import walk
 
@@ -44,8 +44,10 @@ STILL_BUILD, LEAKED, SCRATCH_MASTER = 3, 4, 5
 SCRATCH = (ROOT / 'temp',)
 #: The build modules a stamp's command can name, each replayed with its own retarget (build_command).
 RUN, OVERLAY = 'fo4_import.pipeline.run', 'fo4_import.pipeline.overlay'
-#: The archives replay (archive_replay) and its exit code for a plugin that needs a whole build after all.
-REPLAY, NEEDS_BUILD = 'fo4_import.pipeline.archive_replay', 6
+#: The parts replay (part_replay) and its exit code for a plugin that needs a whole build after all.
+REPLAY, NEEDS_BUILD = 'fo4_import.pipeline.part_replay', 6
+#: The build parts a replay can run again without the records part.
+REPLAYABLE = frozenset({MESHES, ARCHIVES})
 #: run's and overlay's flags that take one path.
 PATH_FLAGS = frozenset({'--export', '--out', '--data', '--scripts', '--mod-sources', '--replacements',
                         '--export-root'})
@@ -404,22 +406,25 @@ def master_dirs(plugin: Path, plugins: list) -> list:
     return sorted({Path(p).parent for p in plugins if Path(p).name.lower() in names})
 
 
-def replayable(plugin: Path) -> bool:
-    """Whether `plugin` (built by pipeline.run) changed only in code that ran in its archives part alone.
+def replay_parts(plugin: Path) -> 'frozenset | None':
+    """The parts to replay of `plugin` (built by pipeline.run) when its only change is code that ran in REPLAYABLE
+    parts alone (the meshes part only with a replay manifest); None when it needs a whole build or nothing.
     See: docs/fork/fo4_plugin_layout.md#build-parts
     """
     rec = record(plugin)
-    if rec is None or build_module(plugin) != RUN or stale_parts(rec) != {ARCHIVES}:
-        return False
-    return not (_environment(rec) or _files(rec) or _asked(rec) or _masters(rec['masters'], plugin))
+    parts = stale_parts(rec) if rec is not None and build_module(plugin) == RUN else None
+    if not parts or not parts <= REPLAYABLE or (MESHES in parts and replay_manifest.read(plugin) is None):
+        return None
+    moved = _environment(rec) or _files(rec) or _asked(rec) or _masters(rec['masters'], plugin)
+    return None if moved else parts
 
 
 def rebuild(plugin: Path, dirs: list = ()) -> int:
     """Build `plugin` again in its own folder with the module that built it, masters from `dirs`, or only replay
-    its archives (replayable; a whole build after all when that says NEEDS_BUILD); the exit code (2 for a module
-    this cannot replay)."""
-    if replayable(plugin):
-        print(f'== replaying the archives of {plugin.name} ({REPLAY})', flush=True)
+    the parts that changed (replay_parts; a whole build after all when that says NEEDS_BUILD); the exit code (2 for
+    a module this cannot replay)."""
+    if replay_parts(plugin):
+        print(f'== replaying parts of {plugin.name} ({REPLAY})', flush=True)
         code = subprocess.call([sys.executable, '-m', REPLAY, str(plugin)], cwd=ROOT)
         if code != NEEDS_BUILD:
             return code

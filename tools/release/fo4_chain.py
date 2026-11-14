@@ -295,7 +295,7 @@ def chain_steps(cfg: Config, args: argparse.Namespace) -> list:
                       '--replacements', cfg.root / 'replacements' / 'falloutnv.json', 'GSDocMitchellHouse']
     helpers, dll = nv / 'FalloutHelpers.esl', nv / 'F4SE' / 'Plugins' / 'F3NV.dll'
     steps = [
-        Step('base archives', py + ['-m', build_plan.REPLAY, cfg.base], no_file=None),
+        Step('base replay', py + ['-m', build_plan.REPLAY, cfg.base], no_file=None),
         Step('base', base_argv, env=env, watch=[nv, cfg.root / 'temp' / 'fo4_scripts', *ck_out],
              key=lambda: base_key(cfg), estimate=lambda: build_estimate(stamp_path(cfg.base)),
              stamp=stamp_path(cfg.base)),
