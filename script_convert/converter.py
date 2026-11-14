@@ -10,7 +10,7 @@ from script_convert.constants import (
     COMBAT_APPROACH_QUEST, FALL_DAMAGE_SPELL, KNOWN_GLOBALS, LAST_ACTIVATOR_VAR, LOOSE_OPS, UDF_RESULT_VAR, PAPYRUS_BOOL_FUNCTIONS, PLACED_REF_SIGS,
     PLAYER_ALIAS_EXTENDS, RETURN_TYPES, SELF_NAMES, _REF_TYPES,
     _canonical_global, digit_stripped_formid, _record_type_to_base_papyrus,
-    formid_property_name, generated_script_stem, is_generated_script_type, safe_property_name,
+    formid_property_name, papyrus_quoted, generated_script_stem, is_generated_script_type, safe_property_name,
     papyrus_script_name, resolve_property_formid,
 )
 from script_convert.command_rows import (
@@ -990,18 +990,11 @@ class ScriptConverter:
         return None
 
     def emit_string(self, text: str, extends: str) -> str:
-        """A quoted literal: a TES4 EditorID reference, or a real string.
-
-        TES4 let a form name be quoted wherever a form was wanted, so the
-        quotes have to come off when the name resolves to a record, a local,
-        or the player -- otherwise Papyrus is handed a String where a Form is
-        declared.  Delegates to the resolver, which owns that lookup and
-        registers the property it creates.
-
-        A string that resolves to nothing comes back QUOTED, so a genuine
-        string literal is returned unchanged.
+        """A quoted name's record, local or player (resolver), else the string as a Papyrus literal.
+        See: docs/commentary/script_convert.md#string-backslash
         """
-        return _resolve_name.resolve(self, text, extends)
+        out = _resolve_name.resolve(self, text, extends)
+        return papyrus_quoted(out[1:-1]) if out.startswith('"') and out.endswith('"') else out
 
     def emit_array_read(self, owner: str, extends: str) -> str:
         """OBSE array element read: emit the base variable, drop the subscript.
@@ -2075,15 +2068,9 @@ class ScriptConverter:
             target, self.sc.property_refs.get(tgt_low, '')) == 'GlobalVariable'
 
     def _resolve_objref_ref(self, ref_name, extends) -> str:
-        """Resolve the reference for an ObjectReference-typed function call.
-
-        Like `_resolve_self_ref(actor_func=True)` this redirects the implicit
-        `Self` of ActiveMagicEffect/TopicInfo scripts (whose Self is NOT a
-        reference) onto the reference they act on — but it does not add the
-        `as Actor` cast, because the callee is declared on ObjectReference and
-        works for actors and objects alike. A bare call in a Quest script
-        (outside an OBSE user function, whose Self is its caller) has no
-        reference at all, in the source game as here: its subject is None.
+        """The receiver of an ObjectReference call: an ActiveMagicEffect or TopicInfo script's implicit Self is
+        the reference it acts on (no `as Actor` cast), a bare call in a Quest script outside a user function is
+        None, and a Form-typed handle (a user function's unnarrowed `ref` parameter) is cast to ObjectReference.
         See: docs/commentary/script_convert.md#quest-script-has-no-reference
         """
         if not ref_name:
@@ -2094,7 +2081,8 @@ class ScriptConverter:
                 and extends in ('ActiveMagicEffect', 'TopicInfo',
                                 PLAYER_ALIAS_EXTENDS)):
             return self._self_reference(extends)
-        return self._convert_ref(ref_name, extends, as_receiver=True)
+        ref = self._convert_ref(ref_name, extends, as_receiver=True)
+        return f'({self._cast(ref, "ObjectReference")})' if self.type_of(ref) == 'Form' else ref
 
     def set_scro_aliases(self, aliases: dict) -> None:
         """Install the stale-name -> canonical-EditorID map for this fragment.

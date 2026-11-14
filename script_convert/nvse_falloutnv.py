@@ -12,6 +12,7 @@ from __future__ import annotations
 import dataclasses
 import re
 
+from script_convert.constants import papyrus_quoted
 from script_convert.emit import expr as E
 from script_convert.symbols import needs_actor, type_of_expr
 from script_convert.target import ARRAY_TYPE, is_fallout4
@@ -238,10 +239,10 @@ def format_text(conv, args, extends: str) -> str:
     for m in _FORMAT_SPEC.finditer(fmt):
         if m.group(0) == '%%' or not values:
             continue
-        pieces += [f'"{fmt[last:m.start()]}"'] if m.start() > last else []
+        pieces += [papyrus_quoted(fmt[last:m.start()])] if m.start() > last else []
         pieces.append(f'({text(conv, values.pop(0), extends, "String")} as String)')
         last = m.end()
-    pieces += [f'"{fmt[last:]}"'] if last < len(fmt) or not pieces else []
+    pieces += [papyrus_quoted(fmt[last:])] if last < len(fmt) or not pieces else []
     return ' + '.join(pieces)
 
 

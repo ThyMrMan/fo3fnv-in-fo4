@@ -237,6 +237,8 @@ def emit(conv, node: N.Expr, extends: str) -> str:
         # OBSE `$x` is a string cast, not an operator Papyrus knows.
         if node.op == '$':
             return f'({inner} as String)'
+        if node.op == '+':
+            return inner
         if isinstance(node.operand, N.BinOp) and (node.operand.op in _ARITH or node.op == '!'):
             inner = f'({inner})'
         return f'{node.op}{inner}'
@@ -384,7 +386,8 @@ def _base_object(conv, ref, base, node, extends):
              or conv._base_record_type(base.name))
     if btype not in BASE_FORM_TYPES or not is_ref_typed(conv, ref):
         return None
-    if isinstance(ref, N.Ident) and (ref.name.lower() in conv.sc.udf_params or conv.type_of(ref.name) == 'Form'):
+    already_base = _symbols.type_of_expr(ref, conv.type_of) in BASE_FORM_TYPES | {'Form'}
+    if already_base or isinstance(ref, N.Ident) and ref.name.lower() in conv.sc.udf_params:
         return None
     return (f'{emit(conv, ref, extends)}.GetBaseObject()',
             emit(conv, base, extends))

@@ -350,8 +350,8 @@ def resolve_ref_types(stmts, ref_vars, lookup, record_type_of):
     holding only the variables whose type actually changes.
     """
 
-    out = {}
-    for low, use in scan_var_usage(stmts, ref_vars, lookup).items():
+    out, usage = {}, scan_var_usage(stmts, ref_vars, lookup)
+    for low, use in usage.items():
         # A `ref` only ever assigned integers and never used as a reference is
         # the TES4 flag idiom, not a reference at all.
         if use.is_int_flag:
@@ -428,6 +428,22 @@ def resolve_ref_types(stmts, ref_vars, lookup, record_type_of):
             out[low] = 'Form'
         elif use.form_type:
             out[low] = use.form_type
+    return _copied_types(usage, out)
+
+
+def _copied_types(usage: dict, out: dict) -> dict:
+    """`out` with each undecided variable assigned only other variables (or None) taking their one decided type.
+    See: docs/commentary/script_convert.md#ref-copied-type
+    """
+    changed = True
+    while changed:
+        changed = False
+        for low, use in usage.items():
+            names = {v.name.lower() for v in use.assigned if isinstance(v, N.Ident)} - {'none'}
+            whole = all(isinstance(v, N.Ident) for v in use.assigned)
+            types = {out[n] for n in names if n in out}
+            if low not in out and whole and names and names <= out.keys() and len(types) == 1:
+                out[low], changed = types.pop(), True
     return out
 
 

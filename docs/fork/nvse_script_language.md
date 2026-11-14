@@ -115,6 +115,10 @@ bases to Actor types and filled the Papyrus log with wrong-type errors.
 A function calling another passes the callee's forms too, so
 `udf_fallout4.finish_calls` closes the set over the call graph after every
 script has converted and rewrites the calls and declarations once.
+A caller that declares a passed form as another type casts it to the
+function's: The Frontier's `TFGenericScript` declares its own quest
+`TFGenericQuest` as `Quest`, and `TFLoadMapMarkersFunction` takes it as
+`FALLOUTNV_TFGenericScript`, which Papyrus will not convert implicitly.
 
 A command with an implicit reference (`GetItemCount X`, `RemoveItem X`)
 acts on the calling reference, `akCallingRef`; written bare in a Global

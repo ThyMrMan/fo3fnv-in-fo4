@@ -5049,6 +5049,57 @@ to compile; the name now reads `aaFrosthillDialogue.GetFormID()`
 `GetInCharGen` to 0 (four Old World Blues scripts), matching `SetInCharGen`,
 which converts to nothing.
 
+<a id="ref-copied-type"></a>A `ref` assigned only from other variables
+takes their type once theirs is decided (`symbols._copied_types`, repeated
+until nothing changes). The Frontier's `TFJacketSCR` sets `CurrentArmor` from
+`GetEquippedObject 2` (Armor) and `LastArmor` from `CurrentArmor`; the
+assignment pass reads each variable's declared type, still ObjectReference,
+so `LastArmor` stayed ObjectReference and the Armor would not go into it.
+
+A comparison of an expression that already names a base form (an Armor, a
+Weapon, a Form) with a base record compares the forms directly:
+`_base_object` added `.GetBaseObject()` to
+`Player.GetEquippedObject 0 == aaTFHELMRobby` as if the left side were a
+placed reference, and Armor has no GetBaseObject.
+
+<a id="placeatme-formid"></a>`PlaceAtMe 7` names a form by its raw
+FormID, as `GetIsID 7` does ([above](#raw-formid-form-argument-slot)): the GECK
+compiles the `7` into the script's SCRO list as `00000007`, the player's
+base NPC_ (The Frontier's `TFNukeWeaverSceneTrigger` clones the player that
+way). The converter wrote `PlaceAtMe(7, 1)`, an Int where a Form goes. A
+number there now resolves through `_form_operand_edid`; the player's base
+becomes `Game.GetPlayer().GetActorBase()`, since the name `Player` converts
+to the player reference.
+
+<a id="slash-banner"></a>A line of nothing but slashes (The Frontier's
+`TFChapter4Quest01Script` and `TFSSArchimedesQuestSCRIPT` divide their
+sections with `////...` banners, 10 lines in Master Build) is a comment. The
+lexer read each `/` as division, and the parser joined the banner onto the
+statement above (`arena = 9 / / / ...`), so neither script compiled. xNVSE's
+preprocessor strips only `;` comments and `/* */` blocks
+(`ScriptUtils.cpp`, `Preprocessor`); the compiled scripts carry nothing for
+these lines. A `/` anywhere else is still division.
+
+`GetHeadingAngle combattarget +90` (`TFCrVertibirdBoSScript` and two
+other vertibird scripts) adds 90 to the heading: GetHeadingAngle takes one
+argument, so it joins `_FIXED_ARITY` and the `+90` is an operator on the
+result, as `GetPos Z +15` is. A unary `+` that is left (`set
+GhostCounter to +1`) is dropped: Papyrus has no unary plus.
+
+<a id="string-backslash"></a>A backslash in a string literal is
+doubled. TES4 and xNVSE strings have no escapes, so `"TheFrontier\TFDC\"`
+(The Frontier's `TFDCController`, an ini path) is a path ending in a
+backslash; Papyrus reads `\"` as an escaped quote, the string never closed,
+and the script failed to compile. Master Build's scripts hold 305 such
+strings (UI paths like `"HudMainMenu\vehReticle\visible"`, model paths),
+FalloutNV.esm's 8.
+
+A user function's `ref` parameter nothing narrows is `Form`; a call through
+it is cast on every path (`_resolve_objref_ref` for the handlers and
+reference rows, `dispatch._receiver` for the mapped rows), not only on the
+reference rows: `TFMoveToDumpCellFUNCTION`'s `rRef.MoveTo` and
+`rRef.Disable` skipped it.
+
 ### A declaration can nest at ANY depth
 <a id="declarations-nest-at-any-depth"></a>
 

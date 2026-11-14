@@ -111,7 +111,7 @@ _FIXED_ARITY = {
     'getpos': 1, 'getangle': 1, 'getstartingpos': 1, 'getstartingangle': 1,
     'getdeadcount': 1, 'getitemcount': 1, 'getav': 1, 'getactorvalue': 1,
     'getbaseav': 1, 'getbaseactorvalue': 1, 'getdistance': 1,
-    'getstage': 1, 'getdisposition': 1,
+    'getstage': 1, 'getdisposition': 1, 'getheadingangle': 1,
 }
 
 #: Commands whose first argument may be a tight negative number (coordinates, or a signed amount).

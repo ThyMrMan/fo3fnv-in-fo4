@@ -180,7 +180,10 @@ def _receiver(conv, call, ref_name, papyrus_func: str, extends: str) -> str:
         return 'GetTargetActor()'
     if ref == 'Self' and extends == 'TopicInfo' and is_actor_func:
         ref = 'akSpeakerRef'
-    if not is_actor_func or call.name in OBJREF_SHARED_FUNCTIONS:
+    shared = not is_actor_func or call.name in OBJREF_SHARED_FUNCTIONS
+    if conv.type_of(ref) == 'Form':
+        return f'({conv._cast(ref, "ObjectReference" if shared else "Actor")})'
+    if shared:
         return ref
     # akSpeakerRef is a fixed ObjectReference parameter in TopicInfo scripts.
     if ref == 'akSpeakerRef':

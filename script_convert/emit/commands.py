@@ -100,15 +100,10 @@ COMPARISON_COMMANDS = frozenset(
 def _ref(conv, row, ref_name, extends):
     """The receiver `{ref}` stands for, per the row's `subj`.
 
-    An OBJREF receiver is CAST when it holds a wider handle: an OBSE user
-    function declares its `ref` parameter `Form` when nothing narrows it, and
-    Papyrus will not convert down implicitly (`TES4Polyfill.Update3D(Form)`).
+    An OBJREF receiver holding a wider handle is cast (_resolve_objref_ref).
     """
     if row.subj == OBJREF:
-        ref = conv._resolve_objref_ref(ref_name, extends)
-        if conv.type_of(ref) == 'Form':
-            return f'({conv._cast(ref, "ObjectReference")})'
-        return ref
+        return conv._resolve_objref_ref(ref_name, extends)
     if row.subj == RAW:
         if ref_name:
             return conv._convert_ref(ref_name, extends)

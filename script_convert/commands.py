@@ -38,7 +38,7 @@ from script_convert.anim_playing_falloutnv import played
 from script_convert.message_menus import PAGE_OPTIONS
 from script_convert.poll_motion import axis_key, rate_scale
 from script_convert.emit import expr as _expr
-from script_convert.constants import typed_already
+from script_convert.constants import PLAYER_BASE_FORMID, typed_already
 from script_convert.constants_falloutnv import (FALLOUT_COMMAND_ALIASES,
                                                 FALLOUT_UNMAPPED_ACTOR_VALUES)
 from tes5_import.dialogue.say_topics import PLAYER_TOKENS
@@ -1369,8 +1369,8 @@ def place_at_me(ctx, call) -> str:
     argument is a BASE form, so its property is typed as one.
     See: docs/commentary/script_convert.md#property-type-merge
     """
-    base = call.arg(0, 'None')
-    rtype = _record_type(ctx, call.source(0))
+    base, src = _placed_form(ctx, call)
+    rtype = _record_type(ctx, src)
     if rtype and rtype not in PLACED_REF_SIGS:
         ctx.sc.property_refs[base] = _base_form_type(rtype)
     count = call.source(1, '1')
@@ -1381,6 +1381,19 @@ def place_at_me(ctx, call) -> str:
         elif call.extends == 'TopicInfo':
             ref = 'akSpeakerRef'
     return f'{ref}.PlaceAtMe({base}, {count})'
+
+
+def _placed_form(ctx, call) -> tuple:
+    """(Papyrus form, source name) of PlaceAtMe's form; a number is a raw FormID (`PlaceAtMe 7`: the player's base).
+    See: docs/commentary/script_convert.md#placeatme-formid
+    """
+    src = call.source(0).strip()
+    edid = ctx._form_operand_edid(src) if src.isdigit() else ''
+    if not edid:
+        return call.arg(0, 'None'), src
+    if src.zfill(8) == PLAYER_BASE_FORMID:
+        return 'Game.GetPlayer().GetActorBase()', ''
+    return _resolve_name.resolve(ctx, edid, call.extends), edid
 
 
 @command('sin', 'cos', 'tan')

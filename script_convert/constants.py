@@ -429,6 +429,17 @@ def papyrus_script_name(edid: str, prefix: str = None) -> str:
     return f'{name[:keep]}_{digest}'
 
 
+#: The player's base NPC_ FormID, the same in every Bethesda game (scripts write it as `7`).
+PLAYER_BASE_FORMID = '00000007'
+
+
+def papyrus_quoted(body: str) -> str:
+    """TES4 string text `body` as a quoted Papyrus literal, each backslash doubled (TES4 strings have no escapes).
+    See: docs/commentary/script_convert.md#string-backslash
+    """
+    return '"' + body.replace('\\', '\\\\') + '"'
+
+
 def formid_property_name(fid: str) -> str:
     """The property naming an unnamed placed reference by its FormID.
     See: docs/fork/fo4_pipeline.md#formid-properties

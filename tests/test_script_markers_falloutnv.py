@@ -11,7 +11,9 @@ from script_convert.cross_ref import CrossRefGraph, authored_trigger_blocks
 from script_convert.constants import papyrus_script_name
 from script_convert.emit import script as _S
 from script_convert import symbols as _symbols
+from script_convert import udf_fallout4 as _udf4
 from script_convert.tes4 import nodes as N
+from script_convert.tes4.lexer import T as TokenKind, tokenize
 from script_convert.tes4.parser import Mode, parse
 
 
@@ -209,6 +211,58 @@ def test_equipped_object_of_a_biped_slot_is_armor(converter):
     assert [_symbols.type_of_expr(s.value, lambda name: '') for s in calls.blocks[0].body] == ['Armor', 'Weapon']
 
 
+def test_a_ref_copied_from_an_armor_variable_is_armor(converter):
+    """TFJacketSCR: LastArmor is set only from CurrentArmor, which holds GetEquippedObject 2; both are Armor."""
+    tree = parse('scn X\nref CurrentArmor\nref LastArmor\nbegin GameMode\nset CurrentArmor to GetEquippedObject 2\n'
+                 'set LastArmor to CurrentArmor\nend')
+    stmts = [st for block in tree.blocks for st in N.walk_stmts(block.body)]
+    types = _symbols.resolve_ref_types(stmts, {'currentarmor', 'lastarmor'}, lambda name: '', lambda name: '')
+    assert types == {'currentarmor': 'Armor', 'lastarmor': 'Armor'}
+
+
+def test_an_equipped_armor_compares_to_a_base_record_directly(converter):
+    """Player.GetEquippedObject 0 == aaTFHELMRobby compares the Armor itself; Armor has no GetBaseObject."""
+    converter.xref.edid_to_formid['aatfhelmrobby'] = '0100ABCD'
+    converter.xref.record_type['0100ABCD'] = 'ARMO'
+    out = _lines(converter, 'if Player.GetEquippedObject 0 == aaTFHELMRobby\nendif', 'Quest')
+    assert 'FNV_BipedSlot0) == aaTFHELMRobby' in out and 'GetBaseObject' not in out
+
+
+def test_place_at_me_seven_places_the_players_base(converter):
+    """PlaceAtMe 7 names the player's base NPC_ by FormID, as the GECK compiles it."""
+    converter.xref.formid_to_edid['00000007'] = 'Player'
+    out = _lines(converter, 'set Clone to MarkerREF.PlaceAtMe 7', 'Quest')
+    assert 'PlaceAtMe(Game.GetPlayer().GetActorBase(), 1)' in out
+
+
+def test_a_slash_banner_is_a_comment():
+    """A line of only slashes is a comment, not division."""
+    tokens = tokenize('set arena to 9\n\n////////\nset x to a / b\n')
+    assert [t.text for t in tokens if t.kind is TokenKind.OP and t.text == '/'] == ['/']
+    assert any(t.kind is TokenKind.COMMENT and t.text == ';////////' for t in tokens)
+
+
+def test_heading_plus_ninety_adds_to_the_heading(converter):
+    """`GetHeadingAngle x +90` adds 90; a lone `+1` is just 1."""
+    out = _lines(converter, 'set angle to GetHeadingAngle combattarget +90', 'ObjectReference')
+    assert 'GetHeadingAngle(combattarget) + 90' in out
+    assert _lines(converter, 'set n to +1', 'Quest').endswith('n = 1')
+
+
+def test_a_form_handle_is_cast_for_reference_calls(converter):
+    """A Form parameter is cast before MoveTo and Disable (TFMoveToDumpCellFUNCTION)."""
+    converter.sc.var_types['rref'] = 'Form'
+    assert '(rRef as ObjectReference).MoveTo(DumpMarker)' in _lines(converter, 'rRef.MoveTo DumpMarker', 'Quest')
+    assert '(rRef as ObjectReference).Disable()' in _lines(converter, 'rRef.Disable', 'Quest')
+
+
+def test_a_form_declared_as_another_type_is_cast_for_the_function():
+    """TFGenericScript declares its quest Quest; the function takes its script type."""
+    text = 'Quest Property TFGenericQuest Auto Const\nForm Property Other Auto Const\n'
+    forms = [('TFGenericQuest', 'FALLOUTNV_TFGenericScript'), ('Other', 'Form')]
+    assert _udf4.passed(text, forms) == ['TFGenericQuest as FALLOUTNV_TFGenericScript', 'Other']
+
+
 def test_dlc_installed_asks_for_the_plugin(converter):
     """IsDLCInstalled "Tribal Pack" asks whether TribalPack.esm is loaded."""
     out = _lines(converter, 'if (Once && IsDLCInstalled "Tribal Pack" != 1)\nendif', 'Quest')
@@ -240,3 +294,11 @@ def test_enter_trigger_leaves_an_ontrigger_script_inert(monkeypatch):
     conv = ScriptConverter(_trigger_graph(r'scn CodeBoxScript\r\nbegin OnTrigger player\r\nend'))
     out = _lines(conv, 'CodeBoxREF.EnterTrigger Player')
     assert 'OnTriggerEnter(' not in out and ';NE: TODO: CodeBoxREF.EnterTrigger' in out
+
+
+def test_a_backslash_in_a_string_is_doubled(converter):
+    """TES4 strings have no escapes; Papyrus reads a backslash as one."""
+    out = _lines(converter, r'set sPath to "TheFrontier\TFDC\"', 'Quest')
+    assert out.endswith(r'"TheFrontier\\TFDC\\"')
+    built = _lines(converter, r'set sPath to sv_Construct "TheFrontier\TFDC\%z" sEDID', 'Quest')
+    assert r'"TheFrontier\\TFDC\\" + (' in built
