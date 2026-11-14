@@ -1301,9 +1301,19 @@ files (FaceGeom NIF, `_d`, `_msn`, `_s`) in the work cache (site
 `own_face`), and a later build writes the kept files without drawing them.
 
 - **Key:** the plugin, the NPC's local id, its NPC_ record as indexed
-  (owner, signature, subrecords), every plugin's masters, and texconv's
+  (owner, signature, subrecords), its plugin's masters, and texconv's
   bytes. A refitted NPC has a different record, so the first pass and the
   second (refit) pass each keep their own entry.
+- <a id="own-cache-key"></a>**Not the load order (2026-11-14).** The key
+  held every loaded plugin's masters. `Sources` loads the CK profile's
+  whole load order (all 32 mod plugins, `f3nv_trace.esl`,
+  `CleanroomUI.esl`, `FastAddItemMenu.esp`), so adding or removing any of
+  them remade all 2,382 faces: the 11-13 and 11-14 runs had 0 hits from
+  51,630 entries. 2,075 NPCs had the same NPC record in both runs yet two
+  entries, one per run. A probe running `cached_files` twice in separate
+  processes hit every time, so the key is stable otherwise. Another
+  plugin's override of a record the face reads is still caught: each read
+  record's digest covers which plugin it came from.
 - **Checked on use:** every other record and file the face read, by
   SHA-1. `Sources.record`, `get` and `read` note each one in
   `Sources.seen`; `Sources.stored` reads a file without noting it, for the

@@ -1326,6 +1326,43 @@ decides.
     arguments, before anything else is planned (`faces_again`,
     [faces-stamp](fo4_facegen_plan.md#faces-stamp)). Its failure stops the
     run with the stage's exit code.
+- <a id="plan-memos"></a>**A plan reads each thing once (2026-11-14).** With
+  33 plugins a `plan()` took 23–55 s, and `--run` makes one after every
+  build: about 30 min of a full chain. Profiled:
+  - each plugin's inputs record (several MB of JSON) was parsed 230 times,
+    because `ordered()` re-read it for every comparison (11 s);
+  - every recorded input file (about 25,000 per plugin) was hashed even
+    when its size and mtime matched (0.9 s a plugin);
+  - each plugin's master check walked all of FalloutNV.esm's 494,374
+    records twice (FormIDs held, then bodies read) and reloaded its ledger
+    (2.7 s a plugin).
+
+  Now, within one `plan()` (all cleared at its start, so each plan still
+  sees the disk as it is): the record is read once per file mtime; a file is
+  `stat`ed once and hashed only when its mtime moved; a master is walked
+  once per (masters numbering, signatures read) in `built_walk`, its FormID
+  set built once (`held`), and each ledger read once (`read_ledger`).
+  Measured on the 33 plugins: 23 s → 5 s (stopping at code), 55 s → 18 s
+  (through the master checks; 7 master walks of about 1.4 s remain, one per
+  numbering and signature set).
+- <a id="between-builds"></a>**Time between builds (2026-11-14).** The
+  2026-11-14 chain's `--run` took 14,994 s for 31 plugins, of which 8,689 s
+  fell inside the builds' `built in` lines: about 200 s a plugin outside
+  every stage. Measured offline: the plan 55 s (18 s after
+  [plan-memos](#plan-memos)), the inputs record 13 s (5.7 s stamping
+  34,769 read files, 7.1 s hashing 3,632 code keys, TLD_Travelers), the
+  faces check 0 s, imports 1.7 s, and the stash restore and drop about 4 s
+  and 7 s ([loose-stash](fo4_pipeline.md#loose-stash); every plugin's stash
+  matched its archive afterwards). About 120 s a plugin is still unnamed,
+  so each part now prints its own time (`stage_timer.clocked`):
+  - `plan: <n> plugins in <s>s (faces check <s>s)` before each build;
+  - `<plugin>: build process <s>s, start to exit` after it;
+  - in the build, the restore's seconds and whether the stash came back or
+    the archive was written out, `inputs record written in <s>s`, and the
+    drop's seconds.
+
+  The process time less `built in` and those three is the start-up (heavy
+  lock, imports, the estimate).
 - **Tested** (`tests/test_fo4_build_plan.py`):
   - a DLC stays current after the game gains a record and changes one it did
     not read;

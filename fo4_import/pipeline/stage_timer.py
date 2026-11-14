@@ -109,6 +109,15 @@ def charged(name: str, fn, *args):
     return timed(name)(fn)(*args)
 
 
+def clocked(fn, *args) -> tuple:
+    """(`fn(*args)`, its seconds), charged to no stage: work outside report().
+    See: docs/fork/fo4_plugin_layout.md#between-builds
+    """
+    started = time.perf_counter()
+    value = fn(*args)
+    return value, time.perf_counter() - started
+
+
 def note(main: 'int | None', workers: list) -> None:
     """Charge one memory reading (main process bytes, each worker's bytes) to the innermost running stage."""
     running = list(_stack)
