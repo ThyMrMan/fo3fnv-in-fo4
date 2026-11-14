@@ -132,10 +132,12 @@ def _natives() -> set:
 
 
 def _dump() -> None:
-    """Write this process's record into ENV's folder as `<pid>.json`."""
+    """Write this process's record into ENV's folder as `<pid>.json`, whole or not at all (a reader globs *.json)."""
     _STATE['on'] = False
     body = {**{k: sorted(v) for k, v in _SEEN.items()}, 'ran': sorted(ran_code.RAN), 'natives': sorted(_natives())}
-    (Path(os.environ[ENV]) / f'{os.getpid()}.json').write_text(json.dumps(body), encoding='utf-8')
+    part = Path(os.environ[ENV]) / f'{os.getpid()}.json'
+    part.with_suffix('.tmp').write_text(json.dumps(body), encoding='utf-8')
+    os.replace(part.with_suffix('.tmp'), part)
 
 
 def stamp(path: Path) -> 'list | None':
