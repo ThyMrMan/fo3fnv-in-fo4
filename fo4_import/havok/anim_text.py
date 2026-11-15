@@ -131,7 +131,9 @@ def compute(paths: list, read, k: Known) -> None:
     worker processes; vanilla's record when the clip can't be read, else None.
     See: docs/fork/research/anim_text_data.md#ours
     """
-    todo = {path.lower(): path for path in paths if path.lower() not in k.computed}
+    todo = {key: path for path in paths if (key := path.lower()) not in k.computed}
+    if not todo:
+        return
     raws = {key: raw for key, path in todo.items() if (raw := read(path + '.hkx'))}
     keys = {key: (key, hashlib.sha1(raw).hexdigest()) for key, raw in raws.items()}
     if k.table is None and keys:
@@ -472,7 +474,8 @@ def file_data_names(text: str) -> dict:
     each named by its file stem (the first wins)."""
     names = {}
     for line in text.splitlines()[4:]:
-        if line.lower().endswith('.hkx') and '\\behaviors\\' not in line.lower():
+        low = line.lower()
+        if low.endswith('.hkx') and '\\behaviors\\' not in low:
             names.setdefault(_stem(line), line[:-4])
     return names
 
