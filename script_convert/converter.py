@@ -24,6 +24,7 @@ from script_convert.command_rows import (
 from script_convert import command_rows_fallout4 as _fo4_rows
 from script_convert import quest_var_mirrors as _quest_vars, resolve_name as _resolve_name
 from script_convert import assemble as _assemble
+from script_convert import trace_points as _trace
 from script_convert import commands as _commands
 from script_convert.context import ScriptContext
 from script_convert.implicit_subject import stage_subject as implicit_stage_subject
@@ -453,7 +454,9 @@ class ScriptConverter:
             'Int Function TES4_ShowMsg(Message TES4_akMsg, ' + ', '.join(
                 f'Float afArg{n} = 0.0' for n in range(1, 10)) + ')',
             '  TES4_MsgButton = -1',
+            *_trace.message('shown'),
             '  TES4_MsgButton = TES4_akMsg.Show(' + ', '.join(f'afArg{n}' for n in range(1, 10)) + ')',
+            *_trace.message('answered'),
             *(['  TES4_MessageBoxClosed()'] if self.sc.msgbox_hook else []),
             '  Return TES4_MsgButton',
             'EndFunction',

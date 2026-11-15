@@ -56,9 +56,11 @@ def float_literal(value: float) -> str:
 
 
 def quest_script_delays(by_type: dict) -> dict:
-    """SCPT FormID string -> authored quest delay in seconds, where one is written."""
+    """SCPT FormID string -> authored quest delay in seconds, where one is written; a quest's last record wins
+    (masters first, then the plugin's overrides)."""
     out = {}
-    for rec in by_type.get('QUST', []):
+    latest = {rec.get('FormID') or id(rec): rec for rec in by_type.get('QUST', [])}
+    for rec in latest.values():
         delay = float(rec.get('DATA.Delay') or 0)
         scri = rec.get('SCRI') or ''
         if delay > 0 and scri:

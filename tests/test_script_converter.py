@@ -5739,6 +5739,14 @@ class TestAuthoredQuestDelay:
                             {'DATA.Delay': '5'}]}
         assert quest_script_delays(by_type) == {'00174091': 300.0}
 
+    def test_quest_script_delays_read_masters_and_overrides(self):
+        """A master's quest delay reaches a plugin overriding only its script; a quest override wins."""
+        from script_convert.poll_interval import quest_script_delays
+        master = [{'FormID': '00168A7F', 'SCRI': '00168A80', 'DATA.Delay': '0.1'},
+                  {'FormID': '00100001', 'SCRI': '00100002', 'DATA.Delay': '2'}]
+        override = [{'FormID': '00100001', 'SCRI': '00100002', 'DATA.Delay': '0'}]
+        assert quest_script_delays({'QUST': master + override}) == {'00168A80': 0.1}
+
 
 class TestFalloutObjectiveCommands:
     """SetObjectiveDisplayed/Completed and their reads route to the Quest natives.

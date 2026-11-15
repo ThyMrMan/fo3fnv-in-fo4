@@ -4196,6 +4196,16 @@ and SCPT records plus its own (`script_convert/pipeline.py:_mirrors`, `context_s
 The masters' builds own those globals. An overriding script's properties bind through the master's VMAD.
 Not checked: whether a mod's own new script that sets a master's mirror gets that global bound in the mod's VMAD.
 
+<a id="master-delays"></a>**A mod's copy of a master's quest script keeps the master's quest delay (2026-11-15, played).**
+No flash of light outside Doc Mitchell's house, and Sunny greeted with "Everything all right?" and never gave the quest.
+YUP ships its own `FALLOUTNV_VGenericTimerSCRIPT.pex` but does not override the `VGenericTimer` quest.
+The poll delay was read from the plugin's own QUST records only, so YUP's copy fell back to 5 s instead of
+the master's 0.1 s. Doc's goodbye event (`SetStage VCG01 200`, `SetStage VCG02 5`) then ran 15 s late, after the
+door trigger had already run `StopQuest VCG02`. The trace showed the goodbye at 371.3 s and the event at 386.2 s.
+`quest_script_delays` now reads the same master chain as the mirrors (`pipeline._master_chain`),
+and a quest's last record wins. That changed 50 scripts in YUP and 1 in JSawyer Ultimate; no other plugin changed.
+`TracePass` writes a pass state only when it changes; tracing is on from game start while the Trace mod is enabled ([trace](#trace)), so a traced run sees every change.
+
 ## <a id="trace"></a>Session trace (built 2026-10-13)
 
 Quest bugs in the opening chain showed in game only as "she stands there".

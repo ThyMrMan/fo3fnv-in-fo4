@@ -315,7 +315,8 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
     if message_menus:
         print(f'    Button menus: {sum(len(v) for v in message_menus.values())} '
               f'MessageBox sites in {len(message_menus)} scripts')
-    objectives, quest_vars = _mirrors(export_dir, by_type)
+    chain = _master_chain(export_dir, by_type)
+    objectives, quest_vars = _mirrors(export_dir, by_type, chain)
     initargs = (xref, output_dir, unlock_plan['info_reveals'],
                 service_menu_topics(by_type),
                 unlock_plan['stage_reveals'], say_durations,
@@ -323,7 +324,7 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
                 topic_unlock_globals(by_type, unlock_plan), message_menus,
                 bounds_cache, chargen_menu_plan(export_dir), say_topics,
                 _load_music_cues(output_dir), current_namespace(),
-                quest_script_delays(by_type),
+                quest_script_delays(chain),
                 quest_objective_indices(by_type),
                 build_script_chain_map(by_type),
                 build_force_greet_slots(by_type),
@@ -347,8 +348,18 @@ def _voice_durations(export_dir: str) -> dict:
     return say_durations
 
 
-def _mirrors(export_dir: str, by_type: dict) -> tuple:
-    """(objective mirrors, quest-variable mirrors) converted writes keep in step; on Fallout 4 masters' tests count.
+def _master_chain(export_dir: str, by_type: dict) -> dict:
+    """Fallout 4 from FO3/FNV: `by_type`'s INFO/PACK/QUST/SCPT after its masters' (chain_records); else `by_type`.
+    See: docs/fork/fo4_pipeline.md#master-mirrors
+    """
+    if export_is_fallout(export_dir) and target.is_fallout4():
+        return chain_records(export_dir, by_type, ('INFO', 'PACK', 'QUST', 'SCPT'))
+    return by_type
+
+
+def _mirrors(export_dir: str, by_type: dict, chain: dict) -> tuple:
+    """(objective mirrors, quest-variable mirrors) converted writes keep in step; on Fallout 4 masters' tests count
+    (`chain`, from _master_chain).
 
     See: docs/fork/fo4_pipeline.md#master-mirrors
     """
@@ -356,7 +367,6 @@ def _mirrors(export_dir: str, by_type: dict) -> tuple:
         return {}, {}
     if not target.is_fallout4():
         return objective_script_globals(by_type), {}
-    chain = chain_records(export_dir, by_type, ('INFO', 'PACK', 'QUST', 'SCPT'))
     return objective_script_globals(chain), _quest_vars.quest_var_mirrors(chain, build_quest_script_vars(chain))
 
 

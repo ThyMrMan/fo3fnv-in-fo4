@@ -40,6 +40,7 @@ def test_a_mod_plugin_mirrors_what_its_masters_conditions_test(monkeypatch):
     monkeypatch.setattr(context_setup, 'load_records', lambda d, sigs: {s: master.get(s, []) for s in sigs})
     monkeypatch.setattr(pipeline, 'export_is_fallout', lambda d: True)
     monkeypatch.setattr(target, 'is_fallout4', lambda: True)
-    objectives, quest_vars = pipeline._mirrors('mod', {'INFO': [], 'QUST': []})
+    own = {'INFO': [], 'QUST': []}
+    objectives, quest_vars = pipeline._mirrors('mod', own, pipeline._master_chain('mod', own))
     assert objectives == {('vmqtops', 10): {'Done': 'TES4ObjDone_VMQTops_10'}}
     assert quest_vars == {('vmqtops', 'bmet'): 'TES4QVar_VMQTops_bMet', ('vmqtopsscript', 'bmet'): 'TES4QVar_VMQTops_bMet'}

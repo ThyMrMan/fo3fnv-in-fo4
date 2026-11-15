@@ -414,7 +414,7 @@ def quest_restart(conv, tree, extends: str, name: str) -> list:
     kept += [(QUEST_DELAY_VAR, 'Float')] if out else []
     out += ['', f'Function TES4Start({script} akQuest) Global']
     out += [f'  {ptype} v{i} = akQuest.{prop}' for i, (prop, ptype) in enumerate(kept)]
-    out.append('  akQuest.Start()')
+    out += _trace.quest_start('asked') + ['  akQuest.Start()'] + _trace.quest_start('returned')
     out += [f'  akQuest.{prop} = v{i}' for i, (prop, _t) in enumerate(kept)]
     out += ['EndFunction', '',
             f'Bool Function TES4SetStage({script} akQuest, Int aiStage) Global',
@@ -890,11 +890,12 @@ def poll(conv, tree, extends: str) -> list:
         # not appear in the VMAD.
         out += [f'Float TES4_SecondsPassed = {interval}',
                 'Float TES4_LastTick = 0.0', '']
-    out += _pass_mark()
+    out += _pass_mark() + _trace.pass_state(extends)
     out.append(event_opener('Event OnUpdate()'))
     rearm = interval
     if _delayed_quest(extends):
-        out += ['  If (!IsRunning())', '    Return', '  EndIf']
+        out += (['  If (!IsRunning())'] + _trace.pass_line(extends, 'held: stopped', '    ')
+                + ['    Return', '  EndIf'])
         rearm = QUEST_DELAY_VAR
 
     # Arm the poll TWICE: an insurance arm at the TOP and the real re-arm at
@@ -915,7 +916,7 @@ def poll(conv, tree, extends: str) -> list:
     # fragments of 1-2s lines running 19-24s late.  A 5s insurance arm bounds
     # the overlap to one extra stack per 5s of blocking, and any pass that
     # finishes replaces it with the real interval.
-    out += _arm(conv, _INSURANCE_SECS, load_gated) + _pass_guard()
+    out += _arm(conv, _INSURANCE_SECS, load_gated) + _pass_guard(extends)
 
     passes = _menu_passes(conv, tree)
     sc.poll_return_prefix = _return_arm(conv, rearm, load_gated, passes)
@@ -940,17 +941,18 @@ def _pass_mark() -> list:
     return [f'Float {_PASS_STARTED} = 0.0', ''] if is_fallout4() else []
 
 
-def _pass_guard() -> list:
+def _pass_guard(extends: str) -> list:
     """Fallout 4: a pass that starts while the last still runs (the insurance arm fired) does nothing; one held
     over _PASS_HOLD is taken as aborted.
     See: docs/fork/performance.md#poll-overlap
     """
     if not is_fallout4():
         return []
-    return ['  Float TES4_PassNow = Utility.GetCurrentRealTime()',
-            f'  If {_PASS_STARTED} > 0.0 && TES4_PassNow >= {_PASS_STARTED} && '
-            f'TES4_PassNow - {_PASS_STARTED} < {_PASS_HOLD}',
-            '    Return', '  EndIf', f'  {_PASS_STARTED} = TES4_PassNow']
+    return (['  Float TES4_PassNow = Utility.GetCurrentRealTime()',
+             f'  If {_PASS_STARTED} > 0.0 && TES4_PassNow >= {_PASS_STARTED} && '
+             f'TES4_PassNow - {_PASS_STARTED} < {_PASS_HOLD}']
+            + _trace.pass_line(extends, 'held: overlap', '    ')
+            + ['    Return', '  EndIf', f'  {_PASS_STARTED} = TES4_PassNow'])
 
 
 def _pass_clear(indent: str) -> list:
@@ -975,8 +977,9 @@ def _poll_body(conv, tree, extends: str, interval: str, load_gated: bool) -> lis
         # resumes once the quest is started.
         out += ['  If (!IsRunning())', '    Return', '  EndIf']
 
-    out += _menu_hold(conv, tree)
+    out += _menu_hold(conv, tree, extends)
     out += _dialogue_gate(conv, extends, load_gated, _dialogue_bodies(conv, tree, extends))
+    out += _trace.pass_line(extends, 'ran', '  ')
     out += _elapsed_prologue(conv, interval)
     out += _glide_prologue(sc)
 
@@ -996,7 +999,7 @@ def _poll_body(conv, tree, extends: str, interval: str, load_gated: bool) -> lis
     return out
 
 
-def _menu_hold(conv, tree) -> list:
+def _menu_hold(conv, tree, extends: str) -> list:
     """Fallout 4: a pass while a pausing menu is open re-arms and does nothing, as FO3/FNV's GameMode.
 
     A script whose MenuMode blocks poll (run every frame in a menu) keeps
@@ -1007,7 +1010,8 @@ def _menu_hold(conv, tree) -> list:
                                 for b in (tree.blocks if tree else ())):
         return []
     arm = [f'    {line.strip()}' for line in conv.sc.poll_return_prefix.splitlines() if line.strip()]
-    return ['  If TES4Polyfill.InMenuMode()'] + arm + ['    Return', '  EndIf']
+    return (['  If TES4Polyfill.InMenuMode()'] + _trace.pass_line(extends, 'held: menu', '    ') + arm
+            + ['    Return', '  EndIf'])
 
 
 #: The poll body as a function, for a script whose MenuMode must run in-event; see `_menu_passes`.
@@ -1089,7 +1093,7 @@ def _dialogue_gate(conv, extends: str, load_gated: bool, bodies: list = ()) -> l
             if extends == 'Actor' else 'TES4Polyfill.PlayerIsInDialogue()')
     return ([f'  If {test}  '
              '; TES4 GameMode did not run while a menu was open'] + list(bodies)
-            + _pass_clear('    ') + _arm(conv, '0.5', load_gated, indent='    ')
+            + _trace.pass_line(extends, 'held: dialogue', '    ') + _pass_clear('    ') + _arm(conv, '0.5', load_gated, indent='    ')
             + ['    Return', '  EndIf'])
 
 

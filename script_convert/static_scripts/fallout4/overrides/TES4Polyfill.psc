@@ -357,6 +357,31 @@ Function TraceStage(Quest akQuest, Int aiStage, Bool abSet) Global
 EndFunction
 
 ; fallout4: new
+Function TraceQuestStart(Quest akQuest, String asWhen) Global
+  {A converted StartQuest (TES4Start), asked or returned, and whether the quest now runs.}
+  If Tracing()
+    TraceWrite("quest start", "" + akQuest + "|" + asWhen + "|running " + akQuest.IsRunning())
+  EndIf
+EndFunction
+
+; fallout4: new
+String Function TracePass(ScriptObject akOwner, String asLast, String asNow) Global
+  {A quest poll pass: held (menu, dialogue, overlap, stopped) or ran; written only when it differs from asLast. Returns asNow.}
+  If asNow != asLast && Tracing()
+    TraceWrite("pass", "" + akOwner + "|" + asNow)
+  EndIf
+  Return asNow
+EndFunction
+
+; fallout4: new
+Function TraceMessage(Message akMsg, String asWhen, Int aiButton) Global
+  {A converted message box, shown or answered, with the button pressed (-1 before).}
+  If Tracing()
+    TraceWrite("message", "" + akMsg + "|" + asWhen + "|" + aiButton)
+  EndIf
+EndFunction
+
+; fallout4: new
 Function TraceValue(ScriptObject akOwner, String asVar, Float afValue) Global
   {A converted script variable after an atomic add (atomic_adds): its owner, name and new value.}
   If Tracing()
