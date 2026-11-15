@@ -106,6 +106,23 @@ def write_new(target: Path, data: bytes) -> None:
     target.write_bytes(data)
 
 
+def write_stored(target: Path, site: str, digest: str) -> bool:
+    """write_new() of the bytes work_cache.store_bytes kept under `site` as `digest`, not read from the cache when
+    `target` already holds them (then touched); False when they are needed and gone."""
+    try:
+        same = hashlib.sha1(target.read_bytes()).hexdigest() == digest
+    except OSError:
+        same = False
+    if same:
+        _HELD.pop(os.path.normcase(str(target)), None)
+        os.utime(target)
+        return True
+    data = work_cache.stored_bytes(site, digest)
+    if data is not None:
+        write_new(target, data)
+    return data is not None
+
+
 def write_mesh(path: Path, data: bytes) -> None:
     """Hold NIF `data` for `path` until finish() when it has Havok input, else write_new() it."""
     if elric.has_havok(data):

@@ -86,8 +86,8 @@ from fo4_import.havok.gun_third import (ON_GUN, PAIRED, THIRD_FOLDER, THIRD_SKEL
 from fo4_import.havok.human_clip import BONES, COM, matching_pose
 from fo4_import.nif.convert_static import NifFormat
 from fo4_import.nif.gun import SIGHTING, bone_for
-from fo4_import.pipeline.elric_cache import write_new
-from fo4_import.pipeline.work_cache import has_bytes, lookup_versioned, store_bytes, store_versioned, stored_bytes
+from fo4_import.pipeline.elric_cache import write_new, write_stored
+from fo4_import.pipeline.work_cache import lookup_versioned, store_bytes, store_versioned
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 
 ANIMATIONS = 'Fallout4 - Animations.ba2'
@@ -642,17 +642,20 @@ def keep(inputs: tuple, recorded: tuple) -> None:
                     (made, added, {rel: store_bytes(CLIP_FILES, data) for rel, data in files.items()}))
 
 
-def kept(inputs: tuple) -> 'tuple | None':
-    """keep()'s value for `inputs`, files read back; None if it or a file is gone."""
+def placed(inputs: tuple, data_dir: Path) -> 'tuple | None':
+    """keep()'s (made, added) for `inputs`, its files written under `data_dir` (write_stored); None if it or a
+    file is gone."""
     entry = lookup_versioned(CLIP_SITE, GUN_CLIPS_VERSION, inputs)
-    files = {rel: stored_bytes(CLIP_FILES, digest) for rel, digest in entry[2].items()} if entry else {}
-    return None if entry is None or None in files.values() else (entry[0], entry[1], files)
+    if entry is None or not all(write_stored(data_dir / rel, CLIP_FILES, d) for rel, d in entry[2].items()):
+        return None
+    return entry[0], entry[1]
 
 
 def is_kept(inputs: tuple) -> bool:
-    """Whether kept(inputs) finds its value, its files not read."""
-    entry = lookup_versioned(CLIP_SITE, GUN_CLIPS_VERSION, inputs)
-    return entry is not None and all(has_bytes(CLIP_FILES, digest) for digest in entry[2].values())
+    """Whether keep() holds a current entry for `inputs` (files: placed()).
+    See: docs/fork/fo4_build_speed.md#clip-files
+    """
+    return lookup_versioned(CLIP_SITE, GUN_CLIPS_VERSION, inputs) is not None
 
 
 def left_grip(anim, rig: Rig) -> 'tuple | None':
@@ -978,13 +981,14 @@ class GunClips:
         own = {k: own_keyword(k) for k in keywords[0]}
         args = (rec, keywords, gun_path, receiver, placement, surfaces)
         inputs = inputs or self.key(*args)
-        found = kept(inputs)
+        found = placed(inputs, self.data_dir)
         if found is None:
-            found = self.recorded(args)
-            keep(inputs, found)
-        made, added, files = found
-        for rel, data in files.items():
-            write_new(self.data_dir / rel, data)
+            made, added, files = self.recorded(args)
+            keep(inputs, (made, added, files))
+            for rel, data in files.items():
+                write_new(self.data_dir / rel, data)
+            found = made, added
+        made, added = found
         self.added += [owned(entry, own) for entry in added]
         return None if made is None else replace(made, replaces={kw: own[kw] for kw in made.replaces})
 

@@ -545,13 +545,21 @@ def _archive(path: str, _size: int, _mtime: int) -> Archive:
 
 
 def data_file(data_dir: Path, rel: str) -> 'bytes | None':
-    """The bytes of Data path `rel` in `data_dir`: loose, else from its top-level archives; None when neither."""
-    loose = Path(data_dir) / rel
-    if loose.is_file():
-        return loose.read_bytes()
-    key = str(rel).replace(chr(92), '/').lower()
-    for archive in sorted(Path(data_dir).glob('*.ba2'), reverse=True) if Path(data_dir).is_dir() else ():
-        stamp = str(archive), archive.stat().st_size, archive.stat().st_mtime_ns
-        if key in _names(*stamp):
-            return _archive(*stamp).read(key)
-    return None
+    """Data path `rel`'s bytes in `data_dir`, loose or archived (data_reader)."""
+    return data_reader(data_dir)(rel)
+
+
+def data_reader(data_dir: Path):
+    """read(rel) -> data_file(`data_dir`, rel), its archives listed once: for reads while none of them changes."""
+    data = Path(data_dir)
+    archives = sorted(data.glob('*.ba2'), reverse=True) if data.is_dir() else ()
+    stamps = [(str(a), a.stat().st_size, a.stat().st_mtime_ns) for a in archives]
+
+    def read(rel: str) -> 'bytes | None':
+        """The bytes of Data path `rel`, loose or archived; None when neither."""
+        loose = data / rel
+        if loose.is_file():
+            return loose.read_bytes()
+        key = str(rel).replace(chr(92), '/').lower()
+        return next((_archive(*stamp).read(key) for stamp in stamps if key in _names(*stamp)), None)
+    return read

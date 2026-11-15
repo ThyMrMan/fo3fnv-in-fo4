@@ -98,18 +98,22 @@ def _clips(data: bytes, at: int, out: Offsets) -> int:
     return at
 
 
-def pack(offsets: Offsets) -> bytes:
-    """`offsets` as an AnimationOffsets V4 file."""
+def pack(offsets: Offsets, packed=None) -> bytes:
+    """`offsets` as an AnimationOffsets V4 file, each clip record as `packed`(clip) gives it (pack_clip)."""
     out = [MAGIC, pack_string(offsets.graph), struct.pack('<I', len(offsets.names))]
     out += [pack_string(name) + pack_string(path) for name, path in offsets.names]
     out.append(struct.pack('<I', len(offsets.clips)))
-    for clip in offsets.clips:
-        out += [pack_string(clip.path), struct.pack('<fI', clip.duration, len(clip.moves))]
-        out += [struct.pack('<4f', *key) for key in clip.moves]
-        out.append(struct.pack('<I', len(clip.turns)))
-        out += [struct.pack('<5f', *key) for key in clip.turns]
-        out.append(struct.pack('<I', len(clip.events)))
-        out += [struct.pack('<f', time) + pack_string(text) for time, text in clip.events]
+    return b''.join(out + [(packed or pack_clip)(clip) for clip in offsets.clips])
+
+
+def pack_clip(clip: Clip) -> bytes:
+    """One clip record as an AnimationOffsets file holds it."""
+    out = [pack_string(clip.path), struct.pack('<fI', clip.duration, len(clip.moves))]
+    out += [struct.pack('<4f', *key) for key in clip.moves]
+    out.append(struct.pack('<I', len(clip.turns)))
+    out += [struct.pack('<5f', *key) for key in clip.turns]
+    out.append(struct.pack('<I', len(clip.events)))
+    out += [struct.pack('<f', time) + pack_string(text) for time, text in clip.events]
     return b''.join(out)
 
 

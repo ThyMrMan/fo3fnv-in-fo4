@@ -1534,6 +1534,63 @@ changes, on 300 (seed 1) and 600 (seed 2) meshes: none differ.
   collision about 3 s in all (the stair pass 1.2, the collision soup 0.9),
   the specular scans 0.9, `_geometry` 1.1, `emit` 1.1.
 
+### <a id="chain-fixed-costs-2026-11-14"></a>What every chain build pays again (2026-11-14)
+
+The 2026-11-14 chain (`temp/fo4_chain/chain.log`, 64 builds: the base game,
+then 4.2 h of DLCs and mods) spent, summed over all builds:
+
+| Stage | Seconds |
+|---|---|
+| item WEAP | 8,088 |
+| people | 2,469 |
+| animation data | 2,046 |
+| closing records | 746 |
+| main archive | 708 |
+| script compile | 634 |
+| script conversion | 555 |
+
+WEAP is 50–100 s even in a mod build with few guns: each build places every
+converted gun clip file again and parses the gun meshes. Animation data
+repeats the same work in every build, since it depends on the races, not on
+the area built.
+
+<a id="clip-files"></a>**Clip files placed without the cache copy.** About
+27,000 kept clip files (`gun_clip_files`) were read from the work cache, then
+compared with the loose copy a build restores, then touched: two reads each.
+`elric_cache.write_stored` hashes the loose copy first and reads the cache
+only when it differs. `gun_clips.is_kept` (which guns the pool converts) now
+asks only whether the gun's entry is current, not whether each file's cached
+copy is (two `stat`s a file, 8.8 s). A file gone from both the cache and the
+data folder makes `placed()` miss, and that gun converts in the main
+process. Cache copies a build finds already in place are not marked used,
+so `prune` drops them after 14 days. Only a build with a fresh data folder
+after that converts those guns again.
+
+**Animation data.**
+- Vanilla's 3,154 offsets files are parsed once and kept in the work cache
+  under their archives' names, sizes and times (`anim_text.known`): 5.2 s → 0.
+- Each clip record is packed once per run (`Known.pack_clip`), not once per
+  entry naming it (9,851 entries).
+- A template file is read once per run (`Vanilla.read`).
+- `anim_text.prune` compares normalized paths, not `resolve()`d ones (49,377
+  files): 5.2 s → 0.2 s.
+- `ba2_pack.data_reader` lists a data folder's archives once per reader, not
+  per missing file.
+
+The stage still writes 49,377 files (about 3 GB: gun offsets and speed info
+copied from vanilla templates, about 120 KB each) and compares each with
+the restored loose copy.
+
+**Measured** on the spike block (`--region -19 -1 -17 1`, warm, no journal),
+the plugin byte-identical to the baseline each time:
+
+| | Before | After |
+|---|---|---|
+| total | 259.5 s | 189.4 s |
+| item WEAP | 31.5–50.2 s | 25.5 s |
+| animation data | 58.2–63.2 s | 37.6 s |
+| `GunClips.convert`, profiled | 25.4 s | 13.7 s |
+
 ## <a id="open"></a>Open questions
 
 - Publish face fits as a release asset of this repository, as the navmesh
