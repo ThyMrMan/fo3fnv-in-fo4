@@ -1376,6 +1376,25 @@ than file calls.
   any build used within 14 days still stays. `write_new` stats its target
   once.
 
+<a id="creature-bodies"></a>**A worn creature's body is kept (2026-11-15, not
+yet in a build).** The people stage took 20–77 s per plugin in the
+2026-11-15 chain (43.9 s for FalloutNV.esm). Its last profile (2026-11-13)
+predates the rig caches, so it was not re-used; a scratch harness timed
+`Creatures._mesh`'s steps on FalloutNV.esm's 44 distinct worn bodies
+instead: `creature_mesh` 27.0 s, `skin_texture` 4.9 s, `cached_convert`
+1.7 s, `skeleton_parents` 1.0 s, nothing of it kept between builds.
+`Creatures._body` (fit, bare skin texture, `creature_mesh`) is now a work
+cache entry (site `creature_body`), keyed by each part's converted form
+(`_part_key`: its written NIF plus the other fields, the texture set sorted,
+since a set's order differs between processes), both FNV skeleton paths'
+bytes and the FO4 pair's body and skeleton bytes, with the code that ran.
+The parts' conversions stay outside it (`cached_convert`, its own cache),
+so their result is in the key rather than their code.
+
+Measured (scratch harness, two processes, a chain build running at the
+same time): 33.2 s cold (writing into an empty folder), 2.2 s warm, no
+body made the second time, and the written bodies' bytes the same.
+
 <a id="gun-cache"></a>**A gun's build is kept (2026-11-15, not yet in a
 build).** The whole-map WEAP stage still took 51.8 s, most of it parsing the
 same NIFs every build: in its profile, `read_tri_shape` was 21.8 s of
