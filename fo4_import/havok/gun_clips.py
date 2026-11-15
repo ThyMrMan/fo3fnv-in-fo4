@@ -60,6 +60,7 @@ See: docs/fork/fo4_spikes.md#spike-4-gun-clips
 import collections
 import copy
 import hashlib
+import json
 import math
 import pickle
 import struct
@@ -80,6 +81,7 @@ from fo4_import.nif import fnv_file
 from external.pynifly_hkx.anim_fo4 import (fo4_animation_header, parse_fo4_animation, parse_fo4_skeleton,
                                            write_fo4_animation)
 from fo4_import.base.ba2 import Archives
+from fo4_import.base.ba2_pack import staging_root
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.havok.gun_third import (ON_GUN, PAIRED, THIRD_FOLDER, THIRD_SKELETON, carried_target, gun_folder,
                                         mirror, stride, vanilla_worlds, walk_legs)
@@ -112,6 +114,8 @@ CLIP_SITE = 'versioned_gun_clips'
 REC_FIELDS = ('EditorID', 'DNAM.FalloutAnimType', 'DNAM.AttackAnim', 'DNAM.ReloadAnim', 'DNAM.Flags1')
 #: The work cache site of each file a gun's clips write, kept once by its SHA-1 (keep).
 CLIP_FILES = 'gun_clip_files'
+#: The file under a data folder's archive staging keeping its clip files' stamps (write_stored) between builds.
+STAMPS = 'gun_clip_stamps.json'
 #: The gun clips' hand-bumped version: raise it whenever _convert makes other files or values for the same key.
 GUN_CLIPS_VERSION = 4
 
@@ -642,13 +646,26 @@ def keep(inputs: tuple, recorded: tuple) -> None:
                     (made, added, {rel: store_bytes(CLIP_FILES, data) for rel, data in files.items()}))
 
 
-def placed(inputs: tuple, data_dir: Path) -> 'tuple | None':
-    """keep()'s (made, added) for `inputs`, its files written under `data_dir` (write_stored); None if it or a
-    file is gone."""
+def placed(inputs: tuple, data_dir: Path, stamps: 'dict | None' = None) -> 'tuple | None':
+    """keep()'s (made, added) for `inputs`, its files written under `data_dir` (write_stored, `stamps`); None if it
+    or a file is gone."""
     entry = lookup_versioned(CLIP_SITE, GUN_CLIPS_VERSION, inputs)
-    if entry is None or not all(write_stored(data_dir / rel, CLIP_FILES, d) for rel, d in entry[2].items()):
+    if entry is None or not all(write_stored(data_dir / rel, CLIP_FILES, d, stamps) for rel, d in entry[2].items()):
         return None
     return entry[0], entry[1]
+
+
+def stamps_path(data_dir: Path) -> Path:
+    """`data_dir`'s clip file stamps (write_stored) between builds."""
+    return staging_root(data_dir) / STAMPS
+
+
+def read_stamps(data_dir: Path) -> dict:
+    """The clip file stamps the last build of `data_dir` kept; {} when none or unreadable."""
+    try:
+        return json.loads(stamps_path(data_dir).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
 
 
 def is_kept(inputs: tuple) -> bool:
@@ -880,6 +897,15 @@ class GunClips:
         self.third = fo4_skeleton(self.archives.read(THIRD_SKELETON))[0]
         #: {vanilla third-person clip path, lower case: its parsed clip or None} (_third_anim).
         self.third_clips = {}
+        #: The clip file stamps (read_stamps, write_stored), read on first use.
+        self.stamps = None
+
+    def save_stamps(self) -> None:
+        """Keep this build's clip file stamps for the next build of the data folder (when any were read)."""
+        if self.stamps is not None:
+            path = stamps_path(self.data_dir)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(self.stamps, sort_keys=True), encoding='utf-8')
 
     def rig(self, view: View) -> Rig:
         """The rig of `view`, loaded once."""
@@ -981,7 +1007,8 @@ class GunClips:
         own = {k: own_keyword(k) for k in keywords[0]}
         args = (rec, keywords, gun_path, receiver, placement, surfaces)
         inputs = inputs or self.key(*args)
-        found = placed(inputs, self.data_dir)
+        self.stamps = read_stamps(self.data_dir) if self.stamps is None else self.stamps
+        found = placed(inputs, self.data_dir, self.stamps)
         if found is None:
             made, added, files = self.recorded(args)
             keep(inputs, (made, added, files))

@@ -1557,8 +1557,13 @@ the area built.
 <a id="clip-files"></a>**Clip files placed without the cache copy.** About
 27,000 kept clip files (`gun_clip_files`) were read from the work cache, then
 compared with the loose copy a build restores, then touched: two reads each.
-`elric_cache.write_stored` hashes the loose copy first and reads the cache
-only when it differs. `gun_clips.is_kept` (which guns the pool converts) now
+`elric_cache.write_stored` checks the loose copy first and reads the cache
+only when it differs. A copy whose size and time match the stamp the last
+build kept (`gun_clip_stamps.json` beside the data folder's archive staging,
+saved when the gun race is written) is not read at all; the Main archive's
+pack record trusts size and time the same way. A file with no matching
+stamp is hashed. Touching stays: stale-file pruning keeps what the build
+dated (`stale_files`). `gun_clips.is_kept` (which guns the pool converts) now
 asks only whether the gun's entry is current, not whether each file's cached
 copy is (two `stat`s a file, 8.8 s). A file gone from both the cache and the
 data folder makes `placed()` miss, and that gun converts in the main
@@ -1589,7 +1594,16 @@ the plugin byte-identical to the baseline each time:
 | total | 259.5 s | 189.4 s |
 | item WEAP | 31.5–50.2 s | 25.5 s |
 | animation data | 58.2–63.2 s | 37.6 s |
-| `GunClips.convert`, profiled | 25.4 s | 13.7 s |
+| `GunClips.convert`, profiled | 25.4 s | 13.7 s hashed, 2.4 s stamped |
+| item WEAP, profiled | 65.7 s | 30.9 s |
+
+**What WEAP still pays.** Before the first gun converts, `_warm_clips`
+predicts every gun the plugin owns (90 in the base game, whatever the area
+built): mesh conversion, receiver choice, the FO4 gun NIF and the clip key
+(`_guess`, 24.8 s profiled). Most of that is 562 NIF parses. Unprofiled they
+cost about 15 ms each (40 of the largest built gun NIFs: 0.60 s), so about
+7 s a build. A pickled parse loads in about a quarter of that; a cross-build
+parse cache would save about 5 s for about 150 MB of cache.
 
 ## <a id="open"></a>Open questions
 

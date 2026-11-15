@@ -5,6 +5,7 @@ See: docs/fork/fo4_spikes.md#spike-4-gun-clips
 
 import collections
 import functools
+import os
 import struct
 from types import SimpleNamespace
 
@@ -256,6 +257,23 @@ def test_a_kept_gun_holds_placeholders_and_one_copy_of_each_file(tmp_path, monke
     assert placed(('a',), data) is not None and is_kept(('a',))
     (data / 'x' / 'b.hkx').write_bytes(b'changed')
     assert placed(('a',), data) is None
+
+
+def test_placed_trusts_a_matching_stamp_and_hashes_a_moved_file(tmp_path, monkeypatch):
+    """A clip file whose size and time match its stamp is taken as holding its digest (not read) and touched, its
+    stamp updated; once its time moves, its bytes decide."""
+    monkeypatch.setattr(WC, 'CACHE', tmp_path / 'work')
+    data, stamps, target = tmp_path / 'data', {}, tmp_path / 'data' / 'x' / 'a.hkx'
+    keep(('a',), (None, [], {'x/a.hkx': b'clip'}))
+    assert placed(('a',), data, stamps) is not None and list(stamps) == [str(target)]
+    when = target.stat().st_mtime_ns - 10 ** 9
+    target.write_bytes(b'CLIP')
+    os.utime(target, ns=(when, when))
+    stamps[str(target)][1] = when
+    assert placed(('a',), data, stamps) is not None and target.read_bytes() == b'CLIP'
+    assert stamps[str(target)][1] == target.stat().st_mtime_ns != when
+    os.utime(target, ns=(when, when))
+    assert placed(('a',), data, stamps) is not None and target.read_bytes() == b'clip'
 
 
 def test_the_pool_starts_only_for_guns_not_kept(tmp_path, monkeypatch):

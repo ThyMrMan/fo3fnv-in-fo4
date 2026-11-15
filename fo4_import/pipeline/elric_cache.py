@@ -106,21 +106,30 @@ def write_new(target: Path, data: bytes) -> None:
     target.write_bytes(data)
 
 
-def write_stored(target: Path, site: str, digest: str) -> bool:
+def write_stored(target: Path, site: str, digest: str, stamps: 'dict | None' = None) -> bool:
     """write_new() of the bytes work_cache.store_bytes kept under `site` as `digest`, not read from the cache when
-    `target` already holds them (then touched); False when they are needed and gone."""
+    `target` already holds them (then touched): known by `stamps` ({str path: [size, mtime_ns, digest]}, kept
+    up to date) while its size and time match, else by its bytes. False when they are needed and gone.
+    See: docs/fork/fo4_build_speed.md#clip-files
+    """
+    stamps = {} if stamps is None else stamps
     try:
-        same = hashlib.sha1(target.read_bytes()).hexdigest() == digest
+        stat = target.stat()
+        same = stamps.get(str(target)) == [stat.st_size, stat.st_mtime_ns, digest] or (
+            hashlib.sha1(target.read_bytes()).hexdigest() == digest)
     except OSError:
         same = False
     if same:
         _HELD.pop(os.path.normcase(str(target)), None)
         os.utime(target)
-        return True
-    data = work_cache.stored_bytes(site, digest)
-    if data is not None:
+    else:
+        data = work_cache.stored_bytes(site, digest)
+        if data is None:
+            return False
         write_new(target, data)
-    return data is not None
+    stat = target.stat()
+    stamps[str(target)] = [stat.st_size, stat.st_mtime_ns, digest]
+    return True
 
 
 def write_mesh(path: Path, data: bytes) -> None:

@@ -336,6 +336,8 @@ class Guns:
         edid = f'{RACE_EDID}_{plugin_stem(self.builder.export_dir)}' if built else RACE_EDID
         own = (lambda kw: kw >> 24 == writer.own_index) if built else None
         subs = self.clips.race(edid, own) if self.clips else None
+        if self.clips:
+            self.clips.save_stamps()
         if subs:
             fid = writer.derive_formid(RACE_SITE, edid)
             self.builder.writer.add_record('RACE', pack_fo4_record('RACE', fid, 0, b''.join(
