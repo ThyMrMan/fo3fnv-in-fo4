@@ -22,8 +22,9 @@ from fo4_import.app import settings as S
 from asset_convert.sources import source_registry
 from fo4_import.classic_look import plugin_name
 from script_convert.constants import FALLOUT4_HELPER_PLUGIN
-from fo4_import.pipeline import eta, eta_inputs
+from fo4_import.pipeline import build_plan, eta, eta_inputs
 from fo4_import.pipeline.build_steps import stamp_path
+from fo4_import.spike.facegen import faces_stamp
 from tools.validate.fo4_install_check import PLUGINS, RUNTIME_DLL
 
 REPO = Path(__file__).resolve().parents[2]
@@ -37,16 +38,17 @@ GAMES = {
 }
 #: Stage keys in run order, with their labels.
 ORDER = (('import', 'Import the mod folder'), ('export', 'Export the plugin and its archives'),
-         ('helpers', 'Helper plugin'), ('build', 'Build the plugin and assets'),
-         ('faces', 'Faces (the Creation Kit\'s FaceGen, through MO2; slow)'),
+         ('helpers', 'Helper plugin'), ('build', 'Build the plugin and assets (whole build)'),
+         ('update', 'Rebuild what changed (code-only changes replayed; the mods built on it follow)'),
+         ('faces', 'Faces (our own FaceGen; the Creation Kit, through MO2, only for NPCs that fail)'),
          ('runtime', 'Install the F4SE plugin (F3NV.dll)'),
          ('classic', 'Classic Look plugin (flat FNV lights and tone)'),
          ('check', 'Check references (fast)'), ('fo4edit', "FO4Edit's full check (slow; may wait for a click)"))
-#: Stages left unticked unless the user ticks them: the Classic Look is a choice; faces take hours; FO4Edit waits.
-OPTIONAL = frozenset({'classic', 'faces', 'fo4edit'})
+#: Stages left unticked unless the user ticks them: the Classic Look is a choice; FO4Edit waits.
+OPTIONAL = frozenset({'classic', 'fo4edit'})
 #: Stages that run a Windows-only tool (the FO4 Papyrus compiler, Creation Kit tools, FO4Edit).
-WINDOWS_TOOLS = {'build': "the FO4 Papyrus compiler and the Creation Kit's Elric and LipGen", 'fo4edit': 'FO4Edit',
-                 'faces': 'the Creation Kit'}
+BUILD_TOOLS = "the FO4 Papyrus compiler and the Creation Kit's Elric and LipGen"
+WINDOWS_TOOLS = {'build': BUILD_TOOLS, 'update': BUILD_TOOLS, 'fo4edit': 'FO4Edit'}
 
 
 @dataclass(frozen=True)
@@ -57,6 +59,8 @@ class Scope:
     workers: int = 0
 
 
+#: Plugin file suffixes a built folder can hold (lower case).
+PLUGIN_FILES = ('.esm', '.esp', '.esl')
 #: Stages only the game itself runs: the helper plugin, the Classic Look and the F4SE plugin go with the game's.
 GAME_ONLY = frozenset({'helpers', 'classic', 'runtime'})
 
@@ -90,11 +94,26 @@ def found(settings: dict, source: str, stage: str) -> 'Found | None':
         return Found('imported', True) if chosen.mod and source_registry.get(EXPORT_ROOT, chosen.plugin) else None
     if stage == 'export':
         return Found(f'export from {_when(exported)}', True) if exported else None
+    if stage in ('build', 'faces'):
+        return _built(plugin_path(settings, source), stage)
     made = {'helpers': S.output_dir(settings, source) / FALLOUT4_HELPER_PLUGIN,
-            'build': plugin_path(settings, source),
             'classic': S.output_dir(settings, source) / plugin_name(GAMES[source]['plugin']),
             'runtime': chosen.output / PLUGINS / RUNTIME_DLL}.get(stage)
     return Found(f'{made.name} built {_when(made.stat().st_mtime)}') if made and made.is_file() else None
+
+
+def _built(plugin: Path, stage: str) -> 'Found | None':
+    """found() of the build or faces stage of `plugin`: done once a finished build (or faces run) is recorded, as
+    Rebuild what changed then rebuilds it, and runs its faces again, when needed.
+    See: docs/fork/fo4_gui.md#rebuild
+    """
+    if stage == 'faces':
+        stamp = faces_stamp(plugin)
+        finished = stamp is not None and stamp.get('status') == 'finished'
+        return Found(f'faces made {stamp["ended"]}', True) if finished else None
+    if not plugin.is_file():
+        return None
+    return Found(f'{plugin.name} built {_when(plugin.stat().st_mtime)}', build_plan.record(plugin) is not None)
 
 
 def _when(stamp: float) -> str:
@@ -114,6 +133,28 @@ def master_dirs(settings: dict, source: str) -> list:
     plugin = None if chosen.game else addons.source_file(settings, source, chosen, EXPORT_ROOT)
     names = addons.plugin_masters(plugin) if plugin else []
     return [addons.output(settings, source, name, master) for name in names]
+
+
+def built_plugins(settings: dict, source: str) -> list:
+    """Every plugin of `source` with a finished build recorded (build_plan.record): the game's, each add-on's, then
+    any other in a folder beside the game's output (built there from the command line)."""
+    master, out = GAMES[source]['master'], S.output_dir(settings, source)
+    paths = [out / GAMES[source]['plugin']]
+    paths += [addons.output(settings, source, e['plugin'], master) / e['plugin'] for e in addons.entries(settings, source)]
+    beside = sorted(p for d in (out.parent.iterdir() if out.parent.is_dir() else ()) if d.is_dir() and d != out
+                    for p in d.iterdir() if p.suffix.lower() in PLUGIN_FILES)
+    found = [p for p in dict.fromkeys([*paths, *beside]) if build_plan.record(p) is not None]
+    return list({p.resolve(): p for p in found}.values())
+
+
+def rebuilt(settings: dict, source: str) -> list:
+    """What Rebuild what changed hands build_plan --run: the target's built plugin, the built plugins it reads as
+    masters, and the built add-ons reading it, directly or through another.
+    See: docs/fork/fo4_gui.md#rebuild
+    """
+    built, own = built_plugins(settings, source), plugin_path(settings, source).resolve()
+    return [p for p in built if p.resolve() in build_plan.dependents(own, built)
+            or own in build_plan.dependents(p, built)]
 
 
 def missing_master(settings: dict, source: str) -> str:
@@ -142,9 +183,9 @@ def unavailable(settings: dict, source: str, stage: str, platform: str = sys.pla
         return f"{GAMES[source]['master']}'s game folder is not set, or has no Data folder"
     if stage == 'build' and not chosen.game and missing_master(settings, source):
         return f'build its master {missing_master(settings, source)} first'
-    if stage == 'faces' and not any(s.kind == 'mo2_profile' for s in S.mod_sources(settings)):
-        return 'the Creation Kit runs through MO2: add your MO2 profile as a mod source on the Setup screen'
-    if stage in ('helpers', 'build', 'check', 'fo4edit') and not _has_data(settings, 'fallout4'):
+    if stage == 'update' and build_plan.record(plugin_path(settings, source)) is None:
+        return 'no finished build of it yet: build it once first'
+    if stage in ('helpers', 'build', 'update', 'check', 'fo4edit') and not _has_data(settings, 'fallout4'):
         return "Fallout 4's game folder is not set, or has no Data folder"
     return ''
 
@@ -168,7 +209,9 @@ def command(settings: dict, source: str, stage: str, scope: Scope, settings_file
         return [py, '-m', 'fo4_import.helpers_plugin', '--out', str(out / FALLOUT4_HELPER_PLUGIN)]
     if stage == 'faces':
         return [py, '-m', 'fo4_import.spike.facegen', '--export', str(export_dir(settings, source)), '--data',
-                str(out), plugin_path(settings, source).name]
+                str(out), '--own-facegen', plugin_path(settings, source).name]
+    if stage == 'update':
+        return lambda: [py, '-m', 'fo4_import.pipeline.build_plan', '--run', *map(str, rebuilt(settings, source))]
     if stage == 'runtime':
         return [py, '-m', 'fo4_import.app.runtime_dll', '--out', str(out)]
     if stage == 'classic':
