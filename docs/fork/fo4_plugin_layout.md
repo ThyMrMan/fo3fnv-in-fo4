@@ -1070,6 +1070,133 @@ written records at the end), **always run** (setup the units depend on).
 The rest is the journal as designed, with the memo-plus-record pairing as
 its core rule.
 
+### <a id="journal-state"></a>Journaling shared state generically (phase 6, 2026-11-14)
+
+**Why not a journal per memo.** A probe (`temp/journal_probe/probe.py`,
+spike block) walked the builder before and after each base unit and
+listed the state paths that changed. Of 28 base units, the routine ones
+(STAT, ACTI, MSTT) changed `made`, `counts`, the writer's records and
+ledger (`_top_groups`, `_derived`, `_derived_taken`, `ledger.sites`),
+`meshes`, `scripts.used` and `sounds`. The first gun changed about 70
+paths across `equipment`, `guns`, `clips`, `condition`, `ammo_mods`,
+`consumables`, `projectiles`, `perks` and `scripts`. Some of those are lazy
+read caches (archive indexes, clip rigs) built by whichever unit asks first;
+others are real output (`clips.added`, `condition.weapons`, `by_anim`). The
+[shared-state survey](#shared-state) lists about 25 memos and 30
+accumulators. Writing a journal entry for each by hand would leave the next
+new one unjournaled, with nothing to say so.
+
+**The mechanism (`pipeline/journal_state.py`).** After setup, the builder
+is *adopted*:
+- every dict, list, set, Counter and defaultdict it reaches becomes a
+  tracked copy (`TDict`, `TList`, `TSet`, `TCounter`, `TDefaultDict`);
+- every object of our packages gets a tracked subclass (a `__class__`
+  swap, so `isinstance` holds);
+- a tuple is rebuilt of adopted items.
+
+Each adopted object is named by its path from the root, for example
+`builder.equipment.guns.receivers` or `builder.made[74565]`. Two references
+to one object share one copy and one name. Names are paths of authored keys
+(FormIDs, editor IDs), so the same object has the same name in the next
+build.
+
+While a unit runs (`recording`), every change to an adopted object is logged
+to that unit as a primitive op: dict set or delete, set add or discard, a
+list method, an attribute set. The values are pickled when the change is
+made. Objects made in that change are pickled whole; objects adopted earlier
+are pickled as their names. `apply` makes the same changes on whatever the
+names hold in this build, and raises `Untracked` when a name holds nothing.
+
+Three things are left plain:
+- **source records** (a dict starting with `Signature` and `FormID`), as
+  read-only input;
+- **objects of `INPUTS`** (readers, archive indexes), not walked;
+- **values that can't be pickled.** A change storing one logs `UNJOURNALED`,
+  and so does a change from another thread. Either one makes the unit
+  always-run, counted so the gap shows.
+
+Adopted state pickles plain, so pool workers get ordinary containers and
+classes.
+
+**What is not covered by construction:** a plain container a unit keeps a
+local alias to after storing it (the store keeps a tracked copy), and
+in-place changes to a non-container value (a numpy array). The check for
+both is the phase's own bar: an incremental build equals a clean one, byte
+for byte.
+
+<a id="journal-units"></a>**Units (`pipeline/journal.py`).** `@unit(site,
+done)` turns a maker method into a unit. `done(owner, key)` says whether
+its memo already holds the key; a memo hit is a plain call and no unit.
+Otherwise, with a store:
+- the call is logged to the running unit as an ask;
+- then it replays from a valid journal, or runs live and keeps a new one.
+
+A journal holds the unit's ops, with each ask in its place, and its pickled
+result. A replay makes the ops again and asks each unit again where the
+live run asked it, replayed or live in turn. So memos, record order and
+counts come out as a live build leaves them (`tests/test_fo4_journal.py`).
+
+**When a journal replays (`stale`).** Reads of adopted containers are
+logged too: a key's value, whether a key or value is held, a length, or
+the whole contents, each kept as a digest. The digest is taken over a
+fingerprint where:
+- an adopted object stands as its name;
+- a source record stands as its FormID (the export's identity covers its
+  fields);
+- other values are pickled.
+
+Before a replay, every read must find the same thing in this build's state
+now. Reads are not checked for slots the unit wrote itself, for objects it
+made, or for slots written by units it asked. Those asked units must pass
+the same check, unless they are already done. So a unit whose read input
+changed runs live, and so does every unit that asks it before it is done;
+the rest replay. A journal with an `UNJOURNALED` op never replays, and
+neither does one whose code changed: each live run keeps the identity of
+every repo function that ran in it (`ran_code.capture`, the units it asked
+included), and `code_identity.changed` must find none moved.
+
+**Counter increments.** A `Counter` logs the amount each change adds, not
+the new total, and its reads are not logged (counts report and decide
+nothing). A replay after a unit that ran live and counted differently then
+still adds up.
+
+**Running totals and high-water marks** (`MERGES`). Units also keep a few
+scalar attributes up to date:
+- *totals*, logged as the amount added: the writer's `_record_count`,
+  `_derive_collisions` and `left_to_masters`;
+- *high-water marks*, logged as the value to keep the larger of: the
+  writer's `_derive_max_probe` and the builder's `top`, which `fnv_id` sets
+  on every call.
+
+A mark that did not change logs nothing. Any other attribute logs the value
+it was set to.
+
+**On the real builder** (spike block, 2026-11-14, `temp/journal_probe`):
+- *Adoption:* the builder adopted after setup (572 objects, 0.4 s), every
+  base unit recorded.
+- *The plugin* came out byte-identical to a plain build (26,300,208
+  bytes).
+- *The units:* 3,152 base units, none unjournaled.
+- *What they logged:* 72,702 changes and 768,680 reads.
+- *Where the changes went:* mostly records, the writer's FormID tables,
+  `made`, `items.made`, `counts`, `meshes` and gun clip entries.
+- *Where the reads went:* mostly `guns.mods` (430,000, a third of them whole
+  contents), so a container's whole-contents digest is now kept until it
+  changes.
+
+These measurements predate the merge rules: they counted 9,439 writer and
+7,700 builder attribute writes, which the merge rules now cover.
+
+**Still to build** for phase 6:
+- the store on disk, and `CellBuilder.base` as the first site;
+- the rest of the unit key: the export's identity, and files read;
+- plain attributes: their writes are logged, their reads are not, so a
+  unit reading a scalar attribute another unit set (`self.top = max(...)`)
+  is not checked; to be measured on the real builder;
+- file outputs (meshes, staged textures, `stale_files`) re-registered on
+  replay;
+- the Rig Test check.
+
 A build remakes only the records whose inputs or code changed and writes
 the plugin from the rest as cached, byte for byte as a clean build would.
 Hashed FormIDs already make a record independent of build order, which is

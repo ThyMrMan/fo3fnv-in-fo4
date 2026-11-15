@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 from fo4_import.base.ba2_pack import sound_root, staging_root
+from fo4_import.pipeline import journal
 from fo4_import.spike.plugin_rename import drop_old_plugins, is_master, move_renamed, retarget_faces
 from fo4_import.base.master_overrides import held_by, master_records
 from fo4_import.base.source_ids import SourceIds, built_plugins, dependent_masters, key_light, master_ledgers
@@ -351,10 +352,13 @@ class CellBuilder:
         """mesh() of an FNV idle prop in `pose` hung from `bone` (prop_assets)."""
         return self._asset(f'{model}#prop', prop_assets, self.export_dir, model, self.data_dir, pose, bone)
 
+    @journal.unit('base', lambda builder, fnv_fid: fnv_fid < ENGINE_IDS or fnv_fid in builder.made)
     def base(self, fnv_fid: int) -> 'int | None':
         """The FO4 base for an FNV base FormID, made once by its type's converter (pipeline.converters.PLACED);
-        None: not converted. While it is made, its own script naming it reads its FNV-derived FormID.
+        None: not converted. While it is made, its own script naming it reads its FNV-derived FormID. A unit of
+        the journal (pipeline.journal) when one runs.
         See: docs/fork/fo4_pipeline.md#base-properties
+        See: docs/fork/fo4_plugin_layout.md#journal-units
         """
         if fnv_fid < ENGINE_IDS:
             return self.items.shared.get(fnv_fid)
@@ -1007,7 +1011,7 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
                    (persistent + builder.poses.placed, temporary) if cell else None, actors)
     _cell_group(builder, export_dir, vanilla, rooms, qa_refs)
     _world_groups(builder, worlds, (lambda r: _placed(builder, r, ext_ids, teleports), data_dir, navmesh, actors))
-    return finish(builder, export_dir, data_dir, out, scripts_dir, HELPER_INDEX)
+    return journal.ended(finish(builder, export_dir, data_dir, out, scripts_dir, HELPER_INDEX), export_dir)
 
 
 def _script_dirs(builder: CellBuilder, scripts_dir: 'Path | None'):
@@ -1106,6 +1110,7 @@ def _builder(export_dir: Path, data_dir: Path, placed: list, table: tuple, ledge
     builder.parts, builder.emittance = parts, Emittance(builder, export_dir)
     water = builder.placeable_water = PlaceableWater(builder, export_dir)
     parts.parts.update({fid: water.parts(fid, rec) for fid, (sig, rec) in builder.bases.items() if sig == 'PWAT'})
+    journal.begin(builder, export_dir)
     return builder
 
 

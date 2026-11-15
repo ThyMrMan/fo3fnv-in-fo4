@@ -22,7 +22,7 @@ from fo4_import.pipeline.code_identity import SEP, hashes, relative
 TOOL, NAME = 4, 'f3nv ran code'
 #: The recording's own files (its audit hook runs inside every capture): never part of what made a value.
 RECORDERS = frozenset(f'fo4_import/pipeline/{name}.py' for name in ('build_inputs', 'ran_code', 'code_identity',
-                                                                     'code_tag'))
+                                                                     'code_tag', 'journal', 'journal_state'))
 #: Every repo function key that ran in this process since start().
 RAN = set()
 #: {repo file: the keys of RAN in it}.

@@ -180,7 +180,9 @@ class Layered:
     __str__ = __fspath__
 
     def __getattr__(self, name: str):
-        """The resolved path's attribute (is_file, read_bytes, iterdir...)."""
+        """The resolved path's attribute; none for a dunder or before init."""
+        if name.startswith('__') or 'folders' not in self.__dict__:
+            raise AttributeError(name)
         return getattr(self.path(), name)
 
 
