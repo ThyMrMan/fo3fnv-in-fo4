@@ -253,6 +253,19 @@ and `target_box.py`.
   holds it, an actor's from its ledger), without its base being made, so
   links, enable parents, doors, navmeshes and quests still name it. The
   cell's key lights are still ranked among all its lights.
+  An owner (XOWN on a reference, cell or encounter zone) that is a master's
+  NPC used to resolve only because placing the master's actor made its
+  base; with no master actors placed, YUP's 138 owned references lost their
+  owner. `owners_from_masters` now maps each NPC named as an owner to the
+  NPC its master's ledger made (`CellBuilder.owner_ids`).
+  Checked against a build placing everything (NewVegasBounties, one cell):
+  29 of 33 groups are byte-identical. The 18 packages differ only in their
+  ForceGreet numbers ([greet once](fo4_pipeline.md#greet-once)): the old
+  build also numbered the master's ForceGreets, so the add-on's own started
+  at 55. The greeting line's 54 fewer conditions are those master
+  ForceGreets, which the master's own greeting line already tests. One
+  unused biped-slot keyword is gone. One interior lost its owner, fixed
+  above.
 
 ### <a id="light"></a>Light plugins: the per-mod opt-in (built 2026-11-12, not run from the app yet)
 

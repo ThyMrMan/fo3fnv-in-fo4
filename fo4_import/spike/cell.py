@@ -73,7 +73,7 @@ from fo4_import.spike.type_tests import TypeKeywords
 from fo4_import.spike.poses import Poses
 from fo4_import.spike.sounds import Sounds, looping_sounds
 from fo4_import.spike.swaps import Swaps
-from fo4_import.spike.factions import write_all as write_factions
+from fo4_import.spike.factions import owners as named_owners, write_all as write_factions
 from fo4_import.spike.globals import write_all as write_globals
 from fo4_import.spike.locations import Locations, encounter_zones
 from fo4_import.spike.items import ENGINE_IDS, ITEM_TYPES, Items, index, shared_engine_ids
@@ -251,7 +251,7 @@ class CellBuilder:
         self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
         self.faulted = set()
         self.actor_ids, self.npc_ids, self.say, self.packages, self.objectives = {}, {}, None, None, {}
-        self.quest_vars, self.actor_refs, self.own_refs = {}, {}, None
+        self.quest_vars, self.actor_refs, self.own_refs, self.master_owners = {}, {}, None, {}
         self.globals, self.factions, self.zones, self.places, self.regions = {}, {}, {}, {}, {}
         self.swaps, self.imods, self.poses, self.parts, self.weapons = None, None, None, None, set()
         self.equipment, self.load_doors, self.imagespaces = None, {}, set()
@@ -316,6 +316,10 @@ class CellBuilder:
     def first_id(self, owner: str) -> int:
         """The FormID new_id(owner) gives first, not taken."""
         return self.writer.derive_formid(MADE_SITE, owner)
+
+    def owner_ids(self) -> dict:
+        """{FNV FormID: FO4} of owners: built factions, NPCs, master_owners."""
+        return {**self.master_owners, **self.factions, **self.npc_ids}
 
     def _asset(self, key: str, make, *args, **kwargs) -> tuple:
         """meshes[`key`], made once by make(*args, **kwargs); ('', None), the record left without the model, for
@@ -603,7 +607,7 @@ def _ref_ids(builder: CellBuilder, refs: list) -> dict:
 def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tuple:
     """(persistent, temporary) REFRs of the cell's converted references this build places (CellBuilder.placing);
     the cell's key lights chosen among all of them."""
-    persistent, temporary, owners = b'', b'', {**builder.factions, **builder.npc_ids}
+    persistent, temporary, owners = b'', b'', builder.owner_ids()
     shadowed = builder.shadows.chosen(refs)
     for ref in filter(builder.placing, refs):
         base = (builder.load_door if ref['FormID'] in teleports else builder.base)(int(ref['NAME'], 16))
@@ -1097,6 +1101,7 @@ def _builder(export_dir: Path, data_dir: Path, placed: list, table: tuple, ledge
     builder.writer.compare_masters = bool(builder.built)
     builder.own_refs = frozenset(r['FormID'] for sig in (*PLACED_REF_SIGS, 'PGRE')
                                  for r in own_records(export_dir, sig)) if builder.built else None
+    builder.master_owners = owners_from_masters(builder, export_dir) if builder.built else {}
     master_copies.share(builder)
     builder.parts, builder.emittance = parts, Emittance(builder, export_dir)
     water = builder.placeable_water = PlaceableWater(builder, export_dir)
@@ -1178,6 +1183,15 @@ def _master_places(builder: CellBuilder, export_dir: Path) -> dict:
     return {edid: fid for edid, fid in found if fid in builder.in_masters}
 
 
+def owners_from_masters(builder: CellBuilder, export_dir: Path) -> dict:
+    """{FNV NPC FormID: FO4} of each NPC named as an owner that a built master's ledger made.
+    See: docs/fork/fo4_gui.md#addon-refs
+    """
+    npcs = {int(r['FormID'], 16) for r in export_records(export_dir, 'NPC_')}
+    found = ((fnv, builder.writer.from_master(MADE_SITE, NPC_KEY.format(fnv))) for fnv in named_owners(export_dir) & npcs)
+    return {fnv: fid for fnv, fid in found if fid is not None}
+
+
 def _master_form(builder: CellBuilder, sig: str, rec: dict) -> 'int | None':
     """The FO4 form a master's build gave `rec` (an actor's from its ledger); None when its ledger has none.
     See: docs/fork/fo4_pipeline.md#formid-properties
@@ -1228,7 +1242,7 @@ def _people(builder: CellBuilder, export_dir: Path, scoped: tuple, form_map: dic
     theirs = ((r['FormID'], builder.master_ref(r)) for r in actors if cell_of(r) and not builder.placing(r))
     builder.actor_ids.update((ref, fid) for ref, fid in theirs if fid is not None)
     placed = builder.npcs.placed(list(filter(builder.placing, actors)), cell_of, ids,
-                                 {**builder.factions, **builder.npc_ids}, _on_ground(scoped[1]) if scoped[1] else None)
+                                 builder.owner_ids(), _on_ground(scoped[1]) if scoped[1] else None)
     builder.packages.write_pending(builder.npcs.form_map)
     return placed
 
@@ -1273,7 +1287,7 @@ def _places(builder: CellBuilder, export_dir: Path, worlds: list, scoped: tuple)
     (every reference, the interiors built).
     See: docs/fork/fo4_pipeline.md#locations
     """
-    builder.zones = encounter_zones(builder, export_dir, {**builder.factions, **builder.npc_ids})
+    builder.zones = encounter_zones(builder, export_dir, builder.owner_ids())
     markers = map_markers(builder.ref_ids)
     for world in reversed(worlds):
         world.locations = Locations(builder, world.world, markers)
@@ -1295,7 +1309,7 @@ def _interior(builder: CellBuilder, export_dir: Path, cell: dict, vanilla: dict)
     return R.pack_cell(builder.fnv_id(cell['FormID']), f'FNV_{edid}', cell.get('FULL', edid), flags & 0xFF,
                        lighting(resolved(export_dir, cell), template[b'XCLL']), struct.unpack('<I', template[b'LTMP'])[0],
                        imagespace or struct.unpack('<I', template[b'XCIM'])[0], water,
-                       {**builder.factions, **builder.npc_ids}.get(int(cell.get('XOWN.Owner', '0'), 16), 0),
+                       builder.owner_ids().get(int(cell.get('XOWN.Owner', '0'), 16), 0),
                        (builder.places.get(cell['FormID'], 0), _zone(builder, cell)),
                        music_of(builder).interior(int(cell['FormID'], 16), int(cell.get('XCMO.Music', '0'), 16))
                        + _acoustics(builder).xcas(int(cell['FormID'], 16)))

@@ -1671,3 +1671,18 @@ def test_a_receiver_of_a_station_past_the_free_frequencies_stays_a_plain_activat
     radio.stations = {i: {'RecordFlags': str(RA.RADIO_STATION)} for i in range(count)}
     radio.stations_of = {100: count - 1, 101: 0}
     assert radio.receiver(100) == b'' and radio.receiver(101) != b''
+
+
+def test_an_owner_npc_a_master_made_keeps_its_master_form():
+    """owners_from_masters: an NPC named as an owner (XOWN) maps to the NPC its master's ledger made; others drop.
+    See: docs/fork/fo4_gui.md#addon-refs
+    """
+    folder = Path('export/NVBI Version 1 dot 55')
+    if not (folder / '_HEADER.txt').is_file():
+        pytest.skip('NVBI is not exported here')
+    npcs = {int(r['FormID'], 16) for r in CB.export_records(folder, 'NPC_')}
+    owners = sorted(CB.named_owners(folder) & npcs)
+    made = {CB.NPC_KEY.format(fnv): 0x02000800 + n for n, fnv in enumerate(owners[::2])}
+    writer = SimpleNamespace(from_master=lambda site, key: made.get(key) if site == CB.MADE_SITE else None)
+    found = CB.owners_from_masters(SimpleNamespace(writer=writer), folder)
+    assert owners and found == {fnv: made[CB.NPC_KEY.format(fnv)] for fnv in owners[::2]}

@@ -16,7 +16,7 @@ import collections
 import re
 from pathlib import Path
 
-from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.export_index import export_masters, export_records, own_records
 
 #: FNV CELL DATA flag of an interior cell.
 INTERIOR = 0x1
@@ -40,9 +40,16 @@ def scope(export_dir: Path, all_refs: list, start: dict, outside: list) -> tuple
     """(reached() interiors, their references in `all_refs` order)."""
     cells = {r['FormID']: r for r in export_records(export_dir, 'CELL') if int(r.get('DATA.Flags', 0)) & INTERIOR}
     links = script_links(export_dir, all_refs)
-    seeds = moved_to(export_dir, all_refs)
+    seeds = moved_to(export_dir, all_refs) | edited_interiors(export_dir)
     inside, interiors = by_cell(all_refs), reached(cells, all_refs, start, outside, links, seeds)
     return interiors, [r for cell in interiors for r in inside[cell['FormID']]]
+
+
+def edited_interiors(export_dir: Path) -> set:
+    """FormIDs of the interiors a plugin with masters holds (own or overrides)."""
+    if not export_masters(str(export_dir)):
+        return set()
+    return {c['FormID'] for c in own_records(export_dir, 'CELL') if int(c.get('DATA.Flags', 0)) & INTERIOR}
 
 
 def moved_to(export_dir: Path, all_refs: list) -> set:

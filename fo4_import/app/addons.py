@@ -20,12 +20,12 @@ from fo4_import.app import settings as S
 from fo4_import.base.install import masters_of
 from fo4_import.pipeline.build_steps import stamp_path
 from fo4_import.pipeline.export_index import export_masters, export_records, own_records
-from fo4_import.pipeline.run import reached_worlds
+from fo4_import.pipeline.run import edited_grids, reached_worlds
 
 #: Plugin file suffixes an add-on can have.
 PLUGIN_SUFFIXES = ('.esm', '.esp')
-#: FNV CELL flags: DATA interior; record flag of a worldspace's persistent cell.
-INTERIOR, PERSISTENT = 0x1, 0x400
+#: FNV CELL DATA flag of an interior cell.
+INTERIOR = 0x1
 #: A record header's size, and the bytes a plugin header is read from.
 HEADER = 24
 
@@ -137,10 +137,7 @@ def build_scope(export_dir: Path, region: 'tuple | None' = None) -> list:
     size = collections.Counter(c.get('ParentWRLD') for c in cells if 'XCLC.X' in c)
     new = [w for w in own_records(folder, 'WRLD') if int(w['FormID'], 16) >> 24 == own and w.get('EditorID')
            and w['FormID'] in reached and size[w['FormID']]]
-    changed = collections.defaultdict(list)
-    for cell in _grid_cells(folder):
-        if int(cell['ParentWRLD'], 16) >> 24 != own:
-            changed[cell['ParentWRLD']].append((int(cell['XCLC.X']), int(cell['XCLC.Y'])))
+    changed = {world: grids for world, grids in edited_grids(folder).items() if int(world, 16) >> 24 != own}
     names = {w['FormID']: w['EditorID'] for w in worlds if w.get('EditorID')}
     masters = sorted((w for w in changed if w in names), key=lambda w: -size[w])
     if not masters:
@@ -148,12 +145,6 @@ def build_scope(export_dir: Path, region: 'tuple | None' = None) -> list:
     corners = region or (*min(changed[masters[0]]), *min(changed[masters[0]]))
     rest = [w['EditorID'] for w in new] + [names[w] for w in masters[1:]]
     return ['--world', names[masters[0]], *rest, '--region', *map(str, corners)]
-
-
-def _grid_cells(folder: str) -> list:
-    """The add-on's own exterior grid cells (not a worldspace's persistent cell)."""
-    return [c for c in own_records(folder, 'CELL') if 'XCLC.X' in c and c.get('ParentWRLD')
-            and not int(c.get('DATA.Flags', 0)) & INTERIOR and not int(c.get('RecordFlags', 0)) & PERSISTENT]
 
 
 def _start_cell(folder: str) -> list:

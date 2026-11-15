@@ -9,6 +9,7 @@ See: docs/fork/fo4_pipeline.md#skeleton
 """
 
 import argparse
+import collections
 import os
 import sys
 import time
@@ -30,9 +31,10 @@ from fo4_import.pipeline.mesh_cache import warm
 from fo4_import.pipeline.mod_dirs import plugin_dirs
 from fo4_import.pipeline.stage_timer import LISTENERS, charged, clocked, records, report, sample
 from fo4_import.spike import replacements
+from script_convert.constants import PLACED_REF_SIGS
 from tools.script.compile_papyrus import TALLY
 from fo4_import.spike.cell import build, find_cell, placed_bases, world_model
-from fo4_import.spike.exterior import PERSISTENT, Exterior
+from fo4_import.spike.exterior import PERSISTENT, Exterior, grid_of
 from fo4_import.spike.interiors import scope
 from fo4_import.spike.object_lod import lod_sources
 
@@ -95,22 +97,42 @@ def reached_worlds(export_dir: Path, cells: list) -> set:
 
 
 def exteriors(args: argparse.Namespace) -> tuple:
-    """build()'s worlds: the first in scope_cells() and edited_cells(), the rest whole."""
+    """build()'s worlds: the first in scope_cells() and edited_cells(), the rest only in their edited_cells(),
+    whole without any.
+    See: docs/fork/fo4_plugin_layout.md#edited-cells
+    """
     names = world_names(args.export, args.world)
     first = [(name, *scope_cells(args), edited_cells(args.export, name)) for name in names[:1]]
-    return tuple(first + [(name, None, None) for name in names[1:]])
+    rest = [(name, edited_cells(args.export, name)) for name in names[1:]]
+    return tuple(first + [(name, min(cells), min(cells), cells) if cells else (name, None, None) for name, cells in rest])
 
 
 def edited_cells(export_dir: Path, world: str) -> frozenset:
-    """Grid cells of worldspace `world` that a plugin with masters holds itself (its own and its overrides),
-    so an add-on build places its edits outside its region too; none for a masterless plugin.
+    """edited_grids() of master worldspace `world`; none for the plugin's own."""
+    wrld = next((w['FormID'] for w in export_records(export_dir, 'WRLD') if w.get('EditorID') == world), None)
+    if wrld is None or int(wrld, 16) >> 24 >= len(export_masters(str(export_dir))):
+        return frozenset()
+    return frozenset(edited_grids(export_dir).get(wrld, ()))
+
+
+def edited_grids(export_dir: Path) -> dict:
+    """{FNV worldspace FormID: grid cells} a plugin with masters edits: the exterior cells it holds, and those its
+    own persistent references stand in; {} for a masterless plugin.
     See: docs/fork/fo4_plugin_layout.md#edited-cells
     """
     if not export_masters(str(export_dir)):
-        return frozenset()
-    wrld = next((w['FormID'] for w in export_records(export_dir, 'WRLD') if w.get('EditorID') == world), None)
-    return frozenset((int(c['XCLC.X']), int(c['XCLC.Y'])) for c in own_records(export_dir, 'CELL')
-                     if c.get('ParentWRLD') == wrld and 'XCLC.X' in c and not int(c.get('RecordFlags', 0)) & PERSISTENT)
+        return {}
+    out, kept = collections.defaultdict(set), {}
+    for cell in export_records(export_dir, 'CELL'):
+        if int(cell.get('RecordFlags', 0)) & PERSISTENT and cell.get('ParentWRLD'):
+            kept[cell['FormID']] = cell['ParentWRLD']
+    for cell in own_records(export_dir, 'CELL'):
+        if cell.get('ParentWRLD') and 'XCLC.X' in cell and cell['FormID'] not in kept:
+            out[cell['ParentWRLD']].add((int(cell['XCLC.X']), int(cell['XCLC.Y'])))
+    for ref in (r for sig in (*PLACED_REF_SIGS, 'PGRE') for r in own_records(export_dir, sig)):
+        if ref.get('ParentCELL') in kept:
+            out[kept[ref['ParentCELL']]].add(grid_of(ref))
+    return dict(out)
 
 
 def arguments() -> argparse.Namespace:

@@ -717,6 +717,29 @@ that match the master's are dropped as unchanged overrides
 Checked on the rebuilt Old World Blues (2026-11-10): 47 of 47 of those
 references are in its plugin.
 
+**Persistent references, later worldspaces and interiors (2026-11-14).**
+Once an add-on's region shrank to one edited cell
+([one-cell scope](fo4_gui.md#addon-cells)), three of its edits fell out of
+the build, found by an audit of the real exports:
+
+- *Its references in a worldspace's persistent cell.* `Exterior` keeps a
+  persistent reference only if its grid cell is built, and edited cells left
+  the persistent cell out. 288 NVBII spawn markers, Russell's colony enable
+  parent and 34 YUP patrol points were dropped; The Living Desert lost
+  2,076. `run.edited_grids` now adds the grid cell each of the add-on's own
+  persistent references stands in (`exterior.grid_of`), one rule that
+  `addons.build_scope` and `run.edited_cells` share.
+- *Worldspaces after the first.* They were built whole, so a persistent
+  marker in a small master worldspace (NVBI's one in WastelandNVmini) would
+  have built all of it. A later master worldspace is now built only in its
+  edited cells; a worldspace the add-on makes itself, and every worldspace
+  of a masterless build, is still built whole.
+- *Its interiors.* An interior was built only if a door or script from the
+  built cells reached it. NVBII holds 117 interiors with its own references;
+  the one-cell scope built 48 of them, and the old box 87. Every interior a
+  plugin with masters holds is now a seed of the scope
+  (`interiors.edited_interiors`), so all of them are built.
+
 ### <a id="asset-overlays"></a>Asset overlays (built 2026-11-10, not played)
 
 A texture or mesh replacer with no plugin (NVTUP; NVMIM's meshes) changes

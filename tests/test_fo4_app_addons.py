@@ -12,6 +12,10 @@ import pytest
 from fo4_import.app import addons
 from fo4_import.app import settings as S
 from fo4_import.app import stages as ST
+from fo4_import.pipeline.export_index import export_records, own_records
+from fo4_import.pipeline.run import edited_grids
+from fo4_import.spike.exterior import PERSISTENT, grid_of
+from fo4_import.spike.interiors import edited_interiors
 
 EXPORT = Path('export')
 
@@ -112,3 +116,20 @@ def test_build_scope_matches_the_hand_made_dlc_builds(name, want):
     if not (EXPORT / name / '_HEADER.txt').is_file():
         pytest.skip(f'{name} is not exported here')
     assert addons.build_scope(EXPORT / name) == want
+
+
+def test_an_addon_scope_covers_its_persistent_references_and_every_interior_it_edits():
+    """edited_grids holds the grid of each own reference in a worldspace's persistent cell; edited_interiors holds
+    every interior the add-on holds.
+    See: docs/fork/fo4_plugin_layout.md#edited-cells
+    """
+    folder = EXPORT / 'NVBI Version 1 dot 55'
+    if not (folder / '_HEADER.txt').is_file():
+        pytest.skip('NVBI is not exported here')
+    persistent = {c['FormID']: c['ParentWRLD'] for c in export_records(folder, 'CELL')
+                  if int(c.get('RecordFlags', 0)) & PERSISTENT and c.get('ParentWRLD')}
+    refs = [r for sig in ('REFR', 'ACHR', 'ACRE') for r in own_records(folder, sig) if r.get('ParentCELL') in persistent]
+    grids = edited_grids(folder)
+    assert refs and all(grid_of(r) in grids[persistent[r['ParentCELL']]] for r in refs)
+    inside = {c['FormID'] for c in own_records(folder, 'CELL') if int(c.get('DATA.Flags', 0)) & addons.INTERIOR}
+    assert inside and edited_interiors(folder) == inside

@@ -319,6 +319,11 @@ object (a quest or effect script, a quest stage or line result) now seeds its
 marker's interior, reached from anywhere (`interiors.moved_to`). Of the 26
 interiors FNV moves the player into, only `Endgame` was missing.
 
+**Interiors an add-on edits (2026-11-14).** A plugin with masters also seeds
+every interior it holds, its own and its overrides
+(`interiors.edited_interiors`), so its edits there are built even when no
+built door leads in ([edited cells](fo4_plugin_layout.md#edited-cells)).
+
 <a id="said-topics"></a>**Player topics only a script says (2026-10-31).**
 A package's begin or end topic and a script's `Say` become
 `TES4Polyfill.SayWhenFree` with a Topic property, which resolves only to a

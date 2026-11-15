@@ -104,7 +104,7 @@ class Exterior:
                 continue
             if ref.get('ParentCELL') in own:
                 self.by_cell[own[ref['ParentCELL']]].append(ref)
-            elif ref.get('ParentCELL') == self.persistent_cell and _grid(ref) in self.cells:
+            elif ref.get('ParentCELL') == self.persistent_cell and grid_of(ref) in self.cells:
                 self.persistent.append(ref)
         self.refs = self.persistent + [r for refs in self.by_cell.values() for r in refs]
         self.land = {r['ParentCELL']: r for r in export_records(export_dir, 'LAND') if r['ParentCELL'] in own}
@@ -145,7 +145,7 @@ class Exterior:
     def holds(self, ref: dict) -> bool:
         """Whether FNV reference `ref` stands in the block (by cell, or by position)."""
         cell = ref.get('ParentCELL')
-        return cell in self.own or cell == self.persistent_cell and _grid(ref) in self.cells
+        return cell in self.own or cell == self.persistent_cell and grid_of(ref) in self.cells
 
     def placement_order(self) -> list:
         """Every reference in group()'s order: the persistent cell's, then each cell's."""
@@ -397,7 +397,7 @@ def _within(x: int, y: int, lo: 'tuple | None', hi: 'tuple | None') -> bool:
     return lo is None or lo[0] <= x <= hi[0] and lo[1] <= y <= hi[1]
 
 
-def _grid(ref: dict) -> tuple:
+def grid_of(ref: dict) -> tuple:
     """The grid cell a reference stands in."""
     return math.floor(float(ref['PosX']) / CELL_UNITS), math.floor(float(ref['PosY']) / CELL_UNITS)
 
