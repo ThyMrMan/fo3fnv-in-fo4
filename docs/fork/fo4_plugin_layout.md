@@ -1465,6 +1465,37 @@ plugin need a whole build.
 staging, code unchanged: 11 s (the whole build: 62–80 s); Main 12,138
 entries and Textures 1,752, the same names and sizes before and after.
 
+<a id="scripts-replay"></a>**The scripts part (2026-11-15, not yet run on a deployed plugin).**
+`script conversion` (the `script_convert.pipeline` subprocess inherits the part through `PART_ENV`) and
+`script compile` are the `scripts` part. Script work is a small share of a build: for YUP, 20 s of conversion,
+25 s of compile and 27 s for the Main archive, out of 422 s. Before this, every `script_convert/` change rebuilt
+every plugin whole, which came to about 2 hours on 2026-11-15 (a trace line in the quest polls).
+
+The record stages read the converted `.psc` files too: properties for VMADs, stage fragments, `SayWhenFree`
+topics, the quests a script starts or writes, and a script's first line. So a replay converts again and first
+compares, per script folder (its own, then each built master's), a digest of what those stages read
+(`spike/script_view.py:view`, cached by file stamp). If a digest differs, the plugin needs a whole build.
+`script_view.READERS` lists the modules that read a converted script's text, and a test fails when another
+module starts to, so a new reader has to add what it reads to `view`.
+The converted scripts' folder is left out of `made_reads` (the digests stand for it). The compile staging
+folder now falls in the scripts part, so it is no longer a records read. Before this, YUP's record held 265
+`.psc` files among its 583 `made_reads`.
+
+The replay manifest's `scripts` entry keeps what a replay needs: the export, the folder, the scripts the build
+compiled, the built masters, the digests, and whether each changed master script compiled
+([changed scripts](#changed-scripts)). A changed master script that now compiles where it did not, or the other
+way, changes which master records get overridden, so it needs a whole build.
+
+A master's converted scripts that changed (`masters.scripts`, the files a dependent compiled against) used to
+make the dependent build whole. Now they add the scripts part instead, and the replay writes the new SHA-1s.
+Only `Main` is packed again; textures are packed only with the meshes or archives part.
+
+**Proof** on a scratch copy of the Tribal Pack folder: a scripts replay took 14.8 s (the whole build: 40 s).
+Main came out the same (8,082 entries, the same names and sizes), and the plan then called the plugin current.
+The first run found a bug that every replay had: the `made_reads` check ran after `drop_packed` had removed the
+loose files, so any made file the records read and Main packs looked changed (37 meshes here). The check now
+runs before the loose files go.
+
 **Order.** (1) record parts and name them in the plan: built.
 (2) replay the archives: built, proven as above. (3) replay `meshes`
 (collision, object LOD) from the pre-Elric store and the replay manifest:

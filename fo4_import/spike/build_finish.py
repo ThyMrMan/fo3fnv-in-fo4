@@ -25,10 +25,10 @@ from fo4_import.nif import weapon
 from fo4_import.pipeline import elric_cache, master_copies, mesh_cache, object_lod, replay_manifest, stale_files
 from fo4_import.pipeline.build_inputs import MASTERS, master_scripts
 from fo4_import.pipeline.light_choice import finish_flag
-from fo4_import.pipeline.ran_code import ARCHIVES, MESHES
+from fo4_import.pipeline.ran_code import ARCHIVES, MESHES, SCRIPTS
 from fo4_import.pipeline.stage_timer import timed
 from fo4_import.spike import (ammo_casings, ammo_switch, companion_barks, facegen, level_up_icons, list_adds,
-                               script_overrides, skeleton, voice)
+                               script_overrides, script_view, skeleton, voice)
 from fo4_import.spike.combat_feel import write_settings
 from fo4_import.spike.imagespace import LUT_FOLDER
 from fo4_import.spike.karma_page import write_karma_page
@@ -206,17 +206,36 @@ def faces_and_textures(data_dir: Path, out: Path, masters: list, npcs: list, pru
             'textures packed': pack_textures(data_dir, out.name, (LUT_FOLDER, CLASSIC_FOLDER), prune)}
 
 
-@timed('script compile')
+@timed('script compile', SCRIPTS)
 def _compile(builder, data_dir: Path, scripts_dir) -> None:
-    """Compile the build's scripts (none without `scripts_dir`); the masters' scripts they name logged
-    (build_inputs.master_scripts)."""
-    if builder.scripts.used and scripts_dir is not None:
-        masters = tuple(Path(scripts_dir).parent / p.name for p in builder.built)
-        print(compile_into(scripts_dir, data_dir, builder.scripts.used, masters,
-                           tuple(Path(p).parent for p in builder.built)))
-        own = [Path(scripts_dir) / f'{name}.psc' for name in builder.scripts.used]
-        for path in master_scripts(own, masters) if masters else ():
-            MASTERS.script(path)
+    """compile_scripts() of the build's scripts (none without `scripts_dir`), then the script views
+    (script_view.digests of its own and its masters' converted scripts) for a scripts replay."""
+    builder.script_views = {}
+    if scripts_dir is not None:
+        built = [str(p) for p in builder.built]
+        compile_scripts(Path(scripts_dir), data_dir, builder.scripts.used, built)
+        builder.script_views = script_view.digests(script_folders(Path(scripts_dir).resolve(), built))
+
+
+def script_folders(scripts_dir: Path, built: list) -> list:
+    """`scripts_dir`, then the converted scripts of each built master in `built` (beside it, named for it)."""
+    return [scripts_dir, *(scripts_dir.parent / Path(p).name for p in built)]
+
+
+def compile_scripts(scripts_dir: Path, data_dir: Path, used: list, built: list) -> None:
+    """Compile `used` (converted scripts in `scripts_dir`) into `data_dir`'s Scripts against the built masters
+    `built`; the masters' scripts they name logged (build_inputs.master_scripts)."""
+    if not used:
+        return
+    masters = tuple(script_folders(scripts_dir, built)[1:])
+    print(compile_into(scripts_dir, data_dir, used, masters, tuple(Path(p).parent for p in built)))
+    for path in master_scripts([scripts_dir / f'{name}.psc' for name in used], masters) if masters else ():
+        MASTERS.script(path)
+
+
+def compiled_names(names, data_dir: Path) -> dict:
+    """{name: whether it compiled into `data_dir`'s Scripts} of script `names`, sorted."""
+    return {name: (data_dir / 'Scripts' / f'{name}.pex').exists() for name in sorted(set(names))}
 
 
 @timed('closing records')
@@ -259,6 +278,20 @@ def _lists(builder, data_dir: Path) -> None:
     write_settings(builder, builder.combat.settings)
 
 
+def _scripts_manifest(builder, export_dir: Path, data_dir: Path, scripts_dir) -> 'dict | None':
+    """What a scripts replay takes from the build: the export, the converted scripts' folder, the scripts
+    compiled, the built masters, the views and whether each changed master script compiled; None without scripts.
+    See: docs/fork/fo4_plugin_layout.md#scripts-replay
+    """
+    if scripts_dir is None:
+        return None
+    planned = [entry[3] for entry in getattr(builder, 'script_overrides', {}).values()]
+    return {'export': str(Path(export_dir).resolve()), 'dir': str(Path(scripts_dir).resolve()),
+            'used': list(builder.scripts.used),
+            'built': [str(p) for p in builder.built], 'views': builder.script_views,
+            'overrides': compiled_names(planned, data_dir)}
+
+
 @timed('ledger and cleanup')
 def finish(builder, export_dir: Path, data_dir: Path, out: Path, scripts_dir, helper: int) -> collections.Counter:
     """Collision, object LOD, assets, the records written from everything made, scripts, then the plugin, its
@@ -281,7 +314,8 @@ def finish(builder, export_dir: Path, data_dir: Path, out: Path, scripts_dir, he
         out, data_dir, finished, elric_cache.MARKS)
     replay_manifest.write(out, {'pre_elric': elric_cache.INPUTS, 'theirs': builder.finished_alike,
                                 'weapons': sorted(builder.weapons), 'lod_worlds': builder.object_lod.worlds,
-                                'finished': [str(p) for p in finished], 'export': str(export_dir)})
+                                'finished': [str(p) for p in finished], 'export': str(export_dir),
+                                'scripts': _scripts_manifest(builder, export_dir, data_dir, scripts_dir)})
     _main_archive(builder, data_dir, out.name)
     builder.counts['cache entries pruned (unused 14 days)'] = elric_cache.prune_caches(days=14)
     print(f'readiness entries: {builder.readiness.write(out.name)}')

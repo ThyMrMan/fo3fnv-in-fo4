@@ -33,7 +33,7 @@ from fo4_import.pipeline.build_inputs import inputs_path, listing, stamp
 from fo4_import.pipeline.build_steps import stamp_path
 from fo4_import.pipeline.code_identity import changed, identity, rebase
 from fo4_import.pipeline.code_tag import ROOT
-from fo4_import.pipeline.ran_code import ARCHIVES, MESHES
+from fo4_import.pipeline.ran_code import ARCHIVES, MESHES, SCRIPTS
 from fo4_import.pipeline.stage_timer import clocked
 from tes5_import.base.tes5_reader import walk
 
@@ -47,7 +47,7 @@ RUN, OVERLAY = 'fo4_import.pipeline.run', 'fo4_import.pipeline.overlay'
 #: The parts replay (part_replay) and its exit code for a plugin that needs a whole build after all.
 REPLAY, NEEDS_BUILD = 'fo4_import.pipeline.part_replay', 6
 #: The build parts a replay can run again without the records part.
-REPLAYABLE = frozenset({MESHES, ARCHIVES})
+REPLAYABLE = frozenset({MESHES, ARCHIVES, SCRIPTS})
 #: run's and overlay's flags that take one path.
 PATH_FLAGS = frozenset({'--export', '--out', '--data', '--scripts', '--mod-sources', '--replacements',
                         '--export-root'})
@@ -179,9 +179,9 @@ def _ledgers(log: dict, held: frozenset) -> 'str | None':
     return None
 
 
-def _masters(log: dict, plugin: Path) -> 'str | None':
+def _masters(log: dict, plugin: Path, scripts: bool = True) -> 'str | None':
     """The first master question that now has another answer (build_inputs.MasterLog), master FormIDs read in
-    the numbering of `plugin`'s own masters."""
+    the numbering of `plugin`'s own masters; the master scripts compiled against only with `scripts`."""
     plugins = log['paths'].get('plugin', [])
     for path, masters in log['headers'].items():
         if not Path(path).is_file() or file_masters(Path(path)) != masters:
@@ -197,7 +197,7 @@ def _masters(log: dict, plugin: Path) -> 'str | None':
     moved = next((fid for fid, kept in log['records'].items() if now.get(int(fid, 16), [kept[0], None]) != kept), None)
     if moved:
         return f'master record {moved}'
-    return _ledgers(log, found) or _staged(log) or _scripts(log)
+    return _ledgers(log, found) or _staged(log) or (_scripts(log) if scripts else None)
 
 
 def _staged(log: dict) -> 'str | None':
@@ -407,16 +407,25 @@ def master_dirs(plugin: Path, plugins: list) -> list:
 
 
 def replay_parts(plugin: Path) -> 'frozenset | None':
-    """The parts to replay of `plugin` (built by pipeline.run) when its only change is code that ran in REPLAYABLE
-    parts alone (the meshes part only with a replay manifest); None when it needs a whole build or nothing.
+    """The parts to replay of `plugin` (built by pipeline.run) when its only changes are code that ran in
+    REPLAYABLE parts alone and the master scripts it compiled against (the scripts part); the meshes and scripts
+    parts only with a replay manifest holding them. None when it needs a whole build or nothing.
     See: docs/fork/fo4_plugin_layout.md#build-parts
+    See: docs/fork/fo4_plugin_layout.md#scripts-replay
     """
     rec = record(plugin)
-    parts = stale_parts(rec) if rec is not None and build_module(plugin) == RUN else None
-    if not parts or not parts <= REPLAYABLE or (MESHES in parts and replay_manifest.read(plugin) is None):
+    if rec is None or build_module(plugin) != RUN:
         return None
-    moved = _environment(rec) or _files(rec) or _asked(rec) or _masters(rec['masters'], plugin)
-    return None if moved else parts
+    parts = stale_parts(rec) if changed(rec['code']) else frozenset()
+    if parts is None or not parts <= REPLAYABLE:
+        return None
+    if _environment(rec) or _files(rec) or _asked(rec) or _masters(rec['masters'], plugin, scripts=False):
+        return None
+    parts |= {SCRIPTS} if _scripts(rec['masters']) else set()
+    manifest = replay_manifest.read(plugin) if parts & {MESHES, SCRIPTS} else {}
+    if not parts or manifest is None or (SCRIPTS in parts and not manifest.get('scripts')):
+        return None
+    return frozenset(parts)
 
 
 def rebuild(plugin: Path, dirs: list = ()) -> int:

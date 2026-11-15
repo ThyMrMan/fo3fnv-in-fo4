@@ -301,6 +301,16 @@ def _environment() -> dict:
     return {'python': sys.version, 'packages': dict(sorted((d.metadata['Name'], d.version) for d in kept))}
 
 
+def made_reads(seen: dict) -> dict:
+    """{path: stamp} of the files the records part read that the build wrote, but those under a folder left out
+    (leave_out: the converted scripts, which script_view's digests stand for).
+    See: docs/fork/fo4_plugin_layout.md#scripts-replay
+    """
+    roots = tuple(p + os.sep for p in seen['covered'])
+    made = (p for p in sorted(seen['record_reads'] & seen['writes']) if not p.startswith(roots))
+    return {p: s for p in made if (s := stamp(Path(p)))}
+
+
 def write(plugin: Path, data_dir: Path, argv: list) -> Path:
     """Write `<plugin>.inputs.json` from this process's and its workers' records (module notes); its path."""
     folder = Path(os.environ[ENV])
@@ -317,7 +327,7 @@ def write(plugin: Path, data_dir: Path, argv: list) -> Path:
             'code': hashes(seen['ran']), 'masters': MASTERS.body(),
             'asked': [json.loads(q) for q in sorted(seen['asked'])],
             'code_parts': {p: sorted(keys) for p, keys in sorted(seen['parts'].items())},
-            'made_reads': {p: s for p in sorted(seen['record_reads'] & seen['writes']) if (s := stamp(Path(p)))}}
+            'made_reads': made_reads(seen)}
     out = inputs_path(plugin)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(body, indent=0, sort_keys=True), encoding='utf-8')

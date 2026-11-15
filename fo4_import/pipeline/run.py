@@ -29,6 +29,7 @@ from fo4_import.pipeline.light_choice import STAMP_KEY, choose
 from fo4_import.pipeline.master_space import UNCLASSIFIED
 from fo4_import.pipeline.mesh_cache import warm
 from fo4_import.pipeline.mod_dirs import plugin_dirs
+from fo4_import.pipeline.ran_code import SCRIPTS
 from fo4_import.pipeline.stage_timer import LISTENERS, charged, clocked, records, report, sample
 from fo4_import.spike import replacements
 from script_convert.constants import PLACED_REF_SIGS
@@ -259,7 +260,7 @@ def build_all(args: argparse.Namespace, started: float) -> dict:
     """The scripts converted (with --scripts), the plugin and assets built; the counts, each stage's time and every
     source fault (source_fault.report) printed; the counts."""
     if args.scripts:
-        charged('script conversion', convert_scripts, args.export, args.scripts)
+        charged('script conversion', convert_scripts, args.export, args.scripts, part=SCRIPTS)
     worlds = exteriors(args)
     models = scope_models(args.export, args.cell, worlds)
     converted = charged('mesh cache', warm, models, args.export, args.workers)

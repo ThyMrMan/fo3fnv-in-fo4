@@ -16,7 +16,17 @@ from fo4_import.pipeline.build_inputs import stamp
 
 HERE = 'tests/test_fo4_part_replay.py::'
 PACKER, FINISHER, RECORDS_KEY = HERE + '_packer', HERE + '_finisher', HERE + '_records_code'
-PARTS = {RC.ARCHIVES: [PACKER, RECORDS_KEY], RC.MESHES: [FINISHER], RC.RECORDS: [RECORDS_KEY]}
+CONVERTER = HERE + '_converter'
+PARTS = {RC.ARCHIVES: [PACKER, RECORDS_KEY], RC.MESHES: [FINISHER], RC.RECORDS: [RECORDS_KEY],
+         RC.SCRIPTS: [CONVERTER]}
+#: A replay manifest's scripts entry (build_finish._scripts_manifest).
+KEPT_SCRIPTS = {'export': 'export', 'dir': 'scripts', 'used': ['A'], 'built': [], 'views': {'scripts': 'v1'},
+                'overrides': {}}
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _converter() -> None:
+    """Stands for script conversion code."""
 
 
 def _packer() -> None:
@@ -34,7 +44,7 @@ def _records_code() -> None:
 def _record(code: dict, made_reads: dict = None) -> dict:
     """An inputs record with PARTS, `code` and `made_reads` to check, the rest unchanged."""
     masters = {'headers': {}, 'paths': {}, 'held': {}, 'records': {}, 'ledgers': [], 'staged': {}, 'scripts': {}}
-    current = {key: BP.identity(key) for key in (PACKER, FINISHER, RECORDS_KEY)}
+    current = {key: BP.identity(key) for key in (PACKER, FINISHER, RECORDS_KEY, CONVERTER)}
     return {'code': {**current, **code}, 'code_parts': PARTS, 'made_reads': made_reads or {}, 'files': {},
             'dirs': {}, 'programs': {}, 'natives': {}, 'asked': [], 'masters': masters,
             'environment': {'python': sys.version, 'packages': {}}}
@@ -60,10 +70,25 @@ def test_only_code_that_ran_in_the_replayable_parts_alone_is_replayed(monkeypatc
     assert _parts(monkeypatch, _record({})) is None
 
 
-def _replay(tmp_path: Path, monkeypatch, rec: dict, parts: set, manifest: dict = None) -> tuple:
-    """(exit code, inputs record file, calls) of a replay of `parts` whose steps are stubbed; calls names each
-    step that ran."""
+def test_converted_scripts_replay_only_with_a_manifest_keeping_them(monkeypatch, tmp_path):
+    """Script conversion code, or a master's converted script compiled against that changed, replays the scripts
+    part when the manifest keeps it; without it, a whole build."""
+    assert _parts(monkeypatch, _record({CONVERTER: 'old'}), {'scripts': KEPT_SCRIPTS}) == {RC.SCRIPTS}
+    assert _parts(monkeypatch, _record({CONVERTER: 'old'}), {'scripts': None}) is None
+    master = tmp_path / 'Master.psc'
+    master.write_text('Scriptname Master', encoding='utf-8')
+    rec = _record({PACKER: 'old'})
+    rec['masters']['scripts'] = {str(master): 'old digest'}
+    assert _parts(monkeypatch, rec, {'scripts': KEPT_SCRIPTS}) == {RC.ARCHIVES, RC.SCRIPTS}
+
+
+def _replay(tmp_path: Path, monkeypatch, rec: dict, parts: set, manifest: dict = None, views: str = 'v1') -> tuple:
+    """(exit code, inputs record file, calls) of a replay of `parts` whose steps are stubbed (the scripts' views
+    now `views`); calls names each step that ran."""
     plugin, record_file, calls = tmp_path / 'Test.esm', tmp_path / 'Test.esm.inputs.json', []
+    monkeypatch.setattr(PR, 'convert_scripts', lambda *a: calls.append('convert'))
+    monkeypatch.setattr(PR.script_view, 'digests', lambda folders: {'scripts': views})
+    monkeypatch.setattr(PR, 'compile_scripts', lambda *a: calls.append('compile'))
     plugin.write_bytes(b'')
     record_file.write_text('{}', encoding='utf-8')
     for name, value in (('record', lambda p: rec), ('replay_parts', lambda p: frozenset(parts)),
@@ -120,6 +145,75 @@ def test_a_made_file_the_records_read_changed_needs_a_whole_build(tmp_path, monk
     made.write_bytes(b'other')
     code, record_file, _ = _replay(tmp_path, monkeypatch, _record({PACKER: 'old'}, {str(made): kept}), {RC.ARCHIVES})
     assert code == BP.NEEDS_BUILD and not record_file.exists()
+
+
+def test_a_scripts_replay_converts_checks_compiles_and_packs_main(tmp_path, monkeypatch):
+    """Scripts only: converted, views as kept, compiled, Main packed, no textures; the record takes the code now."""
+    code, record_file, calls = _replay(tmp_path, monkeypatch, _record({CONVERTER: 'old'}), {RC.SCRIPTS},
+                                       {'scripts': KEPT_SCRIPTS})
+    assert code == 0 and calls == ['restore_packed', 'convert', 'compile', 'pack_main', 'drop_packed']
+    assert json.loads(record_file.read_text(encoding='utf-8'))['code'][CONVERTER] == BP.identity(CONVERTER)
+
+
+def test_a_script_view_that_changed_needs_a_whole_build(tmp_path, monkeypatch):
+    """What the record stages read from the converted scripts changed: nothing compiled, NEEDS_BUILD."""
+    code, record_file, calls = _replay(tmp_path, monkeypatch, _record({CONVERTER: 'old'}), {RC.SCRIPTS},
+                                       {'scripts': KEPT_SCRIPTS}, views='v2')
+    assert code == BP.NEEDS_BUILD and not record_file.exists() and 'compile' not in calls
+
+
+def test_a_script_view_holds_what_the_record_stages_read_and_not_the_body():
+    """A body change outside what the record stages read keeps the view; a new property changes it."""
+    from fo4_import.spike.script_view import view
+    base = ('ScriptName A extends Quest\nQuest Property VCG02 Auto Const\nEvent OnTimer(int aiTimerID)\n'
+            '  StartTimer(5.0)\n  VCG02.SetStage(5)\nEndEvent\n')
+    assert view(base) == view(base.replace('StartTimer(5.0)', 'TES4Polyfill.TracePass(Self, "", "ran")'))
+    assert view(base) != view(base.replace('Auto Const\n', 'Auto Const\nTopic Property Hello Auto Const\n'))
+    assert view(base) != view(base.replace('VCG02.SetStage(5)', 'VCG03.SetStage(5)'))
+
+
+def test_only_the_listed_modules_read_converted_scripts():
+    """Each fo4_import module reading a .psc file's text is in script_view.READERS, compiles scripts, or reads the
+    pinned Cleanroom UI sources (cleanroom.py)."""
+    from fo4_import.spike.script_view import READERS
+    compilers = {'fo4_import/base/caprica.py', 'fo4_import/base/papyrus.py', 'fo4_import/pipeline/build_inputs.py',
+                 'fo4_import/cleanroom.py'}
+    found = set()
+    for path in (ROOT / 'fo4_import').rglob('*.py'):
+        text = path.read_text(encoding='utf-8')
+        if '.psc' in text and ('read_text' in text or 'read_bytes' in text):
+            found.add(path.relative_to(ROOT).as_posix())
+    assert found - compilers <= READERS, sorted(found - compilers - READERS)
+
+
+def test_made_reads_leave_out_the_converted_scripts(tmp_path):
+    """A records read the build made under a folder left out (the converted scripts) is no made_read."""
+    from fo4_import.pipeline import build_inputs as BI
+    folder, other = tmp_path / 'scripts', tmp_path / 'made.nif'
+    folder.mkdir()
+    (folder / 'A.psc').write_text('x', encoding='utf-8')
+    other.write_bytes(b'mesh')
+    paths = [BI.norm(folder / 'A.psc'), BI.norm(other)]
+    seen = {'record_reads': set(paths), 'writes': set(paths), 'covered': {BI.norm(folder)}}
+    assert list(BI.made_reads(seen)) == [BI.norm(other)]
+
+
+def test_made_files_are_checked_before_the_archives_take_the_loose_files(tmp_path, monkeypatch):
+    """A made file the records read, packed into Main, still as kept: the replay checks it before drop_packed
+    removes the loose copy, so it passes."""
+    made = tmp_path / 'made.nif'
+    made.write_bytes(b'mesh')
+    rec = _record({PACKER: 'old'}, {str(made): stamp(made)})
+    monkeypatch.setattr(PR, 'drop_packed', lambda *a: made.unlink() or 1)
+    plugin, record_file = tmp_path / 'Test.esm', tmp_path / 'Test.esm.inputs.json'
+    plugin.write_bytes(b'')
+    for name, value in (('record', lambda p: rec), ('replay_parts', lambda p: frozenset({RC.ARCHIVES})),
+                        ('inputs_path', lambda p: record_file), ('npcs', lambda p: []),
+                        ('restore_packed', lambda *a: 0), ('pack_main', lambda *a: 0),
+                        ('faces_and_textures', lambda *a: {})):
+        monkeypatch.setattr(PR, name, value)
+    monkeypatch.setattr(PR.replay_manifest, 'read', lambda p: {})
+    assert PR.replay(plugin) == 0 and not made.exists()
 
 
 def test_the_pre_elric_store_keeps_each_nif_once_by_its_bytes(tmp_path, monkeypatch):

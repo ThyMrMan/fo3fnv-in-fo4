@@ -1,15 +1,19 @@
-"""Replay a built plugin's meshes and archives parts (build_plan.replay_parts: its only changes are code that ran
-in those parts alone). The loose files come back; for the meshes part each mesh's pre-Elric bytes are held again
-from the store and finished, the weapons dressed and object LOD baked as the build does, the copies a master
-holds alike dropped and the finished-mesh record rewritten; then the FaceGen prune and the texture archive, the
-Main archive, and the loose files out again. The inputs record then takes the code as it is now. A file the
-records part read that the build made, changed since, or a pre-Elric mesh gone from the store, drops the record
-instead: the plugin then needs a whole build.
+"""Replay a built plugin's scripts, meshes and archives parts (build_plan.replay_parts: its only changes are code
+that ran in those parts alone, and for scripts its masters' converted scripts). The loose files come back; for
+the scripts part the export's scripts are converted again and, when what the record stages read from them is
+unchanged (script_view), compiled; for the meshes part each mesh's pre-Elric bytes are held again from the store
+and finished, the weapons dressed and object LOD baked as the build does, the copies a master holds alike dropped
+and the finished-mesh record rewritten; then (meshes or archives) the FaceGen prune and the texture archive, the
+Main archive, and the loose files out again. The inputs record then takes the code, and the master scripts
+compiled against, as they are now. A changed script view, a file the records part read that the build made,
+changed since, or a pre-Elric mesh gone from the store, drops the record instead: the plugin then needs a whole
+build.
 
     py -3.14 -m fo4_import.pipeline.part_replay <plugin>
 
 See: docs/fork/fo4_plugin_layout.md#build-parts
 See: docs/fork/fo4_plugin_layout.md#meshes-replay
+See: docs/fork/fo4_plugin_layout.md#scripts-replay
 """
 
 import argparse
@@ -20,12 +24,15 @@ from pathlib import Path
 from core.heavy_lock import hold_heavy_lock
 from fo4_import.base.ba2_pack import drop_packed, pack_main, restore_packed
 from fo4_import.pipeline import elric_cache, master_copies, object_lod, replay_manifest
-from fo4_import.pipeline.build_inputs import inputs_path
+from fo4_import.pipeline.build_inputs import MASTERS, inputs_path
 from fo4_import.pipeline.build_plan import NEEDS_BUILD, record, replay_parts, same_file
+from fo4_import.pipeline.build_steps import convert_scripts
 from fo4_import.pipeline.code_identity import hashes
-from fo4_import.pipeline.ran_code import ARCHIVES, MESHES
+from fo4_import.pipeline.ran_code import ARCHIVES, MESHES, SCRIPTS
 from fo4_import.pipeline.stage_timer import charged, report
-from fo4_import.spike.build_finish import faces_and_textures, finish_meshes
+from fo4_import.spike import script_view
+from fo4_import.spike.build_finish import (compile_scripts, compiled_names, faces_and_textures, finish_meshes,
+                                           script_folders)
 from tes5_import.base.tes5_reader import walk
 
 
@@ -76,29 +83,52 @@ def needs_build(plugin: Path, why: str) -> int:
     return NEEDS_BUILD
 
 
+def scripts(data_dir: Path, kept: dict) -> 'str | None':
+    """The scripts part again from the manifest's `kept`: the export's scripts converted, their views checked
+    against the build's (script_view), the build's scripts compiled; why a whole build is needed, else None.
+    See: docs/fork/fo4_plugin_layout.md#scripts-replay
+    """
+    folder = Path(kept['dir'])
+    charged('script conversion', convert_scripts, Path(kept['export']), folder, part=SCRIPTS)
+    now = script_view.digests(script_folders(folder, kept['built']))
+    moved = next((f for f, digest in now.items() if kept['views'].get(f) != digest), None)
+    if moved:
+        return f'what the record stages read from the converted scripts in {moved} changed'
+    charged('script compile', compile_scripts, folder, data_dir, kept['used'], kept['built'], part=SCRIPTS)
+    if compiled_names(kept['overrides'], data_dir) != kept['overrides']:
+        return 'a changed master script compiles now where it did not, or the other way'
+    return None
+
+
 def replay(plugin: Path) -> int:
     """Replay `plugin`'s parts (module doc) when replay_parts() names some (else nothing); 0, or NEEDS_BUILD."""
     parts = replay_parts(plugin)
     if not parts:
-        print(f'{plugin.name}: not only code its meshes or archives parts ran changed; nothing replayed')
+        print(f'{plugin.name}: not only code its scripts, meshes or archives parts ran changed; nothing replayed')
         return 0
     rec, data, manifest = record(plugin), plugin.parent, replay_manifest.read(plugin)
     print(f'== replaying {", ".join(sorted(parts))} of {plugin.name}')
     print(f'loose files restored from the Main archive: {restore_packed(data, plugin.name)}')
+    why = scripts(data, manifest['scripts']) if SCRIPTS in parts else None
+    if why:
+        return needs_build(plugin, why)
     counts = meshes(data, manifest) if MESHES in parts else {}
     if counts is None:
         return needs_build(plugin, 'a pre-Elric mesh is gone from the store')
-    counts.update(charged('FaceGen and texture archive', faces_and_textures, data, plugin, master_dirs(rec, data),
-                          npcs(plugin), False, part=ARCHIVES))
+    if parts & {MESHES, ARCHIVES}:
+        counts.update(charged('FaceGen and texture archive', faces_and_textures, data, plugin,
+                              master_dirs(rec, data), npcs(plugin), False, part=ARCHIVES))
     counts.update(after_meshes(plugin, rec, manifest) if MESHES in parts else {})
     counts['files packed into the Main and voices archives'] = charged('main archive', pack_main, data, plugin.name,
                                                                       part=ARCHIVES)
+    moved = moved_reads(rec)
     counts['loose files the archives hold, removed'] = drop_packed(data, plugin.name)
     print('\n'.join([f'{key}: {count}' for key, count in sorted(counts.items())] + report()))
-    moved = moved_reads(rec)
     if moved:
         return needs_build(plugin, f'{len(moved)} files the records part read changed (first {moved[0]})')
     rec['code'] = hashes(rec['code'])
+    if SCRIPTS in parts:
+        rec['masters']['scripts'] = dict(MASTERS.scripts)
     inputs_path(plugin).write_text(json.dumps(rec, indent=0, sort_keys=True), encoding='utf-8')
     return 0
 

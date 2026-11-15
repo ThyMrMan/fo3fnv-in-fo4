@@ -31,8 +31,9 @@ RAN_BY_FILE = {}
 SITES = {}
 #: (thread id, set) of each capture open now, innermost last.
 _CAPTURES = []
-#: Build parts (docs/fork/fo4_plugin_layout.md#build-parts): records (the default), finished meshes, archives.
-RECORDS, MESHES, ARCHIVES = 'records', 'meshes', 'archives'
+#: Build parts (docs/fork/fo4_plugin_layout.md#build-parts): records (the default), finished meshes, archives,
+#: converted and compiled scripts.
+RECORDS, MESHES, ARCHIVES, SCRIPTS = 'records', 'meshes', 'archives', 'scripts'
 #: The environment variable naming the build part a process is in; a pool worker inherits its stage's.
 PART_ENV = 'F3NV_BUILD_PART'
 #: {build part: every repo function key that started while this process was in it} (enter_part).
