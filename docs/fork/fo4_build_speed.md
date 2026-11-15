@@ -1376,6 +1376,35 @@ than file calls.
   any build used within 14 days still stays. `write_new` stats its target
   once.
 
+<a id="gun-cache"></a>**A gun's build is kept (2026-11-15, not yet in a
+build).** The whole-map WEAP stage still took 51.8 s, most of it parsing the
+same NIFs every build: in its profile, `read_tri_shape` was 21.8 s of
+41.6 s, under `placement` and `gun` (15 s together), `pieces` (5 s) and
+`fnv_layout` (3.9 s), all pure functions of bytes. `gun.built` (placement
+then the gun mesh), `gun.kept_pieces` and `gun.kept_layout` keep their
+values in the work cache (sites `gun_built`, `gun_pieces`, `gun_layout`),
+keyed by the converted FNV mesh's bytes, the receiver's bytes and the FNV
+node positions (as their float bytes), with the code that ran. `guns.py`
+and the two gun tools (`gun_quick_convert`, `fnv_convert_check`) call
+`gun.built`, so placing and building a gun is written once.
+- **Measured** (scratch harness, 11 FNV guns on the hunting rifle
+  receiver, a build running at the same time): `built`, both `pieces` and
+  the layout took 1.04 s cold and 0.04 s warm.
+- **The clip key must not move.** `GunClips.key` pickles the receiver's
+  bones, the placement and both pieces lists in one pickle. Arrays loaded
+  from the work cache share a dtype object of their own load, not numpy's,
+  so pickle's memo writes them differently beside fresh arrays, and every
+  gun clip key would change (the `gun_clip_files` cache, about 150,000
+  entries, missed). `gun._shared` rebuilds each loaded array on numpy's
+  own dtype. On the 11 guns the key's bytes then match the uncached
+  code's, cold and warm.
+
+A one-struct vertex reader (`struct.iter_unpack` per shape) was tried and
+dropped: the same values on 1,354 vanilla shapes, but only 1.5x faster
+(1.89 s to 1.28 s), and `read_tri_shape` is in the code record of every
+sampled `elric_finish`, `own_face` and `shape_materials` entry, so the edit
+would have redone all of those.
+
 The NIF block readers themselves (`Reader.take`, `read_tri_shape`,
 `read_vertex`) were left alone, though vectorizing them is the bigger win.
 They are in the code records of the FaceGen, Elric-finish and shape-material

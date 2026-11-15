@@ -3,6 +3,7 @@
 See: docs/fork/fo4_spikes.md#spike-2-static
 """
 
+import pickle
 import struct
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from fo4_import.nif import retarget as RT
 from fo4_import.nif import stairs as S
 from fo4_import.nif import tree as T
 from fo4_import.nif import weapon as W
+from fo4_import.pipeline import work_cache
 from fo4_import.pipeline.elric_cache import mesh_bytes
 from fo4_import.spike.statics import write_assets
 
@@ -231,6 +233,27 @@ def test_fnv_gun_hangs_on_the_receivers_bones_turned_and_trigger_aligned():
     assert names['##Clip:1'] in out.blocks[names['WeaponMagazine']][1]['children']
     assert np.ptp(placed['Gun:0'][:, 1]) == pytest.approx(25.0, abs=0.01)
     assert np.allclose(worlds[names["ProjectileNode"]][3, :3], (0.0, 30.0, 1.5), atol=0.01)
+
+
+def test_a_built_gun_comes_from_the_work_cache_until_an_input_changes(tmp_path, monkeypatch):
+    """gun.built equals placement() then gun(); the same inputs again place nothing and pickle beside a fresh
+    array as a fresh placement does (GunClips.key); a moved node places anew."""
+    monkeypatch.setattr(work_cache, 'CACHE', tmp_path / 'work')
+    rec, src = F.NifFile(), F.NifFile()
+    rec.blocks = [('NiNode', _node(rec, 'WEAPON', children=[1])), ('NiNode', _node(rec, 'WeaponTrigger', (0, 10, 0)))]
+    src.blocks = [('NiNode', _node(src, 'Gun', children=[1])),
+                  ('BSTriShape', _box_shape(src, '##Trigger:0', (2, -2, 0), (2.5, 0, 0.2), 2)),
+                  ('BSLightingShaderProperty', C.lighting_shader(src, 'materials\\fnv\\gun.bgsm', -1, 0))]
+    static, receiver, nodes = F.write(src), F.write(rec), {'ProjectileNode': np.array([22.0, 1.5, 0.0])}
+    placed, real = [], G.placement
+    monkeypatch.setattr(G, 'placement', lambda *a: placed.append(a) or real(*a))
+    matrix, made = G.built(static, nodes, receiver)
+    assert np.array_equal(matrix, real(static, nodes, receiver)) and made == G.gun(static, nodes, receiver, matrix)
+    assert len(placed) == 1 and G.built(static, nodes, receiver)[1] == made and len(placed) == 1
+    beside = np.eye(2)
+    assert pickle.dumps((G.built(static, nodes, receiver)[0], beside)) == pickle.dumps((matrix, beside))
+    G.built(static, {'ProjectileNode': np.array([22.0, 1.5, 0.5])}, receiver)
+    assert len(placed) == 2
 
 
 def test_a_trigger_bone_with_nothing_drawn_does_not_move_the_gun():

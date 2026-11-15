@@ -257,9 +257,8 @@ def test_choosing_a_gun_writes_none_of_its_fnv_assets_and_building_on_it_does(tm
     guns, written = _guns(tmp_path), []
     monkeypatch.setattr(G, 'cached_convert', lambda path, root, pose, animated: SimpleNamespace(nif='nif'))
     monkeypatch.setattr(G, 'nif_file', SimpleNamespace(write=lambda nif: b'static'))
-    monkeypatch.setattr(G, 'gun', SimpleNamespace(fnv_nodes=lambda path: {}, fnv_layout=lambda static, nodes: {},
-                                                  placement=lambda static, nodes, receiver: np.eye(4),
-                                                  gun=lambda static, nodes, receiver, matrix: b'gun'))
+    monkeypatch.setattr(G, 'gun', SimpleNamespace(fnv_nodes=lambda path: {}, kept_layout=lambda static, nodes: {},
+                                                  built=lambda static, nodes, receiver: (np.eye(4), b'gun')))
     monkeypatch.setattr(G, 'write_assets', lambda root, model, data, animated: written.append(model) or (
         'fnv\\weapons\\pistol.nif', None))
     choice = Choice('10mm', (0x10,), 0x10, 'r.nif', {})
@@ -291,9 +290,9 @@ def _guessing_guns(tmp_path, monkeypatch, calls: collections.Counter) -> 'G.Guns
     monkeypatch.setattr(G, 'warm', lambda jobs, meshes: calls.update(jobs=len(jobs)) or 0)
     monkeypatch.setattr(G, 'nif_file', SimpleNamespace(write=lambda nif: b'static'))
     monkeypatch.setattr(G, 'gun', SimpleNamespace(
-        fnv_nodes=lambda path: {}, fnv_layout=lambda static, nodes: {}, receiver_bones=lambda receiver: {},
-        placement=lambda static, nodes, receiver: calls.update(['built']) or np.eye(4), pieces=lambda nif: (),
-        gun=lambda static, nodes, receiver, matrix: b'gun'))
+        fnv_nodes=lambda path: {}, kept_layout=lambda static, nodes: {}, receiver_bones=lambda receiver: {},
+        built=lambda static, nodes, receiver: calls.update(['built']) or (np.eye(4), b'gun'),
+        kept_pieces=lambda nif: ()))
     choice = Choice('10mm', (0x10,), 0x10, 'r.nif', {})
     guns.choices = SimpleNamespace(choose=lambda rec, layout, only=None: calls.update(['chosen']) or choice,
                                    weapons={'10mm': (1, [])}, clip_keywords=lambda subs, combo: ((), ()))
