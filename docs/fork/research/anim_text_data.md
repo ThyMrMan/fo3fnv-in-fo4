@@ -514,3 +514,35 @@ gone, and what the CK left), and the persistent list is merged.
 the speed samples ([speed-rules](#speed-rules)), the creature stances' torso
 and fire transforms, and the furniture stance. The game reads none of the
 torso, and the fire records only as a fallback ([game-use](#game-use)).
+
+## <a id="skip"></a>Skipping an unchanged run (built 2026-11-15)
+
+`fo4_import/havok/anim_text_skip.py`. A whole-map build spent about 73 s
+here, 38 s of it in `entry_files` (12,217 entries: reading each file data
+list and its clips, then packing offsets), with nothing changed since the
+last build.
+
+- **What a live run keeps** (work cache site `anim_text_run`, one entry per
+  plugin and inputs): every read through the stage's two readers, as the
+  index of the place that had the path (the plugin's data folder, a
+  master's, or the game's archives) and the bytes' SHA-1, or that none had
+  it; each written file's size and time; the template entries the
+  persistent list needs; and the code that ran (`ran_code`), so an edit to
+  any function the run used makes it stale.
+- **The key:** the RACE and BPTD records' bytes, the game archives' names,
+  sizes and times (the general BA2s vanilla's files come from, and the
+  `Fallout4 - *.ba2` the reader opens), the data folders, and the copied
+  gun entries (`copied_entries` still runs every build: it is about 1 s).
+- **A later build skips the run** when, for every read, the folders before
+  the recorded place still lack the path and that place gives the same
+  bytes (an archive's answer is covered by the key), and every written
+  file still has its size and time. Data folder files are compared by
+  digest, not time: earlier stages touch unchanged files every build. The
+  run's files are then touched (stale file pruning keeps what this build
+  touched) and the run kept again with the new times.
+- **Times survive the build:** the loose stash moves files out and back
+  with `os.replace`, which keeps their times. A file written back from the
+  Main archive (`restore_packed`, no stash) takes the archive's time, so
+  that build runs live.
+- `prune`, the persistent list merge and the old list cleanup run either
+  way.

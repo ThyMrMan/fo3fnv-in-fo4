@@ -18,9 +18,9 @@ from fo4_import.base.dangling_scripts import clear_dangling
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.master_overrides import drop_unchanged
 from fo4_import.base.source import plugin_stem
-from fo4_import.base.ba2 import Archives
+from fo4_import.base.ba2 import GAME_ARCHIVES, Archives
 from fo4_import.base.build_files import moved_in
-from fo4_import.havok import anim_text, gun_anim_text
+from fo4_import.havok import anim_text, anim_text_skip, gun_anim_text
 from fo4_import.nif import weapon
 from fo4_import.pipeline import elric_cache, master_copies, mesh_cache, object_lod, replay_manifest, stale_files
 from fo4_import.pipeline.build_inputs import MASTERS, master_scripts
@@ -114,32 +114,48 @@ def _write_plugin(builder, out: Path, data_dir: Path) -> None:
 @timed('animation data')
 def _anim_text(builder, records: list, data_dir: Path, plugin: Path) -> None:
     """Every AnimTextData file the written races (in packed `records`, with the body part data) need, in place of
-    the Creation Kit: gun entries playing only vanilla clips copied from vanilla, own-rig creature projects' and
-    entries' (read from `data_dir` only), other entries' offsets with their template's other files, and the sync
-    data; then stale files pruned, the persistent list merged and the Creation Kit stage's old lists beside the
-    plugin removed; counted.
+    the Creation Kit (_made), or the last run's files touched when nothing it read changed (anim_text_skip); then
+    stale files pruned, the persistent list merged and the Creation Kit stage's old lists beside the plugin
+    removed; counted.
     See: docs/fork/research/anim_text_data.md#ours
+    See: docs/fork/research/anim_text_data.md#skip
     """
     races = [r for r in records if r[:4] == b'RACE']
-    vanilla, masters = gun_anim_text.load_vanilla(FALLOUT4_DIR / 'Data'), master_copies.master_dirs(builder)
-    known, copies = anim_text.known(vanilla), gun_anim_text.copied_entries(races, data_dir, vanilla)
-    made = anim_text.creatures(races, anim_text.reader(data_dir), known,
+    vanilla, dirs = gun_anim_text.load_vanilla(FALLOUT4_DIR / 'Data'), [data_dir, *master_copies.master_dirs(builder)]
+    copies = gun_anim_text.copied_entries(races, data_dir, vanilla)
+    stamps = vanilla.stamp, anim_text_skip.archive_stamps(FALLOUT4_DIR / 'Data', GAME_ARCHIVES)
+    key = anim_text_skip.inputs(plugin, records, stamps, dirs, copies)
+    run = anim_text_skip.kept(key, dirs, data_dir)
+    builder.counts['animation data runs skipped (nothing read changed)'] = int(run is not None)
+    if run is None:
+        run = anim_text_skip.live(key, data_dir, lambda logs: _made(logs, records, dirs, plugin, vanilla, copies))
+    written = [data_dir / rel for rel in run['files']]
+    builder.counts['animation data files written'] = len(written)
+    builder.counts['stale animation data files removed'] = anim_text.prune(data_dir, written)
+    builder.counts['ids added to the persistent subgraph list'] = gun_anim_text.merge_persistent(
+        data_dir, {**copies, **run['templates']}, vanilla, dirs[1:])
+    for suffix in ANIM_INFO_LISTS:
+        moved_in(plugin.with_name(plugin.name + suffix)).unlink(missing_ok=True)
+        plugin.with_name(plugin.name + suffix).unlink(missing_ok=True)
+
+
+def _made(logs: list, records: list, dirs: list, plugin: Path, vanilla, copies: dict) -> tuple:
+    """([written paths], {entry: template}) in the plugin's data folder (dirs[0]; its masters' follow): gun
+    entries playing only vanilla clips (`copies`) copied from vanilla, own-rig creature projects' and entries'
+    (read from the data folder only), other entries' offsets with their template's other files, and the sync data;
+    each reader's reads logged in `logs` (anim_text_skip.live)."""
+    races, data_dir, known = [r for r in records if r[:4] == b'RACE'], dirs[0], anim_text.known(vanilla)
+    made = anim_text.creatures(races, anim_text_skip.logged_reader(logs, data_dir), known,
                                anim_text.body_parts([r for r in records if r[:4] == b'BPTD']))
     own = {entry: v for entry, v in anim_text.own_clips(races, vanilla, copies).items()
            if f'AnimationOffsets\\{entry}.txt' not in made}
     templates = {entry: template for entry, (_, template) in own.items() if template is not None}
-    read = anim_text.reader(data_dir, *masters, Archives(FALLOUT4_DIR / 'Data'))
+    read = anim_text_skip.logged_reader(logs, *dirs, Archives(FALLOUT4_DIR / 'Data', GAME_ARCHIVES))
     files = {**made, **anim_text.entry_files(own, read, known), **anim_text.sync_data(plugin.name)}
     anim_text.save(known)
     written = (gun_anim_text.write(data_dir, copies, vanilla) + anim_text.write(data_dir, files)
                + gun_anim_text.write(data_dir, templates, vanilla, TEMPLATE_KINDS))
-    builder.counts['animation data files written'] = len(written)
-    builder.counts['stale animation data files removed'] = anim_text.prune(data_dir, written)
-    builder.counts['ids added to the persistent subgraph list'] = gun_anim_text.merge_persistent(
-        data_dir, {**copies, **templates}, vanilla, masters)
-    for suffix in ANIM_INFO_LISTS:
-        moved_in(plugin.with_name(plugin.name + suffix)).unlink(missing_ok=True)
-        plugin.with_name(plugin.name + suffix).unlink(missing_ok=True)
+    return written, templates
 
 
 def _finished(builder, data_dir: Path) -> tuple:

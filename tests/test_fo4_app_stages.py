@@ -100,7 +100,41 @@ def test_check_is_the_fast_reference_check_and_fo4edit_is_optional(tmp_path):
     assert check[3] == str(ST.plugin_path(s, 'falloutnv')) and check[4] == '--plugin-dirs'
     assert ST.unavailable(s, 'falloutnv', 'check', 'linux') == ''
     assert 'Windows' in ST.unavailable(s, 'falloutnv', 'fo4edit', 'linux')
-    assert ST.OPTIONAL == {'classic', 'faces', 'fo4edit'} and [k for k, _ in ST.ORDER][-3:] == ['classic', 'check', 'fo4edit']
+    assert ST.OPTIONAL == {'classic', 'fo4edit'} and [k for k, _ in ST.ORDER][-3:] == ['classic', 'check', 'fo4edit']
+
+
+def test_rebuild_what_changed_covers_the_target_its_masters_and_the_mods_built_on_it(tmp_path, monkeypatch):
+    """The game and three mods are built (C on A, A and B on the game); for target A, build_plan --run gets the
+    game, A and C, not B, then D, built on C beside the output but not an add-on; it needs a recorded build of A;
+    a recorded build or faces run counts as done."""
+    s = _settings(tmp_path)
+    for name in ('A.esp', 'B.esp', 'C.esp'):
+        ST.addons.add(s, 'falloutnv', name)
+    game = ST.plugin_path(s, 'falloutnv')
+    mods = {n: ST.addons.default_output(s, 'falloutnv', f'{n}.esp') / f'{n}.esp' for n in 'ABC'}
+    masters = {mods['A'].resolve(): [game], mods['B'].resolve(): [game], mods['C'].resolve(): [mods['A']]}
+    recorded = {game.resolve(), mods['A'].resolve(), mods['B'].resolve(), mods['C'].resolve()}
+    monkeypatch.setattr(ST.build_plan, 'record', lambda p: {} if Path(p).resolve() in recorded else None)
+    monkeypatch.setattr(ST.build_plan, 'masters_of', lambda p: masters.get(Path(p).resolve(), []))
+    monkeypatch.setattr(ST, 'faces_stamp', lambda p: {'status': 'finished', 'ended': 'then'})
+    s['per_source']['falloutnv']['target'] = 'A.esp'
+    assert ST.rebuilt(s, 'falloutnv') == [game, mods['A'], mods['C']]
+    other = game.parent.parent / 'F3NV - D' / 'D.esp'
+    other.parent.mkdir(parents=True)
+    other.write_text('x')
+    recorded.add(other.resolve())
+    masters[other.resolve()] = [mods['C']]
+    assert ST.rebuilt(s, 'falloutnv') == [game, mods['A'], mods['C'], other]
+    argv = ST.command(s, 'falloutnv', 'update', ST.Scope(), tmp_path / 'x.json')()
+    assert argv[1:4] == ['-m', 'fo4_import.pipeline.build_plan', '--run']
+    assert argv[4:] == [str(game), str(mods['A']), str(mods['C']), str(other)]
+    assert ST.unavailable(s, 'falloutnv', 'update', 'win32') == '' and ST.found(s, 'falloutnv', 'faces').done
+    mods['A'].parent.mkdir(parents=True)
+    mods['A'].write_text('x')
+    assert ST.found(s, 'falloutnv', 'build').done
+    recorded.discard(mods['A'].resolve())
+    assert 'build it once' in ST.unavailable(s, 'falloutnv', 'update', 'win32')
+    assert not ST.found(s, 'falloutnv', 'build').done
 
 
 def test_zip_output_is_packaged(tmp_path):

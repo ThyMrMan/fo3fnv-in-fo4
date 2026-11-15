@@ -693,3 +693,31 @@ replaced Pip-Boy Tabs.
 - Vendor repair is offered item by item on the Pip-Boy's item card, not in
   FNV's list with Repair All. The caps leave the player but don't go to the
   vendor (FO4 vendors keep caps in their own container).
+
+## <a id="run-archive"></a>Run archive (play-test logs kept per run)
+
+Fallout 4 keeps four Papyrus logs and overwrites `F3NV.log` each launch, so
+a regression found two runs later has lost the run that last worked. While
+the Trace mod is on (`Data\F3NV_Trace.esl`, the MO2 mod `F3NV - Trace`; a
+player's install has it off, and then F3NV.dll does nothing here), each
+launch (`runlog.cpp`, before `F3NV.log` reopens):
+
+- copies the previous run's logs (`Papyrus.*.log`, `F3NV.log`,
+  `crash-*.log`) written since its launch into its folder,
+  `My Games\Fallout4\F3NV\Runs\<YYYY-MM-DD_HHMMSS>`. F4SE loads plugins
+  before the Papyrus VM opens and rotates its log, so `Papyrus.0.log` is
+  still the previous run's. Launches with the Trace mod off are not
+  archived; their logs land in the next archived run's predecessor, and
+  each Papyrus log's first line says when it was opened;
+- opens this run's folder with `data_files.tsv`: each top-level Data file
+  the game sees through MO2 (name, size, write time).
+
+Each finished build adds a line (started, ended, commit, changed files,
+command) to `<plugin>.builds.jsonl` beside its stamp
+(`build_steps.write_stamp`). `tools.validate.fo4_runs` lists the runs: each
+built plugin's build is the history line, or current stamp, started last
+before the plugin file was written (not "ended after": the faces step
+rewrites FalloutNV.esm about 20 minutes after its build's stamp ends). Against the run before, it marks
+the plugin `rebuilt`, or `archives changed` for a parts replay, which
+rewrites only the archives. Nothing is pruned; delete old run folders by
+hand.

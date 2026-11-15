@@ -32,6 +32,7 @@ from fo4_import.nif import fnv_file
 from fo4_import.nif.blocks import NONE
 from fo4_import.nif.convert_static import IDENTITY, NifFormat, vertices
 from fo4_import.nif.elric import without_havok
+from fo4_import.pipeline.work_cache import cached
 
 #: FO4 = FNV @ AXES: FNV's length (+X) is FO4's +Y, FNV's up (+Y) FO4's +Z, FNV's +Z FO4's +X.
 AXES = np.array([[0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]])
@@ -437,3 +438,42 @@ def gun(static_bytes: bytes, nodes: dict, receiver_bytes: bytes, matrix: np.ndar
         local = _moved((nodes[MUZZLE] @ axes + offset)[None], np.linalg.inv(worlds[body]))[0]
         nif.blocks[muzzle][1]['translation'] = tuple(map(float, local))
     return nif_file.write(nif)
+
+
+def _node_bytes(nodes: dict) -> tuple:
+    """fnv_nodes() as exact bytes, for a work cache key."""
+    return tuple((name, nodes[name].tobytes()) for name in sorted(nodes))
+
+
+def built(static_bytes: bytes, nodes: dict, receiver_bytes: bytes) -> tuple:
+    """(placement(), gun()) of these inputs, work-cached.
+    See: docs/fork/fo4_build_speed.md#gun-cache
+    """
+    def make():
+        """Place and build the gun."""
+        matrix = placement(static_bytes, nodes, receiver_bytes)
+        return matrix, gun(static_bytes, nodes, receiver_bytes, matrix)
+    return _shared(cached('gun_built', __name__, (static_bytes, receiver_bytes, _node_bytes(nodes)), make))
+
+
+def kept_pieces(raw: bytes) -> list:
+    """pieces(`raw`), work-cached."""
+    return _shared(cached('gun_pieces', __name__, (raw,), lambda: pieces(raw)))
+
+
+def kept_layout(static_bytes: bytes, nodes: dict) -> 'dict | None':
+    """fnv_layout() of these inputs, work-cached."""
+    return _shared(cached('gun_layout', __name__, (static_bytes, _node_bytes(nodes)),
+                          lambda: fnv_layout(static_bytes, nodes)))
+
+
+def _shared(value):
+    """`value` (nested tuples, lists, dicts) with each array rebuilt on numpy's own dtype object, so it pickles as
+    a freshly made one does beside others (GunClips.key pickles these).
+    See: docs/fork/fo4_build_speed.md#gun-cache
+    """
+    if isinstance(value, np.ndarray):
+        return np.frombuffer(value.tobytes(), np.dtype(value.dtype.str)).reshape(value.shape).copy()
+    if isinstance(value, (list, tuple)):
+        return type(value)(_shared(v) for v in value)
+    return {k: _shared(v) for k, v in value.items()} if isinstance(value, dict) else value

@@ -96,16 +96,18 @@ def test_play_runs_f4se_through_mo2_or_the_game(tmp_path):
 
 
 def test_faces_and_runtime_stages(tmp_path):
-    """Faces run the FaceGen step on the built plugin and need MO2; the F4SE plugin is the game's own stage."""
+    """Faces write our own FaceGen on the built plugin, on any OS and without MO2 (the Creation Kit only for NPCs
+    that fail); the F4SE plugin is the game's own stage."""
     s = _settings(tmp_path, _instance(tmp_path))
     out = S.output_dir(s, 'falloutnv')
     faces = ST.command(s, 'falloutnv', 'faces', ST.Scope(), tmp_path / 'x.json')
-    assert faces[1:3] == ['-m', 'fo4_import.spike.facegen'] and faces[-1] == 'FalloutNV.esm'
+    assert faces[1:3] == ['-m', 'fo4_import.spike.facegen'] and faces[-2:] == ['--own-facegen', 'FalloutNV.esm']
     assert faces[faces.index('--data') + 1] == str(out)
     assert ST.command(s, 'falloutnv', 'runtime', ST.Scope(), tmp_path / 'x.json')[-1] == str(out)
     assert 'runtime' in ST.GAME_ONLY and ST.unavailable(s, 'falloutnv', 'runtime') == ''
     s['mod_sources'] = []
-    assert 'through MO2' in ST.unavailable(s, 'falloutnv', 'faces', platform='win32')
+    assert ST.unavailable(s, 'falloutnv', 'faces', platform='win32') == ''
+    assert ST.unavailable(s, 'falloutnv', 'faces', platform='linux') == '' and 'faces' not in ST.OPTIONAL
 
 
 def test_runtime_dll_is_installed_into_f4se_plugins(tmp_path):

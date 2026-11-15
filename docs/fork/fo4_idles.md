@@ -208,6 +208,21 @@ Not converted: a prop whose `Prn` is missing. Benny's two
 On every sampled frame, each one's world turn matches FNV's
 (`tests/test_fo4_idle_props.py`). None has been played in game.
 
+<a id="clip-cache"></a>**The clip cache (2026-11-15).** Every build converted
+the 113 idle clips again (`idles.write`, about 70 s of the closing-records
+stage's 83 s profiled on 2026-11-13). `HumanClips.write` now keeps each
+converted clip's bytes as a work-cache entry (site `human_clip`) keyed by
+the `.kf` file's bytes, the props it shows (pickled) and both skeletons'
+bytes (FO4's `skeleton.hkx` from `Fallout4 - Animations.ba2`, FNV's
+`skeleton.nif` from the export); the entry also keeps the code that ran
+making it, so an edit to the retarget invalidates it. A hit writes the
+bytes through `elric_cache.write_new` (touched when the same). Furniture
+poses (`write_pose`, site `human_pose`) are cached the same way, with the
+pose's sound events in the key in place of the props: the clip is decoded
+first (itself work-cached, `kf_cache`) to look up each `Sound:` key, so a
+sound record that converts under another event name converts the pose
+again.
+
 ## <a id="records"></a>2. Records: FNV IDLE as an FO4 dynamic idle
 
 `spike/idles.py`, `Idles`: an FNV idle the build uses becomes an FO4 IDLE

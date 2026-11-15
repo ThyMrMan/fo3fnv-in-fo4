@@ -21,6 +21,10 @@ from script_convert.ownership import OWNED_SUFFIX
 ROOT = Path(__file__).resolve().parents[2]
 #: The stamp's file name ending, after the plugin's name.
 STAMP_SUFFIX = '.build.json'
+#: The build history's file name ending: one line per finished build (tools.validate.fo4_runs).
+HISTORY_SUFFIX = '.builds.jsonl'
+#: The stamp fields a history line keeps.
+HISTORY_KEYS = ('started', 'ended', 'commit', 'changed files', 'command')
 
 
 def convert_scripts(export_dir: Path, scripts_dir: Path) -> None:
@@ -62,9 +66,16 @@ def source_state() -> dict:
 
 
 def write_stamp(plugin: Path, status: str, started: float, extra: dict) -> None:
-    """The stamp: `status` (running, finished, failed), when the build started and ended, and `extra`."""
+    """The stamp: `status` (running, finished, failed), when the build started and ended, and `extra`; a finished
+    build also adds a line (HISTORY_KEYS) to the build history beside it.
+    See: docs/fork/fo4_condition.md#run-archive
+    """
     body = {'status': status, 'started': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(started)),
             'ended': None if status == 'running' else time.strftime('%Y-%m-%d %H:%M:%S'), **extra}
     path = stamp_path(plugin)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(body, indent=1) + '\n', encoding='utf-8')
+    if status == 'finished':
+        line = {key: body[key] for key in HISTORY_KEYS if key in body}
+        with path.with_name(Path(plugin).name + HISTORY_SUFFIX).open('a', encoding='utf-8') as history:
+            history.write(json.dumps(line) + '\n')

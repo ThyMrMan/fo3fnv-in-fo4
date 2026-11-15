@@ -11,6 +11,7 @@
 #include "f4se/ScaleformValue.h"
 
 #include <mutex>
+#include <string>
 
 namespace condition {
 
@@ -69,5 +70,11 @@ void InstallHud(void *taskInterface);
 
 // Register F3NV_Hardcore's native Track.
 void RegisterHardcore(VirtualMachine *vm);
+
+// ---- Run archive (runlog.cpp; docs/fork/fo4_condition.md#run-archive) ----
+
+// While the Trace mod is on: the previous run's logs copied into its run folder and this run's folder opened with
+// the Data files it loads; what was done, for the log ('' when the Trace mod is off). Before F3NV.log reopens.
+std::string ArchiveRun();
 
 }  // namespace condition

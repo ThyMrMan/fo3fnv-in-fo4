@@ -157,7 +157,7 @@ class Guns:
         if int(rec.get('DNAM.Flags1', 0)) & FNV_BACKPACK:
             static = gun.without(static, gun.BACKPACK)
         nodes = gun.fnv_nodes(fnv_path)
-        layout = gun.fnv_layout(static, nodes)
+        layout = gun.kept_layout(static, nodes)
         if layout is None:
             count(SourceFault(fnv_path, 'gun mesh has no shapes'))
             self.builder.counts['guns not on their FNV mesh (a source fault)'] += 1
@@ -207,18 +207,15 @@ class Guns:
         return self.clips
 
     def built(self, choice: Choice, fnv_mesh: tuple) -> tuple:
-        """(receiver NIF bytes, placement, FO4 gun NIF bytes) of choose()'s `fnv_mesh` built on `choice`'s receiver
-        (nif.gun.placement, nif.gun.gun)."""
-        _, _, static, nodes, _ = fnv_mesh
+        """(receiver bytes, *nif.gun.built()) of `fnv_mesh` on `choice`'s receiver."""
         receiver = self._read(choice.model)
-        matrix = gun.placement(static, nodes, receiver)
-        return receiver, matrix, gun.gun(static, nodes, receiver, matrix)
+        return receiver, *gun.built(fnv_mesh[2], fnv_mesh[3], receiver)
 
     def clip_args(self, rec: dict, template: tuple, fnv_path, receiver: bytes, mesh: tuple) -> tuple:
         """GunClips.key's args for gun `rec` (`mesh`: FO4 mesh, placement) on `template`."""
         subs, combo = template
         return (rec, self.choices.clip_keywords(subs, combo), fnv_path, gun.receiver_bones(receiver), mesh[1],
-                (gun.pieces(mesh[0]), gun.pieces(receiver)))
+                (gun.kept_pieces(mesh[0]), gun.kept_pieces(receiver)))
 
     def _predicted(self) -> list:
         """[(FNV FormID, WEAP record, FO4 EditorID or None, mods)] of the plugin's own guns not built yet that a build

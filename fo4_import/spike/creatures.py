@@ -37,6 +37,7 @@ from script_convert.constants import FALLOUT4_HELPER_CREATURE_KEYWORD
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.source_fault import without_fault
+from fo4_import.nif import file as nif_file
 from fo4_import.nif.creature import PAIRS, creature_fit, creature_mesh, skeleton_parents, skin_texture
 from fo4_import.spike import records as R
 from fo4_import.spike.actor_data import (ACBS_ALLOW_PC_DIALOGUE, BASE_DATA_FLAGS, CREATURE_FLAGS, UNIQUE, hit_proof,
@@ -61,8 +62,9 @@ from fo4_import.spike.talking_machines import TalkingMachines
 from fo4_import.spike.voice import fnv_folders, recorded
 from fo4_import.spike.void_actors import copy_record
 from fo4_import.spike.voice_types import VoiceTypes, fnv_voice_types, with_voice
-from fo4_import.pipeline.export_index import asset_root, export_records
+from fo4_import.pipeline.export_index import asset_root, export_file, export_records
 from fo4_import.pipeline.mesh_cache import cached_convert
+from fo4_import.pipeline.work_cache import cached
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
@@ -598,15 +600,33 @@ class Creatures:
         names = [rec[f'NIFZ[{i}]'].lower() for i in range(int(rec.get('NIFZCount', 0)))]
         rel = f'{folder}\\{"_".join(n.rsplit(".", 1)[0] for n in names)}.nif'
         if rel not in self.meshes:
-            if folder not in self.fits:
-                self.fits[folder] = creature_fit(self.export_dir, folder, self.archives)
-            meshes = asset_root(self.export_dir, 'meshes', folder)
+            meshes, pair = asset_root(self.export_dir, 'meshes', folder), PAIRS[folder]
             parts = [(cached_convert(meshes / n, self.export_dir, animated=False), meshes / n) for n in names]
-            bare = (skin_texture([meshes / n for n in names]) or None) if PAIRS[folder].fo4_body else None
-            body = creature_mesh(parts, self.fits[folder], PAIRS[folder].rig.root,
-                                 skeleton_parents(meshes / 'skeleton.nif'), bare)
+            inputs = (folder, [_part_key(c) for c, _ in parts], (meshes / 'skeleton.nif').read_bytes(),
+                      export_file(self.export_dir, 'meshes', folder, 'skeleton.nif').read_bytes(),
+                      self.archives.read(pair.body), self.archives.read(pair.skeleton))
+            body, bare = cached('creature_body', __name__, inputs, lambda: self._body(folder, parts))
             self.meshes[rel] = write_converted(self.export_dir, body, rel, self.data_dir)[0], bare
         return self.meshes[rel]
+
+    def _body(self, folder: str, parts: list) -> tuple:
+        """(creature_mesh() of converted `parts` [(Converted, FNV NIF path)] on `folder`'s pair, FNV's bare skin
+        texture or None: _mesh).
+        See: docs/fork/fo4_build_speed.md#creature-bodies
+        """
+        if folder not in self.fits:
+            self.fits[folder] = creature_fit(self.export_dir, folder, self.archives)
+        bare = (skin_texture([path for _, path in parts]) or None) if PAIRS[folder].fo4_body else None
+        root = asset_root(self.export_dir, 'meshes', folder)
+        return creature_mesh(parts, self.fits[folder], PAIRS[folder].rig.root, skeleton_parents(root / 'skeleton.nif'),
+                             bare), bare
+
+
+def _part_key(converted) -> bytes:
+    """A converted part as key bytes, alike in every process (textures sorted)."""
+    fields = (converted.materials, sorted(converted.textures), converted.spec_maps, converted.effects,
+              converted.animatable, converted.glow_maps)
+    return nif_file.write(converted.nif) + repr(fields).encode()
 
 
 def with_stats(rec: dict, race_health: dict):

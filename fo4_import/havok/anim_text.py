@@ -131,7 +131,9 @@ def compute(paths: list, read, k: Known) -> None:
     worker processes; vanilla's record when the clip can't be read, else None.
     See: docs/fork/research/anim_text_data.md#ours
     """
-    todo = {path.lower(): path for path in paths if path.lower() not in k.computed}
+    todo = {key: path for path in paths if (key := path.lower()) not in k.computed}
+    if not todo:
+        return
     raws = {key: raw for key, path in todo.items() if (raw := read(path + '.hkx'))}
     keys = {key: (key, hashlib.sha1(raw).hexdigest()) for key, raw in raws.items()}
     if k.table is None and keys:
@@ -472,7 +474,8 @@ def file_data_names(text: str) -> dict:
     each named by its file stem (the first wins)."""
     names = {}
     for line in text.splitlines()[4:]:
-        if line.lower().endswith('.hkx') and '\\behaviors\\' not in line.lower():
+        low = line.lower()
+        if low.endswith('.hkx') and '\\behaviors\\' not in low:
             names.setdefault(_stem(line), line[:-4])
     return names
 
@@ -504,18 +507,23 @@ def sync_data(plugin: str) -> dict:
 # Writing
 # ---------------------------------------------------------------------------
 
-def reader(*data_dirs):
+def reader(*data_dirs, log: 'dict | None' = None):
     """read(path under Meshes, backslashes) -> bytes or None: the first of `data_dirs` holding it (data_reader,
-    each folder's archives listed now) or an Archives over the game's."""
+    each folder's archives listed now) or an Archives over the game's; each read put in `log` when given, as
+    {rel: (index of the place that had it or None, its SHA-1 or None)} (anim_text_skip)."""
     places = [place if isinstance(place, Archives) else data_reader(place) for place in data_dirs]
 
     def read(rel: str) -> 'bytes | None':
         """The file at Meshes path `rel`."""
-        return next((found for place in places if (found := _read(place, rel)) is not None), None)
+        at, found = next(((i, found) for i, place in enumerate(places)
+                          if (found := read_in(place, rel)) is not None), (None, None))
+        if log is not None:
+            log[rel] = at, None if found is None else hashlib.sha1(found).digest()
+        return found
     return read
 
 
-def _read(place, rel: str) -> 'bytes | None':
+def read_in(place, rel: str) -> 'bytes | None':
     """Meshes path `rel` from a data folder's data_reader (loose or its archives) or an Archives; None when it
     lacks it."""
     if isinstance(place, Archives):

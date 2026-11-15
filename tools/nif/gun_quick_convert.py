@@ -75,8 +75,7 @@ def convert(guns: Guns, clips: GunClips, rec: dict, only: tuple, out: Path) -> '
         return None
     choice, subs, (_, fnv_path, static, nodes, _) = chosen
     receiver = Archives(FALLOUT4_DIR / 'Data').read('meshes' + B + choice.model.lower())
-    matrix = gun.placement(static, nodes, receiver)
-    made = gun.gun(static, nodes, receiver, matrix)
+    matrix, made = gun.built(static, nodes, receiver)
     mesh = out / 'Meshes' / 'fnv' / (model_path(rec)[:-4] + GUN_SUFFIX)
     mesh.parent.mkdir(parents=True, exist_ok=True)
     mesh.write_bytes(made)

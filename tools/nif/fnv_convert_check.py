@@ -169,8 +169,7 @@ def run_gun(export_dir: str, model: str):
     path = export_file(export_dir, 'meshes', model)
     static, nodes = _static(path), gun.fnv_nodes(path)
     receiver = _archives().read(RECEIVER)
-    matrix = gun.placement(static, nodes, receiver)
-    return nodes, gun.fnv_layout(static, nodes), gun_clips.fnv_frames(path), gun.gun(static, nodes, receiver, matrix)
+    return nodes, gun.fnv_layout(static, nodes), gun_clips.fnv_frames(path), gun.built(static, nodes, receiver)[1]
 
 
 def run_creature(export_dir: str, folder: str, name: str):
