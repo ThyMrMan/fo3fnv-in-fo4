@@ -115,14 +115,21 @@ class HumanClips:
     def write_pose(self, kf: str, out: Path, sound) -> None:
         """Convert FNV furniture clip `kf` to `out` as a furniture pose in FNV's marker frame (the marker is FNV's),
         no head tracking (vanilla's furniture clips carry no events), each `Sound: <EditorID>` key played by
-        `sound(EditorID)` (an event or None).
+        `sound(EditorID)` (an event or None); work-cached, keyed by those events too.
         See: docs/fork/fo4_pipeline.md#crucifix
+        See: docs/fork/fo4_idles.md#clip-cache
         """
         clip = decoded(str(self.meshes / kf))[0]
-        moved = retarget_clip(clip, self.fnv, self.fo4, BONES, self.deltas, translated=(COM,))
         keys = [(float(t), key.partition(':')) for t, key in clip.text_keys]
         events = [(t, sound(name.strip())) for t, (kind, _, name) in keys if kind.strip().lower() == SOUND_KEY]
-        self._save(moved, [e for e in events if e[1]], out)
+        events = [e for e in events if e[1]]
+        inputs = ((self.meshes / kf).read_bytes(), pickle.dumps(events, protocol=5), *self.skeletons)
+        write_new(out, cached('human_pose', __name__, inputs, lambda: self._posed(clip, events, out)))
+
+    def _posed(self, clip, events: list, out: Path) -> bytes:
+        """Decoded FNV `clip` retargeted and written to `out` with `events`; its bytes."""
+        self._save(retarget_clip(clip, self.fnv, self.fo4, BONES, self.deltas, translated=(COM,)), events, out)
+        return out.read_bytes()
 
     def _save(self, moved, events: list, out: Path) -> None:
         """Write retargeted clip `moved` with `events` [(time, text)] to `out`, its tracks unnamed."""

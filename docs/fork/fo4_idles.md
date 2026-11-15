@@ -217,8 +217,11 @@ bytes (FO4's `skeleton.hkx` from `Fallout4 - Animations.ba2`, FNV's
 `skeleton.nif` from the export); the entry also keeps the code that ran
 making it, so an edit to the retarget invalidates it. A hit writes the
 bytes through `elric_cache.write_new` (touched when the same). Furniture
-poses (`write_pose`) are not cached yet: their events depend on a sound
-lookup, which the key would have to cover.
+poses (`write_pose`, site `human_pose`) are cached the same way, with the
+pose's sound events in the key in place of the props: the clip is decoded
+first (itself work-cached, `kf_cache`) to look up each `Sound:` key, so a
+sound record that converts under another event name converts the pose
+again.
 
 ## <a id="records"></a>2. Records: FNV IDLE as an FO4 dynamic idle
 
