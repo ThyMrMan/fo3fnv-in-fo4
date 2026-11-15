@@ -246,7 +246,9 @@ class Held(frozenset):
     """A built master's FormIDs (master_overrides.held_by) that logs each membership asked into MASTERS."""
 
     def __contains__(self, fid) -> bool:
-        """Whether `fid` is held, logged."""
+        """Whether `fid` is held, logged; None (no id) is not held and not logged."""
+        if fid is None:
+            return False
         answer = frozenset.__contains__(self, fid)
         MASTERS.held[fid] = answer
         return answer

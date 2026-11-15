@@ -145,7 +145,7 @@ def build_scope(export_dir: Path, region: 'tuple | None' = None) -> list:
     masters = sorted((w for w in changed if w in names), key=lambda w: -size[w])
     if not masters:
         return ['--world', *(names[w['FormID']] for w in new), '--whole'] if new else _start_cell(folder)
-    corners = region or _bounds(changed[masters[0]])
+    corners = region or (*min(changed[masters[0]]), *min(changed[masters[0]]))
     rest = [w['EditorID'] for w in new] + [names[w] for w in masters[1:]]
     return ['--world', names[masters[0]], *rest, '--region', *map(str, corners)]
 
@@ -154,12 +154,6 @@ def _grid_cells(folder: str) -> list:
     """The add-on's own exterior grid cells (not a worldspace's persistent cell)."""
     return [c for c in own_records(folder, 'CELL') if 'XCLC.X' in c and c.get('ParentWRLD')
             and not int(c.get('DATA.Flags', 0)) & INTERIOR and not int(c.get('RecordFlags', 0)) & PERSISTENT]
-
-
-def _bounds(points: list) -> tuple:
-    """(x0, y0, x1, y1) around grid `points`."""
-    xs, ys = [x for x, _ in points], [y for _, y in points]
-    return min(xs), min(ys), max(xs), max(ys)
 
 
 def _start_cell(folder: str) -> list:

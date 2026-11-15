@@ -354,6 +354,14 @@ def test_master_formids_are_read_in_the_dependent_plugins_numbering(tmp_path):
     assert 0x03000FD0 not in held and 0x02000AAA not in held
 
 
+def test_asking_held_for_no_id_is_not_logged(monkeypatch):
+    """A master form with no id (None: its ledger lacks the actor) is not held, and the log stays writable."""
+    monkeypatch.setattr(BI, 'MASTERS', BI.MasterLog())
+    held = BI.Held({0x01000900})
+    assert None not in held and 0x01000900 in held
+    assert BI.MASTERS.body()['held'] == {'01000900': True}
+
+
 def _dlc_asks(game: Path, dlc_data: Path) -> Path:
     """A DLC build that asked the game whether it holds 0x01000900 and read record 0x01000901; its plugin."""
     masters = ['Fallout4.esm', game.name]

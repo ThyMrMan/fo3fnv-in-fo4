@@ -215,18 +215,30 @@ and `target_box.py`.
     (`run.reached_worlds`) and that have grid cells, whole (Dead Money's 7,
     not its test maps);
   - the master worldspaces whose grid cells it changes: the one with the
-    most cells first, as a region around those cells (or the user's region
-    corners), the others whole. A worldspace's persistent cell (record flag
+    most cells first, as a one-cell region on one of those cells (or the
+    user's region corners), the others whole. The build adds every other
+    grid cell the add-on holds itself
+    ([edited cells](fo4_plugin_layout.md#edited-cells)), so the add-on's
+    cells are built and no others. A worldspace's persistent cell (record flag
     0x400) is not a grid cell: Honest Hearts and Better Brotherhood override
-    WastelandNV's, which would stretch the region to (0, 0);
+    WastelandNV's;
   - with neither, its own first interior as the start cell, new ones first
     (Gun Runners' Arsenal's vendor chest cell); a pack gets neither.
   The test block is off for an add-on. Checked on the exports: Dead Money,
   Honest Hearts, Gun Runners' Arsenal and the four packs come out as the
-  command-line builds of 2026-11-09 were run. Old World Blues and Lonesome
-  Road come out larger: they change 32 and 13 WastelandNV cells across the
-  map (regions -26 -31 22 17 and -22 -26 22 3) and one or two Freeside
-  worldspace cells, which the hand-made builds' entrance regions left out.
+  command-line builds of 2026-11-09 were run.
+
+  <a id="addon-cells"></a>**Only the changed cells (2026-11-14).** The
+  region was once the box around every changed cell. Landscape Disposition
+  Fix changes 503 WastelandNV cells across the map, so its box (-22 -30 21
+  29) was 2,640 cells: nearly the whole game, made again and dropped as
+  unchanged (233,137 references the same as the master's). Built both ways
+  from the same code, the WRLD and QUST groups are byte-identical. The box
+  build also made a crucified-furniture pose race, its keyword and two biped
+  slot keywords on the mod's own ids, all for master content. The cell build
+  instead keeps one unplaced workbench side copy: station sides follow the
+  placements a build sees, so either scope makes one. Build time: 181.9 s
+  against 126.8 s.
 
 ### <a id="light"></a>Light plugins: the per-mod opt-in (built 2026-11-12, not run from the app yet)
 

@@ -103,9 +103,12 @@ def test_a_mod_folder_is_imported_then_exported(tmp_path, monkeypatch):
     ('HonestHearts.esm', ['--world', 'WastelandNV', 'NVDLC02ZionCanyon', '--region', '-6', '32', '-6', '32']),
     ('GunRunnersArsenal.esm', ['NVDLC05VendorChestsCell']),
     ('CaravanPack.esm', []),
+    ('Landscape Disposition Fix', ['--world', 'WastelandNV', '--region', '-22', '-16', '-22', '-16']),
 ])
 def test_build_scope_matches_the_hand_made_dlc_builds(name, want):
-    """The derived scope is what the DLC builds were given by hand."""
+    """The derived scope; a master worldspace's region is one changed cell.
+    See: docs/fork/fo4_gui.md#addons
+    """
     if not (EXPORT / name / '_HEADER.txt').is_file():
         pytest.skip(f'{name} is not exported here')
     assert addons.build_scope(EXPORT / name) == want
