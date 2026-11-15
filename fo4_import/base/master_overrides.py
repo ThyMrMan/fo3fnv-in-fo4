@@ -44,7 +44,8 @@ def _header(blob: bytes) -> tuple:
 
 def _pruned(data: bytes, keep) -> bytes:
     """`data` (records and groups at one level) with each record as `keep(record, heads)` gives it (b'' drops it;
-    `heads`: its children group survived, so it must stay) and each group pruned alike, gone when emptied."""
+    `heads`: its children group, the next group if labelled with its FormID, survived, so it must stay) and each
+    group pruned alike, gone when emptied."""
     items, pos = [], 0
     while pos < len(data):
         sig, size = struct.unpack_from('<4sI', data, pos)
@@ -59,7 +60,8 @@ def _pruned(data: bytes, keep) -> bytes:
             out.append(blob[:SIZE_AT] + struct.pack('<I', REC_HDR + len(inner)) + blob[FLAGS_AT:REC_HDR] + inner
                        if inner else b'')
         else:
-            out.append(keep(blob, i + 1 < len(items) and items[i + 1][0] and bool(groups[i + 1])))
+            out.append(keep(blob, i + 1 < len(items) and items[i + 1][0] and bool(groups[i + 1])
+                            and items[i + 1][1][8:12] == blob[12:16]))
     return b''.join(out)
 
 
@@ -95,7 +97,7 @@ def built_bytes(path, masters: list) -> bytes:
 
 
 def held_by(paths: list, masters: list) -> frozenset:
-    """FormIDs (build numbering) of every record in built master plugins `paths` (questions logged: Held)."""
+    """FormIDs (build numbering) of every record in built masters `paths` (Held)."""
     return Held(rec.form_id for path in paths for rec, _ in walk(built_bytes(path, masters), bodies=()))
 
 

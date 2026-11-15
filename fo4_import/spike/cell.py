@@ -251,7 +251,7 @@ class CellBuilder:
         self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
         self.faulted = set()
         self.actor_ids, self.npc_ids, self.say, self.packages, self.objectives = {}, {}, None, None, {}
-        self.quest_vars, self.actor_refs = {}, {}
+        self.quest_vars, self.actor_refs, self.own_refs = {}, {}, None
         self.globals, self.factions, self.zones, self.places, self.regions = {}, {}, {}, {}, {}
         self.swaps, self.imods, self.poses, self.parts, self.weapons = None, None, None, None, set()
         self.equipment, self.load_doors, self.imagespaces = None, {}, set()
@@ -269,6 +269,17 @@ class CellBuilder:
         self.enter_motions = enter_motions(asset_root(export_dir, 'meshes'))
         self.counts, self.readables, self.mines, self.keyed = collections.Counter(), None, None, set()
         self.object_lod = ObjectLod(self)
+
+    def placing(self, ref: dict) -> bool:
+        """Whether this build writes `ref`: all, or only own_refs with masters.
+        See: docs/fork/fo4_gui.md#addon-refs
+        """
+        return self.own_refs is None or ref['FormID'] in self.own_refs
+
+    def master_ref(self, ref: dict) -> 'int | None':
+        """Unplaced master `ref`'s FO4 FormID if its master placed it, else None."""
+        fid = _master_form(self, ref['Signature'], ref)
+        return fid if fid in self.in_masters else None
 
     def fnv_id(self, fnv) -> int:
         """FormID of FNV record `fnv` (int or hex) made 1:1: its object id, in the FO4 plugin of the source plugin
@@ -384,8 +395,7 @@ class CellBuilder:
         return self.mines.projectile(fnv_fid)
 
     def transmitter(self, fnv_fid: int, _sig, rec: dict) -> 'int | None':
-        """Converter: a talking activator (spike.talking_activators), or a Pip-Boy station's transmitter
-        (spike.radio), else None."""
+        """Converter: a talking activator, else a station's radio transmitter."""
         return self.talkers.base(fnv_fid, rec) or self.radio.base(fnv_fid, rec)
 
     def readable(self, fnv_fid: int, sig: str, rec: dict) -> 'int | None':
@@ -581,16 +591,21 @@ def _built(builder: CellBuilder, refs: list) -> list:
 
 @timed('references')
 def _ref_ids(builder: CellBuilder, refs: list) -> dict:
-    """{FNV reference: FO4 FormID} of `refs` _placed() writes."""
-    return {r['FormID']: builder.fnv_id(r['FormID']) for r in _built(builder, refs)}
+    """{FNV ref: FO4 FormID} of `refs` placed, and of masters' (master_ref).
+    See: docs/fork/fo4_gui.md#addon-refs
+    """
+    theirs = ((r['FormID'], builder.master_ref(r)) for r in refs if not builder.placing(r))
+    return {**{ref: fid for ref, fid in theirs if fid is not None},
+            **{r['FormID']: builder.fnv_id(r['FormID']) for r in _built(builder, list(filter(builder.placing, refs)))}}
 
 
 @timed('placed references')
 def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tuple:
-    """(persistent, temporary) REFRs of the cell's converted references."""
+    """(persistent, temporary) REFRs of the cell's converted references this build places (CellBuilder.placing);
+    the cell's key lights chosen among all of them."""
     persistent, temporary, owners = b'', b'', {**builder.factions, **builder.npc_ids}
     shadowed = builder.shadows.chosen(refs)
-    for ref in refs:
+    for ref in filter(builder.placing, refs):
         base = (builder.load_door if ref['FormID'] in teleports else builder.base)(int(ref['NAME'], 16))
         hazard = hazard_ref(builder, ref, _persistent(ref))
         persistent, temporary = (persistent + hazard, temporary) if _persistent(ref) else (persistent, temporary + hazard)
@@ -1080,6 +1095,8 @@ def _builder(export_dir: Path, data_dir: Path, placed: list, table: tuple, ledge
     builder.writer.use_master_ledgers(ledgers, builder.in_masters)
     key_light(builder.ids, builder.writer, builder.built, builder.masters, ledgers)
     builder.writer.compare_masters = bool(builder.built)
+    builder.own_refs = frozenset(r['FormID'] for sig in (*PLACED_REF_SIGS, 'PGRE')
+                                 for r in own_records(export_dir, sig)) if builder.built else None
     master_copies.share(builder)
     builder.parts, builder.emittance = parts, Emittance(builder, export_dir)
     water = builder.placeable_water = PlaceableWater(builder, export_dir)
@@ -1162,12 +1179,12 @@ def _master_places(builder: CellBuilder, export_dir: Path) -> dict:
 
 
 def _master_form(builder: CellBuilder, sig: str, rec: dict) -> 'int | None':
-    """The FO4 form a master's build gave `rec` (an actor's from its ledger).
+    """The FO4 form a master's build gave `rec` (an actor's from its ledger); None when its ledger has none.
     See: docs/fork/fo4_pipeline.md#formid-properties
     """
     if sig in ('ACHR', 'ACRE'):
         return builder.writer.from_master(MADE_SITE, ACHR_KEY.format(rec['FormID']))
-    return builder.ids.fo4(int(rec['FormID'], 16))
+    return builder.ids.held(int(rec['FormID'], 16))
 
 
 def _unique_actors(builder: CellBuilder, export_dir: Path) -> dict:
@@ -1207,9 +1224,11 @@ def _people(builder: CellBuilder, export_dir: Path, scoped: tuple, form_map: dic
     """{FNV cell: (persistent, temporary)} actors in built cells `scoped` (_in_build); then the packages script
     properties reserved before the NPCs' forms were known."""
     builder.npcs = Npcs(builder, export_dir, form_map, builder.creatures)
-    placed = builder.npcs.placed(export_records(export_dir, 'ACHR') + export_records(export_dir, 'ACRE'),
-                                 _in_build(*scoped), ids, {**builder.factions, **builder.npc_ids},
-                                 _on_ground(scoped[1]) if scoped[1] else None)
+    actors, cell_of = export_records(export_dir, 'ACHR') + export_records(export_dir, 'ACRE'), _in_build(*scoped)
+    theirs = ((r['FormID'], builder.master_ref(r)) for r in actors if cell_of(r) and not builder.placing(r))
+    builder.actor_ids.update((ref, fid) for ref, fid in theirs if fid is not None)
+    placed = builder.npcs.placed(list(filter(builder.placing, actors)), cell_of, ids,
+                                 {**builder.factions, **builder.npc_ids}, _on_ground(scoped[1]) if scoped[1] else None)
     builder.packages.write_pending(builder.npcs.form_map)
     return placed
 

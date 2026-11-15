@@ -240,6 +240,20 @@ and `target_box.py`.
   placements a build sees, so either scope makes one. Build time: 181.9 s
   against 126.8 s.
 
+  <a id="addon-refs"></a>**Only the add-on's own references (2026-11-14).**
+  Its cells still held every master reference and actor in them (93,571
+  REFRs and 2,074 actors for Landscape Disposition Fix), each made with its
+  base, then dropped as the same as the master's. `master_overrides` keeps a
+  master record the add-on does not hold only when it names one of the
+  add-on's new records, and that only happens for scope artifacts such as a
+  station's side copy. So a build with masters now places only the
+  references its plugin holds (`CellBuilder.placing`, `own_refs`: its own
+  and its overrides). Every other reference in its cells keeps the FO4 FormID
+  its master's build gave it (`master_ref`: the master's id when the master
+  holds it, an actor's from its ledger), without its base being made, so
+  links, enable parents, doors, navmeshes and quests still name it. The
+  cell's key lights are still ranked among all its lights.
+
 ### <a id="light"></a>Light plugins: the per-mod opt-in (built 2026-11-12, not run from the app yet)
 
 Under the output folder, **Plugin type** has a checkbox, *Build as a light plugin*, for a DLC or mod (the game is
