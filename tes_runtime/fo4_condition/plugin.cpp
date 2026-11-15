@@ -97,7 +97,9 @@ __declspec(dllexport) F4SEPluginVersionData F4SEPlugin_Version = {
 };
 
 __declspec(dllexport) bool F4SEPlugin_Load(const F4SEInterface *f4se) {
+    std::string run = ArchiveRun();
     gLog.OpenRelative(CSIDL_MYDOCUMENTS, "\\My Games\\Fallout4\\F4SE\\F3NV.log");
+    if (!run.empty()) _MESSAGE("run archive: %s", run.c_str());
     g_handle = f4se->GetPluginHandle();
     auto *papyrus = static_cast<F4SEPapyrusInterface *>(f4se->QueryInterface(kInterface_Papyrus));
     if (!papyrus) {
