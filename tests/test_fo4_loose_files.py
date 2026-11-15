@@ -10,8 +10,10 @@ import shutil
 
 from fo4_import.base import ba2_pack as BP
 from fo4_import.base import build_files as BF
+from fo4_import.base import touched
 from fo4_import.base.ba2 import Archive
 from fo4_import.base.ledger import ledger_path
+from fo4_import.pipeline.elric_cache import write_new
 from fo4_import.spike import facegen
 from fo4_import.spike.script import adopted_scripts
 
@@ -179,6 +181,25 @@ def test_a_build_that_rewrites_the_same_bytes_leaves_main_as_it_is(tmp_path, mon
     BP.pack_main(data, 'P.esm')
     assert main.stat().st_mtime_ns != when and Archive(main).read('scripts/a.pex') == b'PEX'
     assert Archive(main).read('materials/fnv/a.bgsm') == b'm'
+
+
+def test_files_write_new_touched_are_kept_unread_and_main_is_not_written(tmp_path, monkeypatch):
+    """Files write_new touched (same bytes) match Main by their time before the touch, read by no byte compare,
+    two builds running; the record takes their new times, and Main stays as it is."""
+    data = _packed(tmp_path, monkeypatch)
+    main, compared = data / 'P - Main.ba2', []
+    monkeypatch.setattr(BP, 'same_bytes', lambda archive, named: compared.append(set(named)) or set())
+    when = main.stat().st_mtime_ns
+    for build in range(2):
+        monkeypatch.setattr(touched, 'TOUCHED', {})
+        for name, payload in FILES.items():
+            write_new(data / name, payload)
+        assert BP.pack_main(data, 'P.esm') == len(FILES), build
+    assert compared == [] and main.stat().st_mtime_ns == when
+    assert BP.archived(main)['Scripts/A.pex'][1] == (data / 'Scripts/A.pex').stat().st_mtime_ns
+    (data / 'Scripts/A.pex').write_bytes(b'PEX')
+    BP.pack_main(data, 'P.esm')
+    assert Archive(main).read('scripts/a.pex') == b'PEX'
 
 
 def test_the_loose_copies_wait_in_the_stash_with_their_dates(tmp_path, monkeypatch):

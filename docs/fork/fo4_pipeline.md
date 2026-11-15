@@ -6403,6 +6403,28 @@ the 2026-11-09 build: 46,886 files, 2.29 GB (26,820 AnimTextData `.txt`,
   files (`stale_files`, object LOD, the Creation Kit's animation list, the
   script compiler, `write_new`'s own check) reading through the archive
   instead.
+- <a id="touched"></a>**Touched files need no compare (2026-11-15, not yet
+  built).** The byte compare above still read every file the build touched;
+  the main archive stage took 36.4 s of the latest 552 s whole-map build
+  (not yet profiled, so the compare's share is not measured). The touches
+  are ours, so the build now remembers them: `fo4_import/base/touched.py`
+  keeps, in the build process, each file `write_new`, `write_stored` or the
+  [animation data skip](research/anim_text_data.md#skip) touched with its
+  size and time before the run's first touch and after its last. `_held`
+  takes a loose file as packed when Main's record matches its time before
+  the touch and its size and time now are the last touch's (nothing wrote
+  it since). A write through `write_new` forgets the file; a write
+  elsewhere changes its time, so the match fails and the bytes are
+  compared as before.
+  - **The record follows.** A file kept this way, or by its bytes, goes into
+    the record at its time now. When every file is known equal to its
+    packed copy, `_pack` writes only the record, not Main. Without that,
+    the next build's time before the touch would be this build's and miss
+    the old record.
+  - **Not covered:** touches in worker processes (the record lives in one
+    process; the pools return bytes and the main process writes them), and
+    files `restore_packed` wrote back from Main (dated as the archive).
+    Both fall back to the byte compare.
 - <a id="loose-stash"></a>**The loose copies move aside instead of being
   deleted and written back (2026-11-12, not yet built).** Reading through
   the archive would change about 38 reads in 17 files, plus the script

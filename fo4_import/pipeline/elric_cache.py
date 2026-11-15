@@ -27,6 +27,7 @@ from pathlib import Path
 
 from core.build_resources import pool_workers
 from core.process_job import join_pool_job
+from fo4_import.base import touched
 from fo4_import.base.source_fault import FAULTS, SourceFault, count, faulted
 from fo4_import.nif import elric, hknp_write
 from fo4_import.nif import file as nif_file
@@ -100,8 +101,9 @@ def write_new(target: Path, data: bytes) -> None:
     except OSError:
         same = False
     if same:
-        os.utime(target)
+        touched.touch(target)
         return
+    touched.forget(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
 
@@ -121,7 +123,7 @@ def write_stored(target: Path, site: str, digest: str, stamps: 'dict | None' = N
         same = False
     if same:
         _HELD.pop(os.path.normcase(str(target)), None)
-        os.utime(target)
+        touched.touch(target)
     else:
         data = work_cache.stored_bytes(site, digest)
         if data is None:

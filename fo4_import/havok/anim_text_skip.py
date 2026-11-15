@@ -7,9 +7,9 @@ See: docs/fork/research/anim_text_data.md#skip
 """
 
 import hashlib
-import os
 from pathlib import Path
 
+from fo4_import.base import touched
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.ba2_pack import data_reader
 from fo4_import.havok import anim_text
@@ -43,7 +43,7 @@ def kept(key: tuple, dirs: list, data_dir: Path) -> 'dict | None':
     if not all(_same_reads(log, places[:count]) for count, log in run['reads']):
         return None
     for rel in run['files']:
-        os.utime(data_dir / rel)
+        touched.touch(data_dir / rel)
     return _keep(key, run, data_dir)
 
 
