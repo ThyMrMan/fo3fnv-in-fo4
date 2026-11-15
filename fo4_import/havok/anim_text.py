@@ -507,18 +507,23 @@ def sync_data(plugin: str) -> dict:
 # Writing
 # ---------------------------------------------------------------------------
 
-def reader(*data_dirs):
+def reader(*data_dirs, log: 'dict | None' = None):
     """read(path under Meshes, backslashes) -> bytes or None: the first of `data_dirs` holding it (data_reader,
-    each folder's archives listed now) or an Archives over the game's."""
+    each folder's archives listed now) or an Archives over the game's; each read put in `log` when given, as
+    {rel: (index of the place that had it or None, its SHA-1 or None)} (anim_text_skip)."""
     places = [place if isinstance(place, Archives) else data_reader(place) for place in data_dirs]
 
     def read(rel: str) -> 'bytes | None':
         """The file at Meshes path `rel`."""
-        return next((found for place in places if (found := _read(place, rel)) is not None), None)
+        at, found = next(((i, found) for i, place in enumerate(places)
+                          if (found := read_in(place, rel)) is not None), (None, None))
+        if log is not None:
+            log[rel] = at, None if found is None else hashlib.sha1(found).digest()
+        return found
     return read
 
 
-def _read(place, rel: str) -> 'bytes | None':
+def read_in(place, rel: str) -> 'bytes | None':
     """Meshes path `rel` from a data folder's data_reader (loose or its archives) or an Archives; None when it
     lacks it."""
     if isinstance(place, Archives):
