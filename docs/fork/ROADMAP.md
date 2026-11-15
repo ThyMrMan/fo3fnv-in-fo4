@@ -265,6 +265,10 @@ Please report what you find in
   own MO2 profile and visits every cell, quest stage, NPC line and item by
   itself, reporting crashes, Papyrus errors and stuck quests into the
   preflight; planned, first slice a cell sweep ([plan](fo4_autoplay.md#order)).
+- **Regression checks:** compare each build with the last one the user
+  played and called good (records, scripts, meshes, faces, voice), keep each
+  fixed bug as a small test, and bisect a break to its commit with scoped
+  rebuilds; planned ([plan](fo4_regression.md#order)).
 - **Casino games and Caravan:** all built; blackjack and Caravan not yet
   played ([plan](fo4_casino_plan.md)).
 - **Faces for the DLC and mods** with our own FaceGen, then making it the
@@ -374,6 +378,7 @@ project. Their last status is in the [development log](dev_log.md#character).
 | [fo4_look.md](fo4_look.md) | Grass, lighting and color |
 | [fo4_preflight.md](fo4_preflight.md) | The checks run on every build |
 | [fo4_autoplay.md](fo4_autoplay.md) | Unattended play-test runs: launch, driving the game, checks, results |
+| [fo4_regression.md](fo4_regression.md) | Catching regressions: a known-good build, frozen bug cases, must-pass checks, scoped bisect |
 | [fo4_gui.md](fo4_gui.md) | The conversion app |
 | [nvse_script_language.md](nvse_script_language.md) | NVSE's script language in converted scripts |
 | [fo4_hotfix.md](fo4_hotfix.md) | Script hotfixes between builds |

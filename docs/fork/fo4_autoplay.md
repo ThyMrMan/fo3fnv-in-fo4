@@ -338,6 +338,10 @@ whose scripts or stages changed, NPCs whose packages changed) and runs
 only those, with `--only changed`. This is the 10-to-20-minute loop the
 [iteration goal](fo4_build_speed.md) needs; the whole sweep is for nights.
 
+**Regressions.** Must-pass checks, and comparing a run with the run on the
+last build the user called good, are in the
+[regression plan](fo4_regression.md#must-pass).
+
 ## <a id="manual"></a>What stays manual
 
 | Area | Why a machine can't judge it |
