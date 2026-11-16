@@ -15,14 +15,14 @@ Fallout 3 has a first spike, Vault 101 and its opening, not yet played
 ([FO3 spike](fo4_fo3_plan.md)). Install steps are in the
 [README](../../README.md#install).
 
-The page describes the 2026-11-13 build of `FalloutNV.esm`,
-`FalloutHelpers.esl` and `F3NV.dll`, and the DLC, pack and mod plugins built
-on it. It is the first build whose faces were all made by our own FaceGen
-instead of the Creation Kit (2,382 faces, none failed). With warm caches the
-game took 9 minutes and its faces 15, against about 18 and 39 minutes with
-the Creation Kit's faces. A full rebuild with the 2026-11-14 fixes (the
-collision crash at Doc Mitchell's, mod scripts naming their masters'
-references) is running.
+The page describes the 2026-11-15 build of `FalloutNV.esm`,
+`FalloutHelpers.esl` and `F3NV.dll`, and the 33 DLC, pack and mod plugins
+built on it. It carries the 2026-11-14 play-test fixes (the collision crash
+at Doc Mitchell's, mod scripts naming their masters' references) and the mod
+script fixes: every script in every DLC, pack and mod now compiles but one
+(and five in Fallout 3). Every face is made by our own FaceGen. The game took
+12 minutes, its faces 21 and the 33 plugins 2 hours 5 minutes, all rebuilt
+in full while the new build caches filled.
 
 **States:**
 
@@ -223,7 +223,7 @@ references) is running.
 | Conversion app | Converts your New Vegas install for Fallout 4 | Partial | Setup, Convert and Replacements screens are built, not tested end to end. DLC and mod folders convert from the app too ([DLC and mods](fo4_gui.md#addons)); the Finished screen checks the install, sets the output up in Mod Organizer and plays ([buttons](fo4_gui.md#mo2-setup)), and the F4SE plugin and faces are stages. Faces are our own FaceGen, as the chain's; Rebuild what changed runs the chain's build plan (replay, then the mods built on the target) ([rebuild](fo4_gui.md#rebuild)). None of this run from the app yet. | [phases](fo4_gui.md#phases) |
 | Installing | The README's steps for testers | Built, not played | Never followed end to end on a clean machine. | [install](../../README.md#install) |
 | Replacements | Swapping converted items or creatures for Fallout 4's or other mods' versions | Partial | The table and its screen work, empty by default. Named profiles and a Wabbajack modlist aren't built. | [replacements](fo4_replacements.md#direction) |
-| Fallout 3 | Converting Fallout 3 the same way | Partial | A scoped spike: Vault 101 and the opening (born in `CG00`) through the vault door, built into its own MO2 profile, not played; rebuilt 2026-11-12 with crime ignored during character creation (`IgnoreCrime`, `SetInCharGen`). The rest of the Capital Wasteland is not built. Tale of Two Wastelands judged, not built. The child player is planned: scale at age 1 (converted), a child race of our own at 10 and in Tranquility Lane, whose in-game check (`F3NV_ChildRaceTest.esl`) is built, not played. | [FO3 spike](fo4_fo3_plan.md), [child player](fo4_fo3_child_player.md) |
+| Fallout 3 | Converting Fallout 3 the same way | Partial | A scoped spike: Vault 101 and the opening (born in `CG00`) through the vault door, built into its own MO2 profile, not played; rebuilt 2026-11-12 with crime ignored during character creation (`IgnoreCrime`, `SetInCharGen`). 5 of its 4,118 scripts don't compile (three need `MirrorPlayerFactionRelation`; `MQ01Script`, `FFER05LootBoxSCRIPT`). The rest of the Capital Wasteland is not built. Tale of Two Wastelands judged, not built. The child player is planned: scale at age 1 (converted), a child race of our own at 10 and in Tranquility Lane, whose in-game check (`F3NV_ChildRaceTest.esl`) is built, not played. | [FO3 spike](fo4_fo3_plan.md), [child player](fo4_fo3_child_player.md) |
 
 ## Known bugs a player will see
 
@@ -231,8 +231,10 @@ references) is running.
   over the tile seams built, not played). ([terrain LOD](fo4_pipeline.md#terrain-lod))
 - The DLC's and mods' own NPCs have no FaceGen.
   ([own stage](fo4_facegen_plan.md#own-stage))
-- No distant objects in one Honest Hearts and seven Lonesome Road worlds.
-  ([object LOD](fo4_pipeline.md#object-lod))
+- No distant objects in 14 worlds: one in Honest Hearts, seven in Lonesome
+  Road, Old World Blues' Big MT, and five in the New Vegas Bounties II and
+  III and Russell mods. LODGen gives up when a `_lod.nif` they name is
+  missing. ([object LOD](fo4_pipeline.md#object-lod))
 - Scripts that wait for an animated window or the Lucky 38 lights do nothing. ([census](fo4_idles.md#census))
 - NPCs and the player catch on some stairs (the Novac motel, Vikki and
   Vance's steps). ([stairs](fo4_pipeline.md#stair-helper-pitch))
@@ -247,12 +249,10 @@ references) is running.
 - With both `Fallout3.esm` and `FalloutNV.esm` on, both openings start at
   once and you end up stuck in Vault 101's hallway. Keep each game in its
   own MO2 profile. ([FO3 spike](fo4_fo3_plan.md))
-- In the mod builds: `TLD_Travelers.esm`'s two main scripts don't
-  compile, so about 25 scripts that need them don't either; YUP's and Better
-  Brotherhood's bobblehead scripts need a quest script no plugin ships; about
-  40 properties have the wrong type (JSawyer Ultimate, Better Brotherhood,
-  Autumn Leaves); 12 YUP scripts don't compile (boxing gloves, cattle prod).
-  ([mod builds](fo4_mod_builds.md))
+- In the mod builds: New Vegas Bounties II's `aaAaronFlaggNPCScript` doesn't
+  compile. The fixes for the rest (TLD's, YUP's and the other mods' compile
+  failures, YUP's and Better Brotherhood's bobblehead quest script, about 40
+  wrong-type properties) are built, not played. ([mod builds](fo4_mod_builds.md))
 
 Please report what you find in
 [the issues](https://github.com/ThyMrMan/fo3fnv-in-fo4/issues).
@@ -308,7 +308,18 @@ Please report what you find in
   archive bytes leaves the archive alone; mod builds reuse their masters'
   finished meshes. A Low/Balanced/Full setting limits cores and memory, and
   the build prints an estimated time ([resources](fo4_build_resources.md)).
-  Named stages can be profiled (`F3NV_PROFILE_STAGES`). Still to come:
+  Named stages can be profiled (`F3NV_PROFILE_STAGES`). Each build records
+  what every part (archives, meshes, scripts) ran and read, so a change to
+  only that part's code replays it instead of rebuilding the plugin
+  ([replay](fo4_plugin_layout.md#replay)), and a mod rebuilds only its
+  changed cells. Idle, pose and gun clips, guns, worn creature bodies and
+  the animation data are kept between builds too
+  ([guns](fo4_build_speed.md#gun-cache), [creatures](fo4_build_speed.md#creature-bodies),
+  [clips](fo4_idles.md#clip-cache), [animation data](research/anim_text_data.md#skip)),
+  and the main archive knows our own written files without reading them
+  ([touched](fo4_pipeline.md#touched)). On the 2026-11-15 build, still
+  filling those caches, the mods built 12% faster than the build before. The
+  goal is a small fix to a play test in 10 to 20 minutes. Still to come:
   moving the hot spots to native code ([plan](fo4_build_speed.md)).
 - **Build safety:** a build chain that checks the setup first, watches every
   step for stalls, reruns faces after any base rebuild, stops on a hidden
@@ -316,7 +327,9 @@ Please report what you find in
   (`tools.release.fo4_chain`). A Creation Kit that writes nothing in 30
   minutes is closed, and `build_plan` stops instead of rebuilding a plugin
   twice, unless one of its masters built after it
-  ([build plan](fo4_plugin_layout.md#build-plan)).
+  ([build plan](fo4_plugin_layout.md#build-plan)). `F3NV.dll` keeps each
+  play test's logs, tagged with the build they ran on
+  ([run archive](fo4_condition.md#run-archive)).
 - **Differences from New Vegas** that could be closed later: attack and equip
   speed perks, looting routines, per-pellet DT, Long Haul and Miss Fortune
   ([drift](fo4_drift.md)).
