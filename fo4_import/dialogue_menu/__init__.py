@@ -7,8 +7,8 @@ to its answer topic; a row of five names the skill check an answer INFO's
 prompt carries. Each FormID is a plugin name and an object id, so a row
 resolves under any load order or ESL. Each plugin writes its own file, named
 after it, and deletes its file in the folder of older builds; the masterless
-build also writes the DLL's INI, installs the movie and words and drops the XDI-era hub files an
-older setup put in the data folder.
+build also installs the movie, words and settings (CleanroomDialogue.ini) and
+drops the XDI-era hub files an older setup put in the data folder.
 
 See: docs/fork/fo4_dialogue_menu_plan.md#converter
 """
@@ -23,11 +23,23 @@ LINKS = Path('F4SE') / 'Plugins' / 'CleanroomDialogue'
 OLD_LINKS = Path('F4SE') / 'Plugins' / 'F3NV_Menus'
 #: The hub plugin and links tools.dialog.menu_rebuild made for XDI-built menus: deleted, as the build has its own.
 LEGACY = ('F3NV_MenuHub.esp', (OLD_LINKS / 'F3NV_MenuHub.txt').as_posix())
-#: CleanroomDialogue.dll's INI, written by the masterless build: the [Leave] row FO3/FNV's menus had, off by default.
-INI = Path('F4SE') / 'Plugins' / 'CleanroomDialogue.ini'
-INI_TEXT = '[Dialogue]\nbLeaveRow=1\n'
 HEADER = ('# option plugin, option INFO, answer plugin, answer DIAL | answer plugin, answer INFO, skill plugin, '
           'skill AVIF, needed (CleanroomDialogue.dll dialogue.cpp)')
+#: CleanroomDialogue.dll's settings in a mod, written by the masterless build.
+SETTINGS = Path('F4SE') / 'Plugins' / 'CleanroomDialogue.ini'
+#: FO3/FNV's menus: the [Leave] row (off by default), and the world paused while a talk's choices wait.
+SETTINGS_TEXT = '[Dialogue]\nbLeaveRow=1\nbPauseWhileChoosing=1\n'
+
+
+def write_settings(data_dir: Path) -> Path:
+    """CleanroomDialogue.ini (SETTINGS_TEXT) in `data_dir`.
+
+    See: docs/fork/fo4_talk_in_combat_plan.md#built
+    """
+    path = Path(data_dir) / SETTINGS
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(SETTINGS_TEXT, encoding='utf-8')
+    return path
 
 
 def write_links(path: Path, rows: list) -> Path:
@@ -64,7 +76,7 @@ def remove_legacy(data_dir: Path, plugin: str) -> list:
 
 def write(builder, data_dir: Path, plugin: str) -> None:
     """Write `plugin`'s links file from builder.say's links and checks into `data_dir`; the masterless build also
-    installs Cleanroom UI's movie and words. Counts go to builder.counts."""
+    installs Cleanroom UI's movie and words, and our settings for it. Counts go to builder.counts."""
     say, counts = builder.say, builder.counts
     found = rows([*builder.writer.masters, plugin], say.links, say.checks) if say else []
     path = Path(data_dir) / LINKS / f'{Path(plugin).stem}.txt'
@@ -76,9 +88,7 @@ def write(builder, data_dir: Path, plugin: str) -> None:
     counts['dialogue menu skill checks'] = len(say.checks) if say else 0
     counts['dialogue menu old links files removed'] = len(remove_legacy(data_dir, plugin))
     if not builder.built:
-        (Path(data_dir) / INI).parent.mkdir(parents=True, exist_ok=True)
-        (Path(data_dir) / INI).write_text(INI_TEXT, encoding='utf-8')
-        installed = cleanroom.install(data_dir, cleanroom.DIALOGUE_FILES)
+        installed = cleanroom.install(data_dir, cleanroom.DIALOGUE_FILES) + [write_settings(data_dir)]
         counts['dialogue menu files installed (Cleanroom UI)'] = len(installed)
         counts['dialogue menu movie missing (no Cleanroom UI or Flex SDK)'] = int(
             not any(p.suffix == '.swf' for p in installed))
