@@ -7337,3 +7337,47 @@ build counts `base made for a script property`.
 Build 1107e made 15 bases this way. Preflight's unfilled-property errors
 fell from 128 to 125, and the Nero couch property is no longer reported.
 Not played yet.
+
+<a id="evp-ends-npc-chats"></a>**EvaluatePackage ends an NPC chat its new package ends (2026-11-19, not built or played).**
+In converted FO3 CG04 the Overseer went on interrogating Amata, lines and
+idles, after the player walked in and Amata left. FO3 ends the
+interrogation at stage 38: its fragment calls `evp` on both, and their
+packages change (`GetStage CG04 >= 38`: Amata to `CG04AmataCower`, the
+Overseer from `CG04OverseerInterrogation` to `CG04OverseerWait`). The
+conversation is not a separate thing in FNV: `DialoguePackage` owns it
+(`m_pkConversation`, stepped by the package's update,
+`references/fnv_decomp/src/fallout/ai/dialoguepackage.cpp`), and
+`StartConversation` (`xActorD::StartConversation`, 0x00935480 in
+`mobileobject.cpp`) builds such a package for the speaker and gives it to
+the listener too. When the package goes, the conversation goes with it. On
+FO4 the chat is a scene (`TES4Chat_<topic>`, Speaker alias 0, Listener
+alias 1000) that the package only starts, so it kept alternating its scenes.
+
+The converted `evp`/`EvaluatePackage` is now `TES4Polyfill.EvaluatePackage(actor)`
+(`command_rows_fallout4.py`; the FO4 override replaces the shared wrapper).
+If the actor is in an NPC chat (`NpcChat`: the scene's Speaker and Listener
+are both NPCs in that scene), `EndChatOnNewPackage` watches for 1 s; when
+the actor's package is no longer the one it had before the evp, the chat
+scene stops (traced as `chatend`). It works whether or not the speaker's
+package was already marked done when the chat started.
+
+Ruled out first:
+- Every chat line carrying the starting package's conditions. FO3 does not
+  re-check them between lines. `CG02OfficerGomezToButchAngry` needs
+  `CG02.BlameButch == 1`, and its first line sets it to 2. `MQ06ElderTalktoLi`
+  needs `MQ06.LiConv == 0`, and its lines raise it. Both chats go on. A census
+  found 14 FO3 chats like this, 11 of them without Must Complete.
+- The SayTo loop. Stage 36 is guarded by `GetStageDone 38`, and stage 38
+  zeroes `InterrogationStage`.
+
+Blast radius (FO3 / FNV exports): 1,058 / 2,027 `evp` sites now call the
+polyfill. 314 / 406 of them name an actor that takes part in some NPC chat
+(through a Dialogue package aimed at an NPC, or `StartConversation`), and
+217 / 142 are bare (Self). The case most likely to fire mid-chat, an `evp` in
+the result script of a line reached from an NPC chat's topic (GREETING left
+out), comes to 28 in FO3 (13 on the speaker) and 8 in FNV. One of them is
+CG04's own "Go to hell" (`setstage CG04 36; evp`). Behavior changes only
+when that actor is in an NPC chat at the time and its package changes.
+Open: whether FO3's evp also drops a script-started (`StartConversation`)
+chat whose package still wins. Here such a chat ends only when the actor's
+own package changes.

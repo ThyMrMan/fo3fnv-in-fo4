@@ -432,6 +432,67 @@ Function EvaluateAfterScene(Scene akScene, Actor akSpeaker, Actor akListener) Gl
   EndIf
 EndFunction
 
+; fallout4: replaces EvaluatePackage ba89cdc2c092d9ad43701c327df7a47fa69051ca
+Function EvaluatePackage(Actor akActor) Global
+  {FO3/FNV EvaluatePackage (evp): the actor's packages are evaluated again, and an NPC chat it is in (NpcChat) stops if that moves it to another package (EndChatOnNewPackage), as FO3/FNV keep a conversation in its actors' Dialogue package and end it with that package.
+  See: docs/fork/fo4_pipeline.md#evp-ends-npc-chats}
+  If !akActor
+    Return
+  EndIf
+  Scene chat = NpcChat(akActor)
+  Package before = akActor.GetCurrentPackage()
+  akActor.EvaluatePackage()
+  If chat
+    Var[] args = new Var[3]
+    args[0] = chat
+    args[1] = akActor
+    args[2] = before
+    Utility.CallGlobalFunctionNoWait("TES4Polyfill", "EndChatOnNewPackage", args)
+  EndIf
+EndFunction
+
+; fallout4: new
+Scene Function NpcChat(Actor akActor) Global
+  {The scene akActor is in when it is an FO3/FNV chat between two NPCs: its quest's Speaker (alias 0) and Listener (alias 1000) both hold an NPC in that scene, akActor one of them. None otherwise.}
+  Scene chat = akActor.GetCurrentScene()
+  If !chat
+    Return None
+  EndIf
+  Quest owner = chat.GetOwningQuest()
+  ReferenceAlias speaker = owner.GetAlias(0) as ReferenceAlias
+  ReferenceAlias listener = owner.GetAlias(1000) as ReferenceAlias
+  If !speaker || !listener
+    Return None
+  EndIf
+  ObjectReference other = listener.GetReference()
+  If other == akActor
+    other = speaker.GetReference()
+  ElseIf speaker.GetReference() != akActor
+    Return None
+  EndIf
+  If !other || other == Game.GetPlayer() || other.GetCurrentScene() != chat
+    Return None
+  EndIf
+  Return chat
+EndFunction
+
+; fallout4: new
+Function EndChatOnNewPackage(Scene akChat, Actor akActor, Package akBefore) Global
+  {After EvaluatePackage on akActor: if within 1 s its package is no longer akBefore while akChat (its NPC chat) still plays with it, the chat stops.}
+  Int tries = 0
+  While tries < 5 && akChat.IsPlaying() && akActor.GetCurrentScene() == akChat
+    If akActor.GetCurrentPackage() != akBefore
+      akChat.Stop()
+      If Tracing()
+        TraceWrite("chatend", TraceName(akActor) + "|" + akChat + "|" + akBefore + " -> " + akActor.GetCurrentPackage())
+      EndIf
+      Return
+    EndIf
+    Utility.Wait(0.25)
+    tries += 1
+  EndWhile
+EndFunction
+
 ; fallout4: new
 Function TraceLine(ObjectReference akSpeaker, String asInfo, String asWhen) Global
   {A converted line beginning or ending (asWhen: begin, end, or end goodbye for an FNV Goodbye line): the speaker, the FNV INFO's FormID, the speaker's current scene and whether it is in dialogue with the player.
