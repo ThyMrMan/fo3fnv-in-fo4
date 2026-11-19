@@ -5528,8 +5528,9 @@ building and dialogue are above ([ledger](#formid-ledger),
   `Creatures.source`). No vendor changes: 6 of the 7 templated vendors end
   in leveled lists whose entries trade goods, so a general store is right.
 - *Idle markers by what they play.* An FNV idle marker lists idles and
-  plays one at random; the export leaves the list out, so `idle_markers`
-  reads it (IDLA) from FalloutNV.esm. A placed marker becomes the
+  plays one at random; `idle_markers` reads the list from the export
+  (`IDLA.Idle[i]`, exported since 2026-11-19,
+  [idle lists](../commentary/tes4_export_falloutnv.md#idle-lists)). A placed marker becomes the
   Fallout4.esm marker that plays the like of most of its idles (`PLAYS`, by
   the idle's animation file name, or a creature's skeleton folder); idles
   FO4 has nothing for don't vote, a tie goes to the first idle, and a marker

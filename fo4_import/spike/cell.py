@@ -263,7 +263,7 @@ class CellBuilder:
         self.type_keywords = TypeKeywords(self.writer)
         self.started = time.time()
         self.fo4 = FALLOUT4_ESM.read_bytes()
-        self.idle_markers = IdleMarkers(self.fo4)
+        self.idle_markers = IdleMarkers(self.fo4, export_dir)
         self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                          for r, _ in walk(self.fo4, b'KYWD')}
         self.furniture_idles, self.readiness = furniture_idles(export_records(export_dir, 'IDLE')), Readiness()

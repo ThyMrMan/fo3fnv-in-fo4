@@ -1230,6 +1230,18 @@ walked in stream order because the three sections reuse the same subrecord
 names. A Dialogue package's `PKDD` adds `PKDD.FOV`, `PKDD.Topic` and
 `PKDD.Type` (`Conversation` or `SayTo`).
 
+### <a id="idle-lists"></a>Idle lists (2026-11-19)
+
+A `PACK` and an `IDLM` can list idles to play: flags (`IDLF`: Run In
+Sequence 0x01, Do Once 0x04), a count (`IDLC`), a timer (`IDLT`, float) and
+the idles (`IDLA`, FormIDs). xEdit defines them once for every game
+(`wbIdleAnimation`), and Fallout 4's `PACK` and `IDLM` carry the same four. They
+are written as `IDLF.Flags`, `IDLC.Count`, `IDLT.Timer` and `IDLA.Idle[i]`.
+Before this the export dropped them: 126 Fallout3.esm and 242 FalloutNV.esm
+packages list idles (the G.O.A.T. students' test-taking, for one), and
+`fo4_import/spike/idle_markers.py` read the markers' lists from the plugin
+bytes instead ([review](../fork/fo4_idle_review.md#census)).
+
 ## <a id="patrol-points"></a>Patrol points
 
 **Code:** `tes4_export/record_types/package_falloutnv.py` `emit_patrol_data`.

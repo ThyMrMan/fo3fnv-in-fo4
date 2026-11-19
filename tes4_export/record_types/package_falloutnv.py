@@ -1,9 +1,11 @@
-"""FO3/FNV PACK: the OnBegin/OnEnd/OnChange scripts and the Dialogue data TES4 lacks.
+"""FO3/FNV PACK: the OnBegin/OnEnd/OnChange scripts, the idle list and the Dialogue data TES4 lacks.
 
 Each of the three sections is a marker (POBA, POEA, POCA), then an idle
 (INAM), an embedded script (SCHR SCDA SCTX, locals, SCRO/SCRV) and a topic
 (TNAM), in that order (xEdit wbDefinitionsFNV PACK). They are emitted as
 `<Section>.Idle`, `<Section>.Script`, `<Section>.SCRO[i]` and `<Section>.Topic`.
+A package's or idle marker's idle list (IDLF, IDLC, IDLT, IDLA) is emitted as
+`IDLF.Flags`, `IDLC.Count`, `IDLT.Timer` and `IDLA.Idle[i]`.
 
 See: docs/commentary/tes4_export_falloutnv.md#package-scripts
 """
@@ -73,6 +75,20 @@ def _trigger_location_lines(data: bytes) -> list:
     return [f'PLD2.Type={ltype}', f'PLD2.Location={shown}', f'PLD2.Radius={radius}']
 
 
+def emit_idle_list(lines: list, rec: Record) -> None:
+    """A PACK's or IDLM's idle list (xEdit wbIdleAnimation): flags, count, timer, then each idle.
+    See: docs/commentary/tes4_export_falloutnv.md#idle-lists
+    """
+    for tag, key in (('IDLF', 'IDLF.Flags'), ('IDLC', 'IDLC.Count')):
+        sub = get_subrecord(rec, tag)
+        lines += [f'{key}={sub.data[0]}'] if sub and sub.data else []
+    idlt = get_subrecord(rec, 'IDLT')
+    lines += [f'IDLT.Timer={struct.unpack_from("<f", idlt.data, 0)[0]}'] if idlt and len(idlt.data) >= 4 else []
+    idla = get_subrecord(rec, 'IDLA')
+    ids = struct.unpack_from(f'<{len(idla.data) // 4}I', idla.data) if idla else ()
+    lines += [f'IDLA.Idle[{i}]={get_formid_str(fid)}' for i, fid in enumerate(ids)]
+
+
 def emit_patrol_data(lines: list, rec: Record) -> None:
     """A patrol point's idle time, then its idle, embedded script and topic.
 
@@ -87,9 +103,11 @@ def emit_patrol_data(lines: list, rec: Record) -> None:
 
 
 def emit_package_deltas(lines: list, rec: Record) -> None:
-    """FO3/FNV PACK: the section scripts, PKDT's Fallout behavior and type-specific flags (Ambush's Hide While
-    Ambushing), the patrol, weapon, second-location and second-target data, then PKDD's topic and dialogue type."""
+    """FO3/FNV PACK: the section scripts, the idle list, PKDT's Fallout behavior and type-specific flags (Ambush's
+    Hide While Ambushing), the patrol, weapon, second-location and second-target data, then PKDD's topic and
+    dialogue type."""
     lines += _section_lines(rec)
+    emit_idle_list(lines, rec)
     pkdt = get_subrecord(rec, 'PKDT')
     if pkdt and len(pkdt.data) >= 10:
         behavior, specific = struct.unpack_from('<HH', pkdt.data, 6)

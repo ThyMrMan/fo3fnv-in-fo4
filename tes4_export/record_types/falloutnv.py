@@ -18,7 +18,7 @@ from .challenge_falloutnv import CHALLENGE_EXPORTERS
 from .combat_style_falloutnv import emit_combat_style_deltas
 from .character_falloutnv import CHARACTER_EXPORTERS, emit_class_deltas
 from .recipe_falloutnv import RECIPE_EXPORTERS
-from .package_falloutnv import emit_package_deltas, emit_patrol_data
+from .package_falloutnv import emit_idle_list, emit_package_deltas, emit_patrol_data
 from .quest_falloutnv import emit_quest_deltas
 from .terminal_falloutnv import emit_terminal
 from .world import export_REFR
@@ -584,7 +584,7 @@ def export_deltas(rec: Record) -> list:
 def export_STATIC_BASE(rec: Record) -> list:
     """A model-only FO3/FNV base object, converted as a Skyrim STAT.
 
-    MSTT, SCOL, IDLM and ASPC reduce to a model plus bounds (PWAT adds DNAM). They are the
+    MSTT, SCOL, IDLM and ASPC reduce to a model plus bounds (PWAT adds DNAM, IDLM its idles). They are the
     base objects of 10,000+ placed references; without them those REFRs have a
     null base and the engine faults promoting them into their location.
 
@@ -594,6 +594,13 @@ def export_STATIC_BASE(rec: Record) -> list:
     emit_string(lines, "EditorID", get_subrecord(rec, "EDID"))
     emit_model(lines, "Model", rec)
     _emit_obnd(lines, rec)
+    return lines
+
+
+def export_IDLE_MARKER(rec: Record) -> list:
+    """An idle marker: a static base plus the idles it plays (emit_idle_list)."""
+    lines = export_STATIC_BASE(rec)
+    emit_idle_list(lines, rec)
     return lines
 
 
@@ -919,7 +926,7 @@ FALLOUT_BASE_EXPORTERS = {
     "SCOL": export_STATIC_BASE,
     "PWAT": export_PLACEABLE_WATER,
     "PGRE": export_REFR,
-    "IDLM": export_STATIC_BASE,
+    "IDLM": export_IDLE_MARKER,
     "ASPC": export_STATIC_BASE,
     "TERM": export_TERMINAL,
     "NOTE": export_NOTE,
