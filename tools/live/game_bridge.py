@@ -49,8 +49,11 @@ As a library:
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
+import msvcrt
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -64,6 +67,16 @@ class BridgeError(RuntimeError):
     def __init__(self, message: str, code: str = "E_CLIENT"):
         super().__init__(message)
         self.code = code
+
+
+class MenuNames(list):
+    """Open menus' names, matched ignoring case: the engine's strings keep the first spelling it saw of a name.
+    See: docs/fork/fo4_story_tests.md#menu-names
+    """
+
+    def __contains__(self, name) -> bool:
+        """Whether a menu of `name` is open, in any case."""
+        return str(name).lower() in (n.lower() for n in self)
 
 
 class Bridge:
@@ -151,8 +164,7 @@ class Bridge:
             req["args"] = args
 
         try:
-            self._f.write((json.dumps(req) + "\n").encode("utf-8"))
-            line = self._readline()
+            line = self._exchange((json.dumps(req) + "\n").encode("utf-8"))
         except OSError as exc:
             self.close()
             raise BridgeError(f"transport failure: {exc}", "E_TRANSPORT") from exc
@@ -167,6 +179,29 @@ class Bridge:
                 resp.get("error", "unknown error"), resp.get("code", "E_INTERNAL")
             )
         return resp.get("result", {})
+
+    def _exchange(self, data: bytes) -> str:
+        """Writes `data` and reads the reply line; past `timeout` seconds the read is cancelled, the pipe
+        closed and E_TIMEOUT raised (a game hung mid-request keeps its pipe open but never answers)."""
+        box = {}
+        worker = threading.Thread(target=self._talk, args=(data, box), daemon=True)
+        worker.start()
+        worker.join(self.timeout)
+        if worker.is_alive():
+            ctypes.windll.kernel32.CancelIoEx(msvcrt.get_osfhandle(self._f.fileno()), None)
+            self.close()
+            raise BridgeError(f"no reply in {self.timeout:g} s: the game is hung", "E_TIMEOUT")
+        if "error" in box:
+            raise box["error"]
+        return box["line"]
+
+    def _talk(self, data: bytes, box: dict) -> None:
+        """One write and reply line into `box` ('line', or 'error' with the OSError)."""
+        try:
+            self._f.write(data)
+            box["line"] = self._readline()
+        except OSError as exc:
+            box["error"] = exc
 
     def _readline(self) -> str:
         chunks = []
@@ -188,7 +223,10 @@ class Bridge:
         return self.request("capabilities")
 
     def status(self) -> dict:
-        return self.request("status")
+        """The game's state; `name in state["menus"]` ignores case (MenuNames)."""
+        state = self.request("status")
+        state["menus"] = MenuNames(state.get("menus", []))
+        return state
 
     def console(self, command: str, ref: str | int | None = None) -> str:
         args = {"command": command}

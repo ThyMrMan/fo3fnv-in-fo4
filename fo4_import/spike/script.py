@@ -75,11 +75,18 @@ def declared_properties(psc: str) -> list:
     return _PROPERTY.findall(psc)
 
 
+def fo4_dump() -> Path:
+    """FO4_DUMP; FileNotFoundError when missing (a worktree links the main checkout's)."""
+    if not FO4_DUMP.is_dir():
+        raise FileNotFoundError(f'{FO4_DUMP}: the Fallout4.esm export is missing')
+    return FO4_DUMP
+
+
 def fo4_forms() -> dict:
     """{Papyrus type: {editor ID: FormID}} of the records FORM_DUMPS names (ENGINE_ONLY types: engine objects)."""
     out = {}
     for ptype, sig in FORM_DUMPS.items():
-        ids = ((r['EditorID'], int(r['FormID'], 16)) for r in export_records(FO4_DUMP, sig) if r.get('EditorID'))
+        ids = ((r['EditorID'], int(r['FormID'], 16)) for r in export_records(fo4_dump(), sig) if r.get('EditorID'))
         out[ptype] = {edid: fid for edid, fid in ids if ptype not in ENGINE_ONLY or fid < ENGINE_IDS}
     return out
 

@@ -188,6 +188,8 @@ def _is_bool_valued(conv, node: N.Expr) -> bool:
         return node.op in L.BOOL_OPS
     name_low = node.name.lower() if isinstance(
         node, (N.Call, N.Ident, N.Member)) else ''
+    if name_low and conv.returns_number(name_low):
+        return False
     if name_low in COMPARISON_COMMANDS:
         return True
     # Otherwise the SOURCE name decides.  The table is keyed by TES4 spelling,

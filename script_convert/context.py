@@ -107,6 +107,8 @@ class ScriptContext:
     #: this script, and whether the helpers are due.
     msgbox_used: set = field(default_factory=set)
     uses_msg_buttons: bool = False
+    #: (male, female) buttons of this script's box picking the player's sex (message_menus.sex_buttons), else ().
+    sex_buttons: tuple = ()
     #: A `begin MenuMode 1001` body became TES4_MessageBoxClosed, which TES4_ShowMsg calls.
     msgbox_hook: bool = False
     #: A `Message` converted to TES4_Notify, so the helper is due.

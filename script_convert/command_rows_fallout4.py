@@ -10,7 +10,8 @@ become one custom event from the F3NV_CharacterEvents helper. IsAnimPlaying is t
 anim_playing_falloutnv handler's, not a row. IsPlayerInRegion reads
 the region's watch global (fo4_regions.md#built); GetTalkedToPC the TalkedToPC helper value (fo4_pipeline.md#talked-to-pc);
 IsHardcore, IsAlwaysHardcore and SetHardcore the game's Hardcore quest (fo4_hardcore.md#built); the casino
-openers, GetCasinoWinningsLevel and AddCardToPlayer the casino bank (fo4_casino_plan.md#records-built).
+openers, GetCasinoWinningsLevel and AddCardToPlayer the casino bank (fo4_casino_plan.md#records-built);
+EvaluatePackage ends an NPC chat its new package ends (fo4_pipeline.md#evp-ends-npc-chats).
 
 See: docs/fork/fo4_spikes.md#spike-3-target
 """
@@ -48,6 +49,8 @@ def _menu(kind: str, value: str = '{f0}', **row) -> Cmd:
 #: TES4 command -> its Fallout 4 row, then keyed by the Skyrim row it replaces.
 FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'menumode': Cmd('TES4Polyfill.MenuMode({i0})', defaults={0: '0'}),
+    'evp': Cmd('TES4Polyfill.EvaluatePackage({ref})', AV, flags='actor_arg actor_only'),
+    'evaluatepackage': Cmd('TES4Polyfill.EvaluatePackage({ref})', AV, flags='actor_arg actor_only zero_arg'),
     'getarmorrating': Cmd(f'{{ref}}.GetValue({av_property("DamageThreshold")})', ACTOR,
                           self_type=_av('DamageThreshold'), flags='actor_only'),
     'setcurrenthealth': Cmd(f'{{ref}}.SetValue({av_property("Health")}, {{a0}})', RAW,
@@ -101,6 +104,7 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
                                 types={0: 'Form'}, defaults={1: '1', 2: '1.0', 3: '0'}),
     'removeme': Cmd('TES4Polyfill.RemoveMe({ref}, {a0})', OBJREF, types={0: 'ObjectReference'},
                     defaults={0: 'None'}),
+    'getlocked': Cmd('TES4Polyfill.LockState({ref})', OBJREF, flags='number zero_arg'),
     'isplayerinregion': Cmd('TES4Polyfill.InRegion({p0})', types={0: 'GlobalVariable'}, flags='cmp_bool'),
     'getcurrentaiprocedure': Cmd('TES4Polyfill.AIProcedure({ref})', ACTOR, flags='actor_only zero_arg'),
     'islimbgone': Cmd('TES4Polyfill.LimbGone({ref}, {i0})', ACTOR, flags='actor_only cmp_bool'),
@@ -135,3 +139,5 @@ def _flagged(flag: str) -> frozenset:
 #: See: docs/fork/fo4_pipeline.md#caprica-temp-alias
 COMPARISON_BOOL = _flagged('cmp_bool')
 BOOL_VALUED = COMPARISON_BOOL | _flagged('bare_bool')
+#: Commands a Fallout 4 row answers with a number (GetLocked's 0/1/2), whatever Skyrim's row says.
+NUMBER_VALUED = _flagged('number')

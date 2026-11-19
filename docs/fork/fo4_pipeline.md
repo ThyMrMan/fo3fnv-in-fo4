@@ -388,6 +388,20 @@ named references (Amata's `CG03ButchREF`, `CG03PaulHannonREF`,
 would need the topic's quest at every call, which FO4's `Topic` cannot
 give; the speaker is always at hand.
 
+<a id="package-target"></a>**A package's Target tests run on its target
+reference (2026-11-19).** In FO3/FNV, Run On Target in a package's
+conditions is the package's own target (the GECK wiki: valid only when the
+package defines one). FO4 has no such slot: none of vanilla's 4,700 package
+conditions runs on Target (Subject 4,318, Reference 150, Package Data 120).
+Converted as is, the test never passes and the package never runs. In the
+FO3 tutorial, Amata's `CG04AmataSayGoodbye` (Dialogue with the player at
+CG04 stage 144, `IsInCombat` on Target == 0) never started, so she never
+force-greeted at the vault door and stage 145 never came. A package whose
+PTDT names a reference (`packages.target_reference`) now runs those tests
+on that reference. Source counts: FO3 56 packages test their Target, 42 of
+them with a reference target; FNV 13, with 4. The rest target an object
+or type, or name no target; they keep Target, which FO4 cannot fill.
+
 <a id="says-settled"></a>**A line's end result waits for scripts still
 saying lines (2026-11-16, not yet played).** FO3/FNV's `Say` returned
 before any line could end, so the rest of a script's block always ran
@@ -421,6 +435,28 @@ every pass, so the count was almost never zero and the shared `F3NV_State`
 was called by hundreds of polls a second. The birth stopped after Dad's
 first line: its end fragment never got past `SaysSettled` (no stage 18).
 Taken only at an ask, a pass that says nothing never touches the count.
+
+The caps are real seconds (`Utility.GetCurrentRealTime`). They used to add
+0.05 per `Utility.Wait(0.05)`, but a pass of `SaysSettled`'s loop also made
+about six engine calls (`SaysPending`, and `_GameDays` re-reading the
+timescale with `GetFormFromFile` and two `GetValue`s). Under load a pass
+took a few tenths of a second, so "10 s at most" ran past two minutes. In
+an FNV story run (2026-11-17), four Nightkin far off asked a line every few
+seconds (`SayWhenFree`, "not started"), so the count was almost never zero.
+Doc Mitchell's 00104BF0 ended at 138.7 s, its end result's `SayTo` never
+asked, and VCG01 sat at stage 8 for the 120 s the case waited. In the
+earlier passing run the same step took 3.7 s. `_AskSay`'s 3 s and 2 s waits
+had the same flaw and are real seconds too.
+
+Only a speaker whose 3D is loaded counts (`TES4Polyfill.CanSayNow`, in
+`SayWhenFree` and in `HoldSays`, which the generator now passes each ask's
+speaker). An unloaded speaker's `Say` never begins (every one of those
+Nightkin asks ended "not started"), so its line cannot end inside the block
+that asked it. Before this, their asks kept every line end in the game
+waiting the full cap: Doc's 001074A2 shows objective 30 at its end, after
+`SaysSettled`, and the Vit-o-matic, used within those 10 s, did nothing.
+Why their package fragment asks again and again far from the player is
+still open ([re-check](fo4_story_tests.md#recheck)).
 
 <a id="say-to-packages"></a>**A SayTo package to the player walks up and
 says its topic (2026-11-16, walk-up scene not yet played).** A FO3/FNV Dialogue package
@@ -474,6 +510,25 @@ belong to a quest only that pulls in. Its lines are the topic's Hub lines of
 its quest, shared infos' copies included (`Conversations._walk`): Arcade's
 `ArcadeTestSite` and `ArcadeTheStrip` have no line of their own, only a
 SharedInfo.
+
+<a id="walk-up-before-quest"></a>**A SayTo that begins before its quest runs
+(found and fixed 2026-11-18).** Fallout 4 does not load a quest's scenes until
+the quest starts, so a walk-up scene property binds None before then: the
+Papyrus log says `Property TES4Walk_0002D4C5 ... cannot be bound because
+<nullptr form> (08D6F888)`. FO3 itself starts such packages early: CG03
+stage 40 enables CG04's actors "so they have time to load", and Officer
+Kendall's `CG04Security02Ambush` (GetStage CG04 < 12, true while CG04 has
+not started) begins in the classroom. `WalkUp` quit on the None scene, the
+package never began again, and in CG04 Kendall never walked up, so stage 12
+never came. The fragment now also passes the scene's own id and the plugin's
+file name (`TES4WalkScene`, `TES4WalkFile`, filled by `Packages._fragments`
+from the scene property's FormID and `builder.plugin_file`), and `WalkUp`
+keeps waiting, while the package stays current, until
+`Game.GetFormFromFile` finds the scene. Played in the tutorial run: the walk-up
+waited from CG03 (71 s) to the player in his trigger (478 s), then set 12.
+Of the run logs on hand, only this package hit the bind failure (5 times); the
+change reaches every walk-up fragment (FO3 11, FNV 17) but alters only one
+whose scene was missing when it began.
 
 <a id="barks"></a>**Engine topics as FO4 barks (2026-10-31).** FNV's engine
 plays its reserved topics itself, from every running quest's lines: Combat
@@ -843,6 +898,16 @@ vFreeformTheStreet02 (the three Victor quests); 3,203 new FormIDs (2,239
 topics, 489 scenes, 270 lines, 174 globals), none moved. VCG01's unfilled
 properties drop from 74 to 3, the intended Pip-Boy glove and hand-over idle.
 
+*Empty quests a built quest reads (2026-11-18, found by the stage sweep).*
+FNV's `VCGTutorialSCRIPT`, inherited from Fallout 3, reads
+`GetStage CG02`. FalloutNV.esm's `CG02` (00014E84) is an empty stub: no
+script, stages or lines. Being only read, it stayed out, so the property was
+None. FNV reads 0 and goes on; Papyrus aborted the tutorial's poll at
+`CG02.GetStage()` ("Cannot call GetStage() on a None object", VCG02 stage
+100 in the sweep). A quest that a built quest's scripts name, and that
+authors no script, stage or line, is now built as it is
+(`QuestScope._empty_reads`), with its FNV FormID.
+
 *Speaker tests (built 2026-11-01; in the 2026-11-05 build, not played).* FNV's generic
 dialogue quests pick speakers by faction, voice type or class, not by a
 placed actor, so none came in: the 2026-10-31 preflight lost 2,529 lines in
@@ -1171,6 +1236,79 @@ pass together.
   it shows with no answer passing. Options' tests: 476,319 before (27.9
   MB), 1,242,864 after (57.1 MB, 95% GOODBYE); the plugin went from 403 to
   432 MB.
+
+<a id="leave-goodbye"></a>**Leaving a talk says GOODBYE (built 2026-11-18).**
+`Conversations._exit`. FO3/FNV's GOODBYE topic (`000000D4`) is a
+Conversation-type topic, never listed in the menu. The GECK says the
+engine also uses it "when the player exits the dialogue menu": the
+speaker says the first passing GOODBYE line and its result script runs.
+`[Leave]` used to link to one silent End Scene line, so no GOODBYE line or
+result ever ran. Its answer topic now holds the Hub's GOODBYE lines in Hub
+order, each ending the scene (own ids, keyed `at leave`), then the silent
+line for a speaker with none. The DLL says the first passing one.
+- *Found by* the FO3 tutorial case: CG03 stage 10 is "Bye, Dad."
+  (`0001CE14`/`0001CE9E`, `SetStage CG03 10`). Leaving Dad's force greet
+  closed the menu with 10 unset, so player controls stayed off.
+- *Census:* FO3 has 861 GOODBYE lines, 28 with a result and 7 that set a
+  stage (CG03 10 ×2, MS14 100 ×3, CG02 38 ×2). FNV has 274, 7 with a
+  result and 2 that move a quest (VMS01 40 "Goodbye, Jason.", VMS18's
+  objective 60).
+- *Tab.* CleanroomDialogue.dll's Tab stops the scene directly (`Leave()`),
+  without going through the `[Leave]` row.
+
+<a id="npc-chat-distance"></a>**An NPC chat runs wherever the player is (fixed 2026-11-18).**
+`records.pack_scen`. A one-phase scene completes once its speaker is more
+than `DIALOGUE_DISTANCE` (500) from the player, so a player who walks off
+ends their menu. NPC-only chat scenes (a `listener`) got the same test, so
+a chat started more than 500 units from the player ended in its first
+frame with nothing said.
+- *Found by* the FO3 tutorial case: CG03's `CG03AmataButchConv` started
+  `FNV_CG03_Scene3` with Amata and Butch 763 units from the player. The
+  phase ended 0.15 s later, so stage 25 ("Amata/Butch conv done") was never
+  set. With the player moved beside them, the same scene played Amata's
+  line.
+- FO3 and FNV NPCs converse anywhere in the loaded area, so the test now
+  goes on player scenes only.
+
+<a id="chat-quests"></a>**Each NPC chat has a quest of its own (built 2026-11-18).**
+`Conversations._chat_quest`, `cell._write_quest`.
+`TES4Polyfill.StartConversation` puts the speaker and listener in aliases
+0 and 1000 of the scene's quest, and a chat's later scenes start with
+whoever holds them. Every chat of a quest used to share that one pair.
+- *Found by* the FO3 tutorial case: CG03's Dad/Jonas chat and the
+  Amata/Butch chat (stage 25) run at the same time. StartConversation
+  forced Amata and Butch into the pair, then Jonas's line ended and
+  started Dad's next scene (`FNV_CG03_Scene8`) with Amata in it. Both
+  chats broke, and stage 25 was never set.
+- Each `TES4Chat_<topic>` now builds its scenes and topics in a start-game
+  quest `FNV_<quest>_Chat_<topic>` with its own Speaker and Listener.
+- It shares its parent's placed steps and keys, so no existing FormID
+  moves (the quests are new ids, `QUST chat <quest> <topic>`). A step
+  that two chats both reach is still built once, in the first chat's
+  quest.
+- Walk-ups (SayTo the player) stay in their quest.
+
+<a id="chat-listener-required"></a>**A chat's Listener is required where it speaks (built 2026-11-18).**
+`records.pack_scen`. A chat scene's Listener (alias 1000) was always
+Optional. Where the Listener says a line, it is now a required actor; it
+stays Optional in scenes where it only listens.
+- *Found by* the FO3 tutorial case: CG03 stage 25 never came. Amata's first
+  line in `FNV_CG03_Scene3` starts Butch's turn (`FNV_CG03_Scene4`) by TSCE.
+  Scene4 began and finished at once with no line, though its counter and
+  Butch's condition passed and starting Scene4 by hand played the rest.
+- *Measured on the laptop* (console `cgf "TES4Polyfill.StartConversation"`,
+  counter reset each time): Scene3 → Scene4 failed 5 of 5 (from counters 0
+  and 2, after a quest stop/reset too); the byte-identical Scene5 → Scene4
+  worked 4 of 4. Their records, topics, lines and voice files are identical
+  but for FormIDs. Butch's own bully taunts were not the cause.
+- *The explanation that fits every hand-off seen:* a quest's scenes update
+  in file order (CG03's chat: Scene5, Scene4, Scene3). A TSCE target listed
+  before the ending scene starts while that scene still holds its actors.
+  The required Speaker is taken over (Amata's line ends inside Scene4);
+  the Optional Listener is left out, so its action is skipped. Scene5 is
+  listed first and ends before Scene4 starts; Scene4 → Scene5 works because
+  Scene5's line is the Speaker's. Dad and Jonas's chain (Scene8, 7, 6) fits
+  too. The update order is inferred from the trace order, not disassembled.
 
 <a id="actor-dialogue"></a>**NPC-to-NPC chats as Actor Dialogue quests (built 2026-10-31, not yet played).**
 `spike/actor_dialogue.py`. FNV starts a random conversation when an NPC
@@ -1843,30 +1981,88 @@ leveled gecko spawn at z 6668 over ground at 6672.
 
 <a id="creature-stats"></a>**Creature stats (built 2026-10-15, played 2026-10-21).**
 A converted creature is a copy of its FO4 stand-in with FNV's stats written
-into PRPS (`creatures.with_stats`). FO4 adds two things on top of the NPC's
-own health: its race's starting health (RACE PRPS) and a per-level bonus.
+into PRPS (`creatures.with_stats`). FO4 adds health on top of the NPC's own
+(`actor_data.added_health`, [NPC health](#npc-health)): its race's, then the
+level bonus on an Auto-calc stand-in or its class's on a fixed one.
 - **Measured (trace, 2026-10-15).** The base health of FNV's well-3 gecko
   (20 health, level 3, on the vicious dog: race 30) read 60. The Goodsprings
   settler (100, level 1, human race 40) read 140. Your varmint rifle took
   6–15 off a gecko per hit, so one needed 4–6 hits, against about 2 in FNV.
-- **The per-level bonus is a reading, not yet confirmed.** We use
-  (level − 1) × `fNPCHealthLevelBonus` (5.0); the gecko's extra 10 fits it.
-  (level − 1) × (Endurance / 2 + 2.5) fits the same point, so another
-  creature's trace decides.
-- **Health.** The NPC's health is now FNV's less the race's and the level
-  bonus, so in game the creature has FNV's health.
-- **Attack damage.** FNV's `AttackDamage` replaces the stand-in's
-  `UnarmedDamage`, which its unarmed attack deals (the vicious dog's 10 bit
-  the settler for 9).
+- **The per-level bonus is Auto-calc's** (read from Fallout4.exe 2026-11-19:
+  (level − 1) × `fNPCHealthLevelBonus`, run only for Auto-calc NPCs; both
+  measured stand-ins are Auto-calc). A fixed-level stand-in gets none, so it
+  is no longer taken off: 44 FO3 and 162 FNV creatures on fixed stand-ins
+  above level 1 (deathclaw, radscorpion, mirelurk, feral ghoul, robots) gain
+  1,360 and 7,715 health in all, back to FO3/FNV's. No stand-in's class has
+  a Health property.
+- **Level 0 subtracts (measured 2026-11-18).** FO4 applies the level bonus
+  at level 0 too: (0 − 1) × 5 = −5. We had assumed a floor at 0, so FO3's
+  `CG02Radroach` (Health 5, race 3, level 0) got 2 of its own and spawned
+  in game at 0 health. It stood still and would die to any hit; one
+  `DamageAV Health 1` killed it, and a resurrect brought it back at 0. The
+  bonus is now (level − 1) × 5 at any level. This affects 33 FO3 creatures
+  and 35 FNV creatures that are level 0 without PC Level Mult (radroaches,
+  bloatflies, eyebots), counting templated ones.
+- **Health.** The NPC's health is FNV's less what FO4 adds, so in game the
+  creature has FNV's health.
+- **Attack damage.** An unarmed attack deals the race's unarmed weapon's
+  `Damage - Base` (WEAP DNAM offset 67, xEdit) plus `UnarmedDamage`, so FNV's
+  `AttackDamage` less that base goes in `UnarmedDamage`. The vicious dog's
+  weapon has 0 (its 10 bit the settler for 9); `UnarmedRadRoach` has 2, so
+  FO3's radroach, written as 3, bit Officer Kendall for 5 (2026-11-18 run).
+  Built: 29 of FO3's 71 and 202 of FNV's 465 creatures with their own
+  `UnarmedDamage` are on a race whose weapon has a base (2–25); each now
+  bites for FO3/FNV's damage. Not played yet.
   - The trace showed a giant mantis nymph, on the stingwing's attack, taking
     20–28 off a 105-health level-1 player.
   - FO4's player starts with about half of FNV's health (FO4 105 against
     FNV about 200 at Endurance 5). That gap is not converted yet.
 
+<a id="npc-health"></a>**NPC health (built 2026-11-19, not played).** A
+converted NPC keeps FO3/FNV's hit points (`npcs.with_health`). Before, it
+had FO4's: its body's PRPS Health plus what FO4 adds, so Officer Kendall
+(FO3: 40) had 100 and lost the CG04 radroach fight he wins in FO3.
+- **FO3/FNV's formula** (`actors_falloutnv.npc_health`; FalloutNV.exe
+  0x603fc0 in `references/fnv_decomp`, settings by JIP's addresses): Base
+  Health + (Endurance + `fAVDNPCHealthEnduranceOffset`) ×
+  `fAVDNPCHealthEnduranceMult` + (level − 1) × `fAVDNPCHealthLevelMult`, at
+  least 0, and 0 when Base Health is 0. The offset is −1 in both exes and
+  neither plugin sets it; the mults are 5 and 5 (the plugins' GMST over the
+  exe's 20). The player's same formula, with the plugins' offset 0, gives
+  the wiki's `90 + END×20 + Level×10` (FO3) and `100 + END×20 + (Level−1)×5`
+  (FNV). Base Health 0 is a corpse: all 114 such FO3 NPCs and 157 of FNV's
+  159 are placed dead. A PC Level Mult NPC counts level 1.
+- **What FO4 adds** (Fallout4.exe 1.11.240, `actor_data.added_health`). An
+  actor's base values are race PRPS + class PRPS + NPC PRPS (0xbb3e70, class
+  from the NPC's +0x240). An Auto-calc NPC (vtable slot 76 0x6448d0: NPC_
+  and ACBS 0x10) replaces Health with race + own + (level − 1) ×
+  `fNPCHealthLevelBonus` + a class-weighted share of `iAVDhmsLevelUp` (10)
+  × (level − 1) (0x65ac20, cached where DNAM's Calculated Health loads; all
+  472 vanilla Auto-calc NPCs' DNAM match it). A fixed NPC's DNAM is not used
+  (Evan Watson: DNAM 19521, wiki hp 40). Wiki checks: Doc Weathers 40,
+  Evan Watson 40, Enrico Thompson 90 (fixed, classes without Health); eight
+  level-6 Citizens 190 (Auto-calc). `Citizen`, every converted human's
+  class, has Health 60: Kendall's 100 is HumanRace 40 + Citizen 60 + 0.
+- **The conversion.** Auto-calc is cleared on every converted NPC and its
+  own Health is FO3/FNV's less race and class, so FO4 gives FO3/FNV's
+  number. A class copy (`classes.py`) registers Citizen's Health.
+- **Not exact: PC Level Mult NPCs** (40 built in FO3, 239 in FNV) get their
+  level-1 health. FO3/FNV adds 5 a level; FO4's Auto-calc would add 5 plus
+  Citizen's share (about 5 at level 6 from the wiki), as wrong the other
+  way.
+- **Blast radius** (the finished 2026-11-19 FO3 and FNV builds, today's
+  health by the rules above against the new): FO3 517 converted NPCs, 114
+  take Stats from an FO4 template (unchanged), 391 change (370 lower, 21
+  higher, median −35); FNV 2,756, 414 templated, 2,335 change (1,794
+  lower, 541 higher, median −30). FNV's VMS49 paladins and North Vegas
+  fiends (authored level about 1,000) drop from about 10,000 to FNV's 5,050–
+  5,180.
+
 <a id="packages"></a>**AI packages (played 2026-10-12: NPCs sandbox, sit
 and sleep).** `spike/packages.py` copies a vanilla instance of the
 matching FO4 template per FNV type (`PLANS`): Travel (a seat: Sit),
-Sandbox, Wander (as Sandbox), Sleep, Eat, Guard (HoldPosition), Patrol,
+Sandbox, Wander (as Sandbox), Sleep, Eat, Guard ([Sandbox or
+Travel](#guard-goes-to-its-post)), Patrol,
 Follow (FollowNPC), UseItemAt a seat (Sit), Dialogue with the player
 (ForceGreet). The copy takes FNV's first input, schedule, conditions and
 shared PKDT flags, and drops its owner quest and scripts. A Dialogue package
@@ -1892,6 +2088,42 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
   Atomic Wrangler and Kings wall leans, two linked sleeps). Shared defaults
   (`DefaultTravelToLinkedPackage`) keep the Travel. The crucifix's own
   marker and pose: [crucifix](#crucifix).
+- <a id="guard-goes-to-its-post"></a>**A Guard goes to its post (built
+  2026-11-19, not played).** FO3's CG02 radroach (`CG02RadroachREF`, the
+  BB-gun range in `Vault101d`) stayed in the corner it is enabled in. Its
+  only package, `CG02RadroachGuard`, is a Guard at `CG02RadroachGuardMarker`
+  (radius 180), about 300 units out of the corner; Aggression 0, so it
+  never comes for the player. The GECK's Guard Package page: the actor
+  "will move to the Guard Location when the package starts", and with a
+  radius it wanders within it. Our copy was a HoldPosition, and FO4's
+  HoldPosition acts only in combat: the Skyrim CK wiki calls its procedure
+  "used exclusively as a Combat Interrupt Override Package" that does not
+  restrain movement out of combat, and all 128 of Fallout4.esm's
+  HoldPosition instances carry interrupt override Combat, none on an NPC's
+  own package list (70 on NPC combat override lists, 336 on alias ones,
+  7 alias packages). So every converted Guard stood where it was placed.
+  - *Now* (`packages.stay`): a Guard with a radius is a Sandbox there that
+    only wanders (`GUARD_NO_FLAGS`: FO4's eat, sleep, talk, idle-marker and
+    seat Allows off); with none, a Travel to it. Its combat override copy
+    for Continue During Combat ([below](#combat-override)) stays a
+    HoldPosition. An Ambush with radius 0 had the same HoldPosition and is
+    now a Travel; an Ambush with a radius was already a Sandbox.
+  - *Reach.* FO3 has 172 Guards (105 with a radius), FNV 175 (67).
+    Of the placed actors whose Guard names a reference, 108 of 136 in FO3
+    and 39 of 64 in FNV start outside its radius (93 and 32 by more than
+    256 units), so they walk to their posts now. Ambush with radius 0: 1
+    FO3, 10 FNV. No FormID moved: each copy keeps its id, only its
+    template changes.
+  - *The roach's corner is an island.* `Vault101d` has 7 navmeshes and no
+    edge links between them in FO3 either; the spawn, the guard marker and
+    the patrol markers all lie on the 13-triangle `00056A99`, so the
+    player's pathing (the story test's walk) cannot reach the roach in
+    either game. The player shoots it from the range.
+  - *Not converted.* A Guard's warning and attack (bit 28 clear: FO3 72,
+    FNV 61; FO4's Guard procedure, as in `TravelAndGuard`, does the same)
+    was not converted before and is not now. A Guard with no location
+    (FO3 6, FNV 20) takes it from its target in FNV; ours stands where it
+    starts, as before.
 - <a id="package-conditions"></a>**Package conditions see the dialogue
   forms (built 2026-11-09, not played).** NPC packages were checked against
   a smaller form map than dialogue lines: references, actors, quests and
@@ -1918,6 +2150,19 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
   (`_escort_wait`). An Escort whose target is not a built reference is left
   out (`escort target not built`). The 4 FNV ones are Orris's
   (`VFSOrris*Package`, The Strip).
+- <a id="find-furniture"></a>**Find a seat (built 2026-11-18).** `Packages._find`.
+  A Find package (type 0) aimed at an object type (PTDT type 2) of
+  Furniture (11 in FO3 and FNV) sends the actor to its location to sit in a
+  free seat there. It is now a copy of Fallout4.esm's `MS13ColetteSit`, a
+  `SitFoundRef` instance: Location from the PLDT, Target Selector
+  "Furniture: Chairs" (FO4 object type 27) kept from the instance, as
+  vanilla's other 6 `SitFoundRef` packages and `RESitFound` use it. A Find
+  aimed at anything else is still left out (`find target not furniture`).
+  - *Found by* the FO3 tutorial case `cg03_sit`: every Find was left out
+    (`type Find`), so in CG03 Amata, Paul and Wally never went to their
+    desks (`CG03AmataSitInClass`, `CG03*GoToClass`, `CG03*TakeTest`:
+    furniture within 350 units of the classroom marker 01EFFF). Stage 60
+    needs all five students seated, so the G.O.A.T. never started.
 - **Every package left out is in the readiness report.** `Packages.package`
   adds one `PACKAGE_LEFT_OUT` entry per left-out package, owner the FNV
   package, detail `<EditorID> (<why>)`, beside the per-NPC entries
@@ -2095,8 +2340,8 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
     (ECOR, a form list): in combat the first valid package there runs
     instead of combat AI. That fits a hold: the Skyrim CK wiki says a
     HoldPosition there keeps the actor fighting inside its radius, while
-    a Travel there stops the actor attacking. So an FNV Guard (HoldPosition)
-    with the flag (87 packages) gets a second copy with interrupt override
+    a Travel there stops the actor attacking. So an FNV Guard with the
+    flag (87 packages) gets a second, HoldPosition copy with interrupt override
     Combat (4, as all 14 packages on vanilla's 9 override lists) and
     without fragments, and its NPC gets an ECOR list of them
     (`Packages.combat_list`; ids hashed from the FNV package and NPC). The
@@ -2105,7 +2350,12 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
     get the list yet. Only FNV Guards qualify, not every HoldPosition copy:
     the Goodsprings settlers' cowering flee (`GoodspringsFleePackage`, a
     HoldPosition with the Cowardly script) carries the flag too, and a
-    combat copy without that script would have them fight.
+    combat copy without that script would have them fight. That script
+    (`F3NV_CowerPackage`) sets Confidence to 0 with `SetValue` and puts the
+    old value back at the end. Until 2026-11-18 it used `ModValue`, which
+    FO4 refuses on Confidence ("cannot be modified in scripts", found by the
+    stage sweep in `VMS16b`), so nobody cowered. Vanilla only ever calls
+    `SetValue` on Confidence.
   - <a id="once-per-day"></a>*Once Per Day (0x400) on a quest-gated
     package (2026-11-16, after play: FO3's Andy never cut the cake).* FO4
     takes such a package for a moment and drops it: `CG02AndyCutCake`
@@ -2117,6 +2367,15 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
     while the quest test already scopes when the package may run. A package
     with any quest test (`QUEST_TESTS`, `quest_gated`) now drops the flag;
     an ungated routine keeps it.
+    NPC-to-NPC Dialogue packages (2026-11-18, the FO3 tutorial case) were
+    left out of `day_marked`, so dropping the flag left nothing to stop a
+    repeat. FO4 restarts the Travel each time the chat scene ends, its
+    OnEnd starts the chat again, and that cut off the next speaker's scene:
+    CG03's `CG03AmataButchConv` (flags 0x1404) replayed Amata's first line
+    2 s after Butch's scene began. A quest-gated (`daily`) chat package now
+    gets the day faction too: `F3NV_DialoguePackage`'s OnEnd starts the
+    chat and then calls `PackageDone`. SayTo packages to the player keep
+    their GreetOnce number instead.
   - *In the region build.* 91 of 197 packages take FNV's behavior flags
     (42 Travel, 18 ForceGreet, 10 Sandbox, 8 HoldPosition ...); 4 Guards
     get combat copies, listed on Trudy and three settlers for the
@@ -2470,6 +2729,12 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
   Every DOOR base now carries `F3NV_DoorCloser` beside its own script: an
   NPC's OnOpen registers a distance event, and once the NPC is 200 units
   away the door closes if still open. Doors the player opens stay as left.
+  - **Not in front of a following player (2026-11-17, found by the story
+    cases, not yet played).** In FO3's CG01, Dad opens the nursery's main
+    door at stage 80 and leads the player down the hall; in FO3 the doors
+    stay open behind him (the user's play). The closer shut it once Dad was
+    200 units on, and the following player's path stopped at it. A door
+    the player is within 200 units of now stays open.
 - <a id="force-greet-menu-stage"></a>**A force greet's End stage on Fallout 4
   (2026-11-16, after play; not yet played).** `force_greet_lines.in_menu_only`
   wraps the End script of a force-greet line that sets the stage its own
@@ -2796,7 +3061,8 @@ converted NPCs speak FNV's own barks instead ([barks](#barks), built
     - `items.PORTAL_MARKER` maps `0x20` to Fallout4.esm's PortalMarker
       (`0x20`);
     - `spike/placement.py` copies `XMBO`, `XPRM`, `XPOD` (rooms renumbered)
-      and `XRGD` from FalloutNV.esm itself.
+      and `XRGD` from the source plugin itself (FalloutNV.esm or
+      Fallout3.esm, `install.use_source`).
   - Vanilla has the same layout: 1,725 portals are `NAME XPRM XPOD DATA`;
     601 room markers are `NAME XMBO XPRM DATA`.
   - **Trigger boxes keep no XMBO (2026-10-31).** FNV's GECK writes `XMBO`
@@ -2811,6 +3077,20 @@ converted NPCs speak FNV's own barks instead ([barks](#barks), built
     (`placement._room_bound`). The same test keeps triggers out of
     `open_rooms`: 126 of them sat in cells with an open portal and were
     left out of the build as rooms.
+  - <a id="trigger-layer"></a>**A trigger's primitive is on L_TRIGGER
+    (2026-11-17, found by the story cases, not yet played through).**
+    - In CG01 the player walked up to Dad's trigger (`CG01DadTrigger`, a sphere of radius 69 on
+      `02EA54`) and stopped at its surface in two runs (69–72 units from its center). It never
+      fired `OnTriggerEnter` (the trace logged Dad inside it, never the player).
+    - FO3 gives 30 trigger bases a model from `meshes\triggers\` (`TrigPlayerWall01.nif`). That
+      model's collision is a `bhkSimpleShapePhantom` on layer 1 (L_STATIC), flagged as an editor
+      marker. FNV's trigger bases have no model, and its triggers fire.
+    - Fallout4.esm's 5,146 activator primitives sit on bases with no model. Most leave `XTRI` off;
+      20 write `XTRI = 12`, L_TRIGGER (`DN050BabyTrigger`, `DN050SafetyTrigger` …).
+    - The reading: without `XTRI`, a primitive takes the layer of its base model's collision, and
+      FO3's trigger model makes it static.
+    - A primitive on an activator now writes `XTRI = 12` (`placement._trigger`), as the Skyrim
+      converter does (`world_falloutnv.trigger_layer`).
 - **Corpses vanishing as the player walks up (fixed and played
   2026-10-18: Bison Steve's convicts).** The bodies stayed lootable but
   went undrawn. Bison Steve's two FNV rooms leave its lobby in no room;
@@ -2825,6 +3105,32 @@ converted NPCs speak FNV's own barks instead ([barks](#barks), built
   (`placement.open_rooms`), so FO4 draws the whole cell: no room culling
   there, which the region's frame rate allows (118 cap at 24% GPU). The
   region leaves out 14. Recorded in [drift](fo4_drift.md#recorded).
+- <a id="linked-rooms"></a>**Linked rooms (FO3, 2026-11-19).** In the
+  converted Vault 101, the hall and the classroom showed flat grey past
+  their doorways. The rooms and portals were all there (Vault101d: 17
+  room markers and 9 portals, each `XPOD` naming two built rooms), but
+  FO3 also joins rooms with no portal between them: a room marker's
+  `XRMR` (link count) and `XLRM` (one per linked room). The copy dropped
+  both, so FO4 drew only the rooms a portal reached and left the linked
+  room undrawn.
+  - Fallout3.esm: 265 of 670 room markers have `XRMR`, with 320 `XLRM`
+    links in 44 cells. Every one has the count byte, then `00 00 00` or
+    `00 01 00`. FalloutNV.esm has none, so FNV builds don't change.
+  - Fallout4.esm has the same layout and order (`XMBO XPRM XRMR XLRM
+    DATA`) on 1,096 room markers (1,169 links), and both of FO3's byte
+    patterns are among them. FO4's second byte is a flags byte (`0x80`:
+    Has Lighting Template). FO3's is the high byte of a 16-bit count,
+    which is always 0.
+  - `placement._linked_rooms` copies them: each link goes through the
+    reference ids, links to rooms the build leaves out are dropped, the
+    rest are sorted (xEdit's sorted array), and the `XRMR` count is
+    rewritten to match.
+  - `open_rooms` already leaves out 132 of FO3's 670 room markers and 133
+    of its 577 portals, in cells with a portal to no room. That leaves 215
+    room markers gaining 260 links. Vault101d gains 6 links on 6 room
+    markers (one has `XRMR` alone), all to built rooms.
+  - Vault101a and Vault101b have no room markers or portals in
+    Fallout3.esm, so this doesn't touch them.
 - **A skeleton standing upright** (`Skeleton50sCasualMale` near Goodsprings):
   FNV lays a ragdolled object down with the reference's `XRGD` bone pose
   (bone id, 3 unused bytes, position, rotation: 28 bytes, as in FO4).
@@ -3438,6 +3744,25 @@ Drift: a password note opens the terminal on activation rather than showing
 FNV's password menu entry; an Easy lock shows FO4's Novice prompt and is
 refused by a notification, not greyed out.
 
+<a id="getlocked-states"></a>**GetLocked has three values (fixed 2026-11-18, found by
+the FO3 tutorial run).** FO3/FNV's `GetLocked` returns 0 unlocked, 1 locked,
+2 locked beyond skill: the FNV decompilation (`FUN_0059d010`) returns 2 for a
+lock at the impossible level and for a terminal the player was locked out of
+by failed hacking (GECK wiki: "player failed at hacking or lock level is
+impossible"). The script stage mapped it to FO4's Bool `IsLocked()`, so
+CG04Script's `CG04OverseersTerminalREF.getLocked == 2` became `IsLocked() ==
+2`, true for the still-locked terminal, and at CG04 stage 0 the tutorial
+message "You are now locked out of the terminal" opened before the player
+had touched it. Now `GetLocked` is `TES4Polyfill.LockState(ref)`: 0, 1, or 2
+when locked above Master (FO4 levels 251 to 255; FO3/FNV write 255 Requires
+Key, copied through). Its FO4 row carries the `number` flag, so `== 1` and
+`== 0` stay comparisons instead of folding into a Bool. Scripts comparing
+with 2: FO3 1 (that tutorial line), FNV 5 (3 `== 2`, 2 `!= 2`).
+
+Drift: FO4's hacking lockout is a short timer with no Papyrus read, so a
+terminal is never 2 for a failed hack; FO4 shows its own lockout screen,
+and the FO3 tutorial's lockout message does not appear.
+
 <a id="message-buttons"></a>**Message box buttons keep their conditions (built 2026-11-05, not yet
 played).** The Bison Steve Hotel's broken elevator asks to be repaired
 (`BisonElevatorMessage`, "Repair 35 or higher required"). The player, below
@@ -3637,7 +3962,9 @@ against FNV's TERM:
   - **Where that comes from (exe, 1.11.240).** In the crosshair pick's
     target filter (0x996E30), a TERM (form type 0x37) is rejected unless
     -(the mesh's local Y axis · the flat direction from the terminal to the
-    player) is at least `fMinTerminalActivateDotProduct` (0.5).
+    player) is at least `fMinTerminalActivateDotProduct` (0.5). "The
+    terminal" is the reference's own position (REFR +0xD0, read at
+    0x9971B0), not its screen or bounds.
   - **Vanilla agrees.** All 777 vanilla TERM markers sit straight out
     along -Y.
   - **The failure.** Our terminals kept FNV's +X screens, so they showed
@@ -3646,12 +3973,39 @@ against FNV's TERM:
     the screen faces -Y. Elric bakes those transforms into the physics,
     as it does any node's. The marker then sits vanilla's way:
     (0, -55.2, -79.3 from the screen centre), heading 0.
-  - **Placement.** Each placed terminal's heading takes the turn back
-    (`Terminals.turn`), so it stands where FNV placed it. 216 of FNV's 219
-    terminal references turn only about Z; the 3 tilted ones are turned
-    about Z only and counted.
-  - **Not turned.** A mesh whose root itself carries collision would not
-    turn with its children, so it is left facing +X.
+  - <a id="terminal-origin"></a>**Over the origin (2026-11-19, not yet
+    played).** The turn alone fails a screen far from its mesh's origin:
+    the angle is measured from the origin, so a player in front of such a
+    screen can stand on the origin's +Y side. FO3's Overseer terminal
+    (`VOverseerTerminal01.nif`, `CG04OverseersTerminal`) has its screen
+    about 300 units out; turned, the user's spot sat at (31.6, 248.8) from
+    the origin, dot -0.99, so it never showed a prompt. The mesh's children
+    are now also shifted flat so the screen centre sits over the origin
+    (`_moved`), and every screen mesh's spot is (0, -55.2), dot 1.
+    - Affected before: FO3 `voverseerterminal01` (2 placed,
+      CG04OverseersTerminal) and `planetariumcontroldeskcontrols` (1 placed,
+      MQ02MuseumPlanetariumTerminal02, below); FNV `voverseerterminal01`
+      (1 placed, Vault03OverseersTerminal). Every other screen mesh passed
+      already (the shift is 5 to 83 units on them).
+    - **A root's own collision** would not turn with its children, so that
+      mesh was left facing +X (the planetarium desk: spot (813, -17), dot
+      0.02). The collision now moves to a new child node,
+      `TerminalCollision`, which turns with the rest. `elric.graft` now
+      finds a collision node added after the Havok input by the block
+      itself; it used the index from before `without_havok` renumbered.
+    - **OBND.** A terminal's OBND is boxed around its shapes where their
+      nodes put them (`placed_bounds`); `mesh_bounds` reads vertices
+      without node transforms, which kept the unturned box (the Overseer's
+      sat ~300 units from its geometry).
+  - **Placement.** Each placed terminal takes the mesh's move back through
+    `guns.turned` (`Terminals.move`), as a converted gun does, so every
+    point stands where FNV placed it; the 17 FO3 and 7 FNV tilted terminal
+    references are turned exactly, no longer about Z only.
+  - **Not covered: meshes with no screen.** `with_screen` finds no unlit
+    textured shape on FO3's `vaultruined\clutter\terminaldeskr01.nif`
+    (1 placed, LOBESJohnsonEmployeeTerminal) or `mainframe01off.nif`
+    (1 placed, MS03robcoMasterControlTerminal). They keep the plain mesh,
+    unturned, with no `Screen:0` and the marker at the origin.
 - **The screen.** FO4 draws the terminal menu onto the terminal's shape
   named `Screen:0`: the exe's terminal menu code looks the name up, and
   the vanilla terminal meshes checked (TerminalOn, TerminalWall01,
@@ -3827,9 +4181,8 @@ replaces it: the need effects keep their FormIDs and now carry FNV's amount to F
 
 ## <a id="sex-change"></a>Sex change without Garden of Eden (built 2026-10-29, not yet played)
 
-FNV changes the player's sex in Doc Mitchell's intro (VCG01's message box),
-before every `ShowRaceMenu` (the converted race menu asks the sex first), and
-in six test-quest lines. FO4 Papyrus has no sex setter, so
+FNV changes the player's sex in Doc Mitchell's intro (VCG01's message box)
+and in six test-quest lines. FO4 Papyrus has no sex setter, so
 `TES4Polyfill.SetSex` ran the console's `sexchange` through Garden of
 Eden's `ExecuteConsoleCommandSilent`, the build's only use of that mod.
 
@@ -3847,12 +4200,11 @@ that is an actor (form type 0x41), else on the player (`g_player`,
 unchanged; `SetSex` still calls it only when the sex differs. The script
 compiler no longer reads Garden of Eden's sources.
 
-**Asked once (2026-11-16).** Fallout 3's birth asks the sex in its own
-message box (CG00 stage 20) and opens the race menu at stage 60, so the
-race menu's box asked a second time. `SetSex` on the player now sets
-`F3NV_State.SexChosen`; `F3NV_PlayerControls.ShowRaceMenu` skips its box
-while it is set and clears it, so the next race menu (a surgeon) asks again.
-New Vegas, whose race menu is the first to ask, is unchanged.
+**Asked once (2026-11-16), superseded 2026-11-17.** The race menu's own sex
+box, and the `F3NV_State.SexChosen` flag that kept Fallout 3's birth from
+asking twice, are gone: Fallout 4's character creation picks the sex before
+the source game starts, and the source game's sex boxes answer with it
+([character creation](#character-creation)).
 
 ## <a id="record-compression"></a>Land and navmesh stored compressed (2026-11-04, not yet built)
 
@@ -3877,6 +4229,62 @@ Measured on the 2026-11-04 plugin, compressing a copy:
 
 The bodies go through our [pinned zlib](#pinned-zlib), so the plugin is the
 same bytes on every machine.
+
+## <a id="text-encoding"></a>Text is written as UTF-8 (2026-11-19, after play; not yet played)
+
+In the FO3 intro the G.O.A.T. answer "But doctor, wouldn’t that cause…" drew
+"wouldn▯t". FO3 stores a curly apostrophe as cp1252 `0x92`. The export decodes it
+to `’`, and every writer encoded it back to cp1252. Fallout 4 hands a plugin's
+text bytes to its menus as UTF-8, so a lone `0x92` is an invalid byte and draws
+as a box. Evidence:
+- FO4's menu fonts all have `’ ‘ “ ” – — …` (`Interface/fonts_en.swf`:
+  Roboto Condensed and its Bold, Share-TechMono, Futura PT). The message box
+  and the Cleanroom DialogueMenu, which embeds no font of its own, use
+  `$MAIN_Font` = Roboto Condensed. So the glyph exists, and the bytes are what
+  failed.
+- `Interface/fontconfig.txt` is UTF-8, and the one string Bethesda added to
+  `Fallout4_en.DLSTRINGS` later (a Creations description) is UTF-8.
+- Fallout4.esm's English strings hold `0x92` in only 61 + 14 strings (for
+  example "O’Neill Family Manufacturing"), and the six DLCs in 5. Bethesda
+  wrote almost nothing outside ASCII. xEdit still reads FO4 English as cp1252,
+  so xEdit shows these strings correctly even though the game does not.
+
+`fo4_import/base/text_encoding.py` re-encodes cp1252 text as UTF-8 while the
+writer writes each top-level group (`FO4PluginWriter._finish_groups`, before
+[compression](#record-compression)). The writer is the one place every record
+passes. Text is built by about 50 cp1252 encode sites and copied raw from the
+source plugin and FO4's masters. The pass touches only the subrecords xEdit's
+FO4 definitions name as display text: `wbLString`/`wbLStringKC`, or a string
+marked `cpTranslate`. That gives 101 subrecords in 59 records, in
+`fo4_import/data/fo4_text_subrecords.json`, written by
+`gen_fnv_subrecord_formids.py --text`. Binary data that happens to hold `0x92`
+(FormIDs, colors) is left alone. Text that is already valid UTF-8 stays as it
+is: the built FNV plugin already had "Fire Ant Fricass\xc3\xa9e" from some
+writer. The five bytes cp1252 leaves undefined keep their Latin-1 code points,
+as Windows converts them. Compressed records are skipped; only LAND and NAVM
+are compressed, and they hold no text.
+
+The generator also had a bug: it matched helper names case-sensitively, but
+Pascal ignores case. So BOOK's `wbDESCreq` (helper `wbDESCReq`) went
+unresolved. Fixing it added only `BOOK.DESC: none` to
+`fo4_subrecord_formids.json`; the FNV and FO3 tables regenerate identical.
+
+Counts:
+- **Exports:** Fallout3.esm has 244 strings outside ASCII: 140 subtitles, 64
+  notes or holotapes, 9 message buttons, 8 message bodies, 6 topics, 6
+  terminals, 3 prompts, 2 container names, 2 objectives, and one each of a
+  log entry, a loading screen, an actor note and a script comment. The characters: `’`×364, `…`×49, `“”`×93, `–`×6, `©`×6,
+  `‘`×5, `®`×2, `é`×1. FalloutNV.esm has 96: 46 notes, 12 subtitles, 9 + 8
+  messages, 7 topics, 5 terminals, 4 + 1 food or recipe names, and 3
+  containers.
+- **Built plugins:** the 20 MB Vault 101 build changes 80 subrecords in 62
+  records (52 INFO NAM1, 9 MESG ITXT, 8 TERM UNAM, 7 MESG DESC, 2 QUST NNAM, 2
+  INFO RNAM). The 253 MB FalloutNV.esm build changes 30 subrecords in 24
+  records, and the pass adds 1.1 s to its write.
+- Every non-ASCII subrecord the pass leaves alone in both builds is binary.
+  There are 3,024 in FO3 and 9,992 in FNV, for example NPC_ NAM5, RACE STKD
+  and PTRN FormIDs.
+- The two FO3/FNV scripts with non-ASCII characters have them only in comments.
 
 ## <a id="pinned-zlib"></a>One zlib for everything we compress (2026-11-12)
 
@@ -4227,6 +4635,183 @@ The Fallout 4 override also requires `UI.IsMenuOpen("DialogueMenu")`, as
 `ShowBarterMenu` already does. A goodbye line still playing after the menu
 closes keeps the hold (`_IsSpeaking`), as before.
 
+### <a id="gate-speaker"></a>The gate's speaker is one write (2026-11-18, story cases on the test laptop)
+
+The speaker was stamped as two halves of its FormID on the player
+(Variable05/06, as a Skyrim actor value float cannot hold 32 bits), written by
+two calls in `LineBegan`. The dozens of converted polls each call the gate
+every 0.5 s, so one read a half-written stamp (new high half, old low half),
+found no form, and cleared both halves: the trace shows `dialogue gate|cleared|None`
+at every greeting (Amata's at 47.5 s, Mrs. Palmer's at 54.1 s). The gate then
+never held. In FO3's CG02 the cake speech (stage 15, `CG02SCRIPT` GameMode)
+waits for the player's talk with Mrs. Palmer; on FO4 it ran in the middle of
+it (Andy and Amata's `CG02CakeSpeech` lines at 54–60 s), and her Choices menu
+never filled (no `making list` in CleanroomDialogue.log).
+
+On Fallout 4 the stamp (`_StampTalker`, split out of `LineBegan`) is now
+`F3NV_State.Talker`, one object variable; `PlayerIsInDialogue` reads it, and
+`TalkOver` forgets it only when no newer line's speaker has replaced it. The
+Skyrim side keeps the two halves. Measured: with it, Mrs. Palmer's case passes
+(menu, `Yes, ma'am.`, stage 20), and the gate holds through Butch's talk.
+
+### <a id="greeting-waits"></a>A greeting waits for another actor's talk (2026-11-18, story cases on the test laptop)
+
+Every converted conversation shares one Speaker alias, alias 0 of the quest
+that builds the shared steps (`Hub.home`), which `StartConversation` force
+fills. A line with several responses and a result script is split into parts
+([conversation](#greeting-scene)); the part after the first starts a new scene
+when the first ends. Before that scene's line plays, another NPC's greeting
+could fill the alias: Mrs. Palmer's force greet took it between the parts of
+Amata's birthday greeting (000319BD) and said Amata's second line; Stanley
+did the same to Butch's (00030A1E), setting CG02 stage 30 from Butch's
+result script, and Butch's Choices menu then listed nothing (its answers test
+`GetIsID` Butch). In FO3/FNV a greeting cannot start while the player is in
+another conversation.
+
+`F3NV_Greeting` now calls `TES4Polyfill.SpeakerFree` first: while the actor
+in the Speaker alias is another actor still talking (the gate's speaker while
+the gate holds, or in a playing scene of that quest other than the greeting
+scene) it waits, up to 60 s, then drops the greeting (a force greet is not
+marked spoken, so its package greets again). Trace: `greeting|<speaker>|waits
+for|<holder>`, `gave up`. The holder's own `GetCurrentScene()` alone missed
+Butch: he is not in the part's scene until its action starts.
+
+A force greet also waits for its own actor's scene. Dad's
+`CG02DadTellPlayerTimeToGo` (GetStage CG02 >= 36) greeted while he was in
+`CG02_Scene5`, his "Thanks. I'll send him right down." to Jonas on the
+intercom: the greeting scene took him, `Scene5` ended with no line, and its
+result (stage 38) never ran. The silent greeting line of a quest with force
+greets now also needs "the player activated it, or the speaker is in no scene"
+(`IsInScene` 0, an OR-group of its own), so a force greet waits until its
+actor's scene ends, as FO3/FNV's waits for its conversation. A player's
+activation still interrupts, as before.
+
+The story cases' `talk` step waits for any open dialogue menu to close before
+it activates the NPC: an activation sent through the console while Amata's
+greeting played made the engine talk with Stanley, and Amata's Choices menu
+never filled. A player's E goes to the open menu instead.
+
+### <a id="psych-test-no-choices"></a>Fixed in the harness: Doc's psych test showed no choices (story runs 2026-11-18)
+
+**Cause: the case, not the game.** FO4 lists a talk's choices only while
+the player faces the speaker (found in play, 2026-11-18). Seated on the
+couch, the player faces the couch's way, and Doc sits off to the side. By
+hand the test plays through once the camera turns 30 to 45 degrees left to
+take Doc in. The case now does that with `look` (the player's eye turned to
+Doc's middle) after the menu opens.
+
+Wrong theory, kept so it isn't tried again: the AI-driven `walk` leaving a
+pending `PathToReference`. Two runs passed with that changed (a `moveto` to
+the couch, then a `moveto` in place after the path), but only because the
+camera happened to end up facing Doc. The measurements below are all true
+of a player looking away; only the conclusion they pointed to was wrong.
+
+The story case `vcg01_psych_test` sits the player on Doc's couch, and Doc
+starts the test from `VCG01DocMitchellCouchTriggerSCRIPT`'s
+`DocMitchellREF.StartConversation Player`, converted to
+`TES4Polyfill.StartConversation(TES4Talk_GREETING, Doc)`. This fails in four
+runs: both sexes, from the checkpoint and from a new game. What was measured:
+- The greeting scene plays Doc's first part of 0010558F ("...say the first
+  thing that comes to mind"). Its end starts `FNV_Shared_Scene3748`: the
+  second part ("Dog."), then phase 2, the Choices menu (six options).
+- The dialogue menu opens as the greeting begins (`menu ready` in
+  `CleanroomDialogue.log`), but the game never calls the movie's
+  `ShowButtonHelp`. So `making list` never comes, and no option is listed.
+  The kept game still had Scene3748 playing, with Doc and the player both
+  in dialogue (`IsInDialogueWithPlayer`) and both seated (`GetSitting` 3).
+- The answers' only condition is GetIsID Doc Mitchell, so they would pass.
+- With the player standing, the same `StartConversation` (through `cgf`,
+  after setting `TES4QVar_VCG01_bGiveTest`) opened no dialogue menu at all
+  in 60 s.
+- Every talk that listed its choices in these runs began with an
+  activation or a force greet package. Doc's is the only one started by
+  Papyrus alone. Mrs. Palmer's greeting has the same split structure
+  (greeting scene, then a TSCE to a part-2 scene with a Choices phase), and
+  it lists its choices in the second the phase starts.
+
+The psych test worked in the 2026-11-12 play. Not yet found: what changed
+since then. `StartConversation` is the same as at HEAD, and the menu DLL's
+option listing is the same as F3NV.dll's before it moved to Cleanroom UI.
+The worktree's uncommitted dialogue changes (`say_topics.py`, `records.py`,
+`conversation.py`: walk-up scenes, phase end conditions) are not yet ruled
+out. Also seen: Doc started the test 85 s after the player sat (FNV: 2 s
+after Doc reaches his chair); the second run took under 40 s.
+
+Measured in a kept game on the night of 2026-11-18:
+- `FNV_Greetings_Scene0` (the talk `StartConversation` starts) and
+  `FNV_Shared_Scene3748` both belong to `FNV_Greetings`. Its Speaker alias
+  holds Doc (`sqv`), so the handoff between the scenes is sound.
+- Scene3748's phase 1, Doc's second part ("Dog."), ends in 0.77 s. The part
+  is said: its INFO's end fragment runs as phase 2 starts. It is short
+  because the part has no voice file.
+- Phase 2 starts (traced `phase 2 start`) and stays playing, but
+  `ShowButtonHelp` never comes.
+- The Choices topic holds all six options ("Cat." ... "Dinner.") with no
+  conditions, beside an empty NPC topic. Doc's and the player's sit state
+  are both 3.
+- The scene's shape matches vanilla's `PaulVendorScene`: one NPC actor, no
+  player actor, and the Player Dialogue action on that actor. So the player
+  is not missing from the scene.
+- Ruled out by reading the commits since 2026-11-12: the dialogue gate
+  (`PlayerIsInDialogue`, only read by scripts) and the sit-down count
+  (`IsCurrentFurnitureRef` from state 2, which only starts the test
+  sooner). The Cleanroom movie also lists only on `ShowButtonHelp`, as
+  ours did before the move.
+- Standing the player up (`player.moveto player`) closed the menu, and the
+  scene kept playing. Stopping the quest and activating Doc opened his
+  exit greeting, not the test, so it did not settle whether activation
+  would list the test's choices.
+- Seating the player with a real E press on the couch (not the console)
+  fails the same way: seated (`GetSitting` ≥ 2), the dialogue menu opens,
+  and its list stays empty for 60 s. So how the player sits is ruled out.
+- With `CleanroomDialogue.ini` `[Log] iLevel=3`, the log shows the movie's
+  debug `menu ready`, but no `making list`, no `menu shown`, and no line
+  from the DLL's options native. The movie logs at debug level, so this
+  proves the engine never called `ShowButtonHelp`; it isn't a lost log.
+- The pinned Cleanroom DLL (`0a94b32`) installs the same engine hooks as
+  F3NV.dll's `dialogue.cpp` did: the Player Dialogue `Run` slot, the
+  player, NPC and response call sites, the wheel cameras and the player
+  line skip. The bodies of `Run` and `Leave` are the same. The one new
+  hook, `TintButton`, records each button's look and passes the call on. So
+  the move to Cleanroom UI does not explain it.
+
+
+### <a id="cg02-targets-unhit"></a>Open: CG02's BB gun targets take no hits (story runs 2026-11-18)
+
+In `cg02_targets` the player fires the BB gun at each of the three targets
+(`CG02TargetSCRIPT`, OnHitWith with no weapon: any hit counts). From the
+range's inside marker (about 900 units away), then from 380 to 480 units,
+aimed exactly (`GetHeadingAngle` 0), 6 BBs leave each time
+(`FNV_ammoBB` 50 → 44). `CG02.targetCount` stays 0, and the trace has no
+`TraceHit` line from the targets' OnHit (registered on load). The built
+mesh (`meshes\fnv\clutter\questitems\cg02targetpractice01.nif` in
+`Fallout3 - Main.ba2`) has its geometry and a `bhkPhysicsSystem`. The
+source body is layer 2 (ANIMSTATIC), keyframed (motion 6, quality 2),
+BSXFlags 11. The BB projectile (`BBProjectile`, 0003BF09) is a plain
+missile: speed 8000, range 10000, no gravity. `fo4_collision_audit --near
+2290 -12650 200` finds no collision part moved, resized or lost among the 8
+models there. Suspected, not checked: the walk stopped at the range's
+counter (about 380 units from the targets), and the 10-year-old's muzzle may
+sit below its top, so the BBs hit the counter. Also not checked: the built
+body's layer and motion, and a hit by another weapon.
+
+**Probes on the night of 2026-11-18.** The counter theory is wrong:
+- From the marker `09DEC9`, 94 units from target `0304EB`, two shots
+  still counted nothing. So did shots with the player scaled to 1.5
+  (muzzle raised).
+- The same BB gun then killed the radroach (`setstage CG02 55`, 8 shots),
+  and CG02 reached stage 70. The gun, the projectile and the hit on an
+  actor all work, so `cg02_radroach` passes once the targets are done.
+- So the targets themselves take no hit. Their base is an ACTI
+  (`FNV_CG02Target`) carrying the script and the source's destruction
+  data (`DEST`: health 1, one stage at 50%, no destroy or disable flag).
+  The collision converter keeps the source's layer 2 (`havok_filter`). The
+  body is fixed unless its node keeps an animation.
+
+Next: read the built body's layer and motion out of the `bhkPhysicsSystem`.
+Then fire at a vanilla FO4 activator that has a hit event, and at the same
+mesh without `DEST`, to tell the collision apart from the destruction data.
+
 ## <a id="goodbye-ends-talk"></a>A Goodbye line ends the talk (2026-11-12, after play; not yet played)
 
 The dialogue gate fixes above shortened the gate but not the hold. In the
@@ -4258,6 +4843,14 @@ when the talk still runs with that speaker. It leaves the talk up when the
 player is in another scene that still plays (one the result script started).
 F3NV.log names each outcome: `goodbye of <speaker>: talk ended | talk left up |
 no talk runs`.
+
+**A greet right after a goodbye keeps the menu up (story run 2026-11-18).**
+Jonas's CG02 answer (INFO 00063A97, Goodbye) ended its scene at 133.15 s;
+`EndTalk` found `no talk runs`. Dad's force greet (CG02 stage 42) began at
+133.70 s. `CleanroomDialogue.log` logs no close between the two: the open
+dialogue menu went straight on to Dad's greeting and his two choices. In
+Fallout 3 the menu closes, then Dad's talk opens. Play is unaffected; the
+case `cg02_jonas` no longer waits for the menu to close.
 
 ## <a id="furniture-seated"></a>On furniture means seated (2026-11-12, after play; not yet played)
 
@@ -5162,18 +5755,104 @@ played).
 
 `FNV_NewGame` is a start-game quest running `F3NV_NewGame`.
 - **New Game:** Fallout 4 runs MQ101 stage 0, its intro movie and then
-  character creation. The script waits that out, undoes it and stops Fallout
-  4's opening quests. It then sets the player's SPECIAL to FNV's player
-  record and sets VCG00 stage 0, which moves the player to Doc Mitchell's
-  and plays FNV's intro.
+  character creation at the mirror, which stands in for the source game's
+  ([character creation](#character-creation)). Once the player leaves the
+  sink, the script undoes the opening and stops Fallout 4's opening quests.
+  It then sets the player's SPECIAL to the source player record and sets the
+  source game's first stage (FNV's VCG00 0 moves the player to Doc
+  Mitchell's and plays FNV's intro; FO3's CG00 0 is the birth).
 - **A coc from the main menu** runs no MQ101 stage 0. Until 2026-10-22 that
   started FNV at once, which pulled a `coc qasmoke` test out of its room.
   Now nothing starts; the log says `TES4NewGame|no New Game opening`.
-- **Starting by hand:** `setstage FNV_NewGame 10`. Its fragment
-  (`F3NV_NewGameStart`) calls `F3NV_NewGame.Begin()`, the same start, once
-  only.
-- A save where FNV's opening or Fallout 4's own game is under way is left
-  alone.
+- **Starting by hand** (`F3NV_NewGameStart`'s fragments):
+  - `setstage FNV_NewGame 5` runs MQ101 stage 0 by hand, then the same
+    character creation and start (`RunOpening`);
+  - `setstage FNV_NewGame 10` starts the source game at once
+    (`F3NV_NewGame.Begin()`), once only, with Fallout 4's default player.
+  - The character creation runs once only. Stage 5 set within 5 s of the
+    new game quest starting used to run it twice: once from stage 5 and once
+    from `OnQuestInit`'s wait for MQ101 stage 0. When the two `Begin()`
+    calls came 0.1 s apart, both set FNV's VCG00 stage 0 on the stopped
+    quest. The second start reset the quest's script under the running
+    stage 0 fragment, so every property it read was None: no move to Doc
+    Mitchell's, and the player stayed in the bathroom.
+- A save where the source game's opening or Fallout 4's own game is under
+  way is left alone.
+
+## <a id="character-creation"></a>Character creation is Fallout 4's (built 2026-11-17, FO3 played 2026-11-17)
+
+**Why.** FO3 picks the sex in a Boy/Girl box at the birth and the face in
+the race menu at stage 60; FNV picks both in Doc Mitchell's Reflectron.
+On FO4 we showed our own Male/Female box, then FO4's appearance edit in
+mode 1. Both kept failing:
+- In CG00 the box was closed again within a second (cause never found).
+- Mode 1 cannot change sex.
+- FNV's lighting is poor for editing a face, and FO3's Dad blocks the view.
+
+FO4 changes sex only in mode 0, its start-of-game creation. Disassembly of
+`LooksMenu` (Fallout4.exe 1.11.240) shows why it needs MQ101's scene:
+- `ShowRaceMenu` keeps the female spouse it is given (0x327A890). On
+  opening, the menu makes an editor for the player and one for that spouse
+  (0x327A8A8 / 0x327A8B0).
+- Code function 1, `ChangeSex`, does nothing unless both editors exist. It
+  switches which actor is edited; the male spouse (0x327A898), if given,
+  takes the player's look.
+- Confirming with the spouse's editor current gives the player that sex and
+  face. So the sex switch is a choice between two real actors, Nate and
+  Nora at the mirror.
+- Code function 0, `ConfirmAndCloseMenu`, puts up "Confirm character" only
+  when the edited actor's face object is not busy (byte +0x59B, read at
+  0xD0C290). Just after `ChangeSex` it is busy loading Nora's face, and
+  Done does nothing.
+
+**What is built.**
+- **The creation.** `F3NV_NewGame.CreateCharacter` lets MQ101's mirror run as
+  in vanilla: movie, spouses, mirror lighting and camera. It waits for
+  `MQ101QuestScript.var_MirrorSequenceDone`, which
+  `MQ101PlayerScript.OnGetUp` sets as the player leaves the sink and
+  vanilla's clean-up runs. Then it leaves the opening and begins the source
+  game.
+- **The player's run comes back.** Leaving the sink sets MQ101 stage 10,
+  whose fragment gives the player `AnimArchetypeFastWalk`. Vanilla undoes it
+  only at stage 400, with `ChangeAnimArchetype(AnimArchetypePlayer)`
+  (0x6B508). `LeaveOpening` makes the same call. An archetype drives only the
+  holstered movement, so without it the player walked slowly, could neither
+  run nor sprint holstered, and moved normally with a weapon drawn (found in
+  play, 2026-11-18). A save made in that state gets the call on load once the
+  source game is under way.
+- **The source game's first race menu is skipped.** `Begin` sets
+  `F3NV_PlayerControls.RaceMenuDone`. Then `ShowRaceMenu` opens nothing; for
+  2 s the menu counts as open, then closes:
+  - The open window is `TES4Polyfill.MenuFrame()`, the gate on a bare
+    MenuMode body (FO3 CG00's 60→61 runs on it).
+  - The close is the custom event `RaceMenuSkipped`. Every converted
+    `begin MenuMode 1036` listener registers for it and runs its close body
+    (FNV VCG01's 36→40).
+- **Later race menus** open FO4's remake (mode 1), with no sex box: FO3's
+  vault exit, FNV Doc Mitchell's "change anything?".
+- **Sex boxes answer themselves.** `message_menus.sex_buttons` reads the
+  script: a `GetButtonPressed` variable whose `== N` branches run
+  `player.SexChange male`/`female`. On FO4 that script's only box becomes
+  `TES4Polyfill.SexButton(male, female)`, the button for the player's sex.
+  Sites: FO3 CG00SCRIPT; FNV's CG00SCRIPT and CG00ScriptNV (FO3 leftovers)
+  and VCG01SCRIPT (dead in vanilla).
+- **Kept:** FNV's 6 dialogue `SexChange` lines (a story sex change) still
+  run `TES4Polyfill.SetSex`.
+- **Retired:** the helper's `TES4ChooseSexMessage` (0xB00, not reused).
+
+**Drift.**
+- The look is chosen before the birth (FO3) or before Doc Mitchell's (FNV),
+  and the Reflectron never opens.
+- FO4's later remakes cannot change sex; FNV's Doc redo could.
+
+**Played (2026-11-17, FO3, the laptop's story cases).** Both sexes pass
+`tests/story/fo3_opening`: FO4's movie (T twice skips it), the mirror,
+Nate or Nora confirmed, the sink left, then CG00's birth with that sex's
+lines (Dad's "It's a boy?" 0001F386 / "It's a girl?" 0001F385, Catherine's
+0005EDD7 / 0005EDD8), the name, the skipped race menu (stages 60 to 100),
+and CG01's "Walk to Daddy" for that sex. The run's cases and harness steps
+are in [fo4_story_tests.md](fo4_story_tests.md#cases). FNV is built,
+not yet played.
 
 ## <a id="music"></a>Music (built 2026-10-19, played 2026-10-21)
 
@@ -6220,6 +6899,17 @@ a placed sound or a creature gets) and fills the property
 (`attach.NAMED_MAKERS`). The reputation messages' two sounds read through
 the same call.
 
+**A file named .wav that ships as .ogg (2026-11-18, found by the stage
+sweep).** FNV's music stingers name a `.wav` that the game ships only as an
+`.ogg`, and the engine plays the `.ogg`. `Sounds._files` found no file, so it
+made no descriptor and left the property empty. `FadeToCreditsTimer`'s
+`QSTEndTransitionStinger.Play()` then hit None. A missing file now falls back
+to its stem with another audio extension. That covers 10 FNV SOUNs (death,
+success, Exit the Vault, the Mysterious Stranger and endgame stingers, the
+Tenpenny loop) and 1 FO3 SOUN (`NOTEDadTape01`). The descriptors are new
+records on FNV's ids, so no existing FormID moves. Another 205 FNV SOUNs
+name files the export lacks under any extension.
+
 ### <a id="missing-pex"></a>A compiled script whose .pex is gone (built 2026-11-05, not played)
 
 A compile deletes each script's old .pex before compiling it, but saves
@@ -7091,6 +7781,34 @@ Centurion armors). `NPCs._dressed` now keeps, per biped slot, the armor
 with the best rating, then value, as FNV does; the rest are carried, so
 scripts can still equip them. Leveled lists stay in the outfit.
 
+**Use All lists are opened (built 2026-11-19, not yet played).** The FO3
+Vault 101 security officers (`CG04Vault101Security01`..`08`) stood in
+underwear with "Vault 101 Security Armor+" in their inventory. Their one
+item is `CG04SecurityInventoryWithHelmet`, a Use All list (LVLF 4, chance
+none 0) of the helmet and `CG04SecurityInventoryNoHelmet`, itself Use All:
+the armor, the Pip-Boy, its glove and `WeapPoliceBaton`. `Items.wearable`
+calls a list worn only when every entry is armor, so the baton made the
+whole list carried, and the NPC got no DOFT at all. FO3 equips armor from
+inventory; FO4 doesn't. Fallout4.esm dresses 2,181 of its 3,015 NPCs
+through a DOFT, and only 52 hold armor in CNTO. A Use All list with no
+chance none always gives every entry, so `Items.given` now replaces it in
+an NPC's inventory with its entries, nested lists too. Counts multiply, and
+each entry keeps its own COED, else the list entry's. The armor then goes
+to the outfit and the rest is carried. A random list, or one with chance
+none, stays whole.
+- Fixed: the 26 FO3 NPCs and 1 FNV NPC (`LvlScavenger`) whose armor sat in
+  a mixed list; all were Use All lists. No mixed list remains in either
+  plugin.
+- Blast radius: 656 FO3 and 1,139 FNV NPCs hold a Use All list. Their
+  CNTOs now list the items, the same items as before. For 315 and 341 of
+  them the list was all armor, and its pieces now go through the
+  one-per-slot rule above. None of the 2,020 and 4,127 entries is above
+  level 1, so opening the lists ignores no level.
+- The "+" after the armor's name is not ours: no converter code, menu or
+  DLL source writes one, and FO4's quality names are "Fine" through
+  "Legendary". The carried armor had the list's COED (0.6). Worn outfit
+  armor has none.
+
 <a id="collision-nodes"></a>**Collision nodes keep their transform (fixed 2026-10-25, the pipe played).** In the
 East Central Sewers the player fell through a walkable pipe
 (`utlbaycorintalltoppuritypipe.nif`, 00169FD5). Its collision sits on a
@@ -7647,3 +8365,47 @@ build counts `base made for a script property`.
 Build 1107e made 15 bases this way. Preflight's unfilled-property errors
 fell from 128 to 125, and the Nero couch property is no longer reported.
 Not played yet.
+
+<a id="evp-ends-npc-chats"></a>**EvaluatePackage ends an NPC chat its new package ends (2026-11-19, not built or played).**
+In converted FO3 CG04 the Overseer went on interrogating Amata, lines and
+idles, after the player walked in and Amata left. FO3 ends the
+interrogation at stage 38: its fragment calls `evp` on both, and their
+packages change (`GetStage CG04 >= 38`: Amata to `CG04AmataCower`, the
+Overseer from `CG04OverseerInterrogation` to `CG04OverseerWait`). The
+conversation is not a separate thing in FNV: `DialoguePackage` owns it
+(`m_pkConversation`, stepped by the package's update,
+`references/fnv_decomp/src/fallout/ai/dialoguepackage.cpp`), and
+`StartConversation` (`xActorD::StartConversation`, 0x00935480 in
+`mobileobject.cpp`) builds such a package for the speaker and gives it to
+the listener too. When the package goes, the conversation goes with it. On
+FO4 the chat is a scene (`TES4Chat_<topic>`, Speaker alias 0, Listener
+alias 1000) that the package only starts, so it kept alternating its scenes.
+
+The converted `evp`/`EvaluatePackage` is now `TES4Polyfill.EvaluatePackage(actor)`
+(`command_rows_fallout4.py`; the FO4 override replaces the shared wrapper).
+If the actor is in an NPC chat (`NpcChat`: the scene's Speaker and Listener
+are both NPCs in that scene), `EndChatOnNewPackage` watches for 1 s; when
+the actor's package is no longer the one it had before the evp, the chat
+scene stops (traced as `chatend`). It works whether or not the speaker's
+package was already marked done when the chat started.
+
+Ruled out first:
+- Every chat line carrying the starting package's conditions. FO3 does not
+  re-check them between lines. `CG02OfficerGomezToButchAngry` needs
+  `CG02.BlameButch == 1`, and its first line sets it to 2. `MQ06ElderTalktoLi`
+  needs `MQ06.LiConv == 0`, and its lines raise it. Both chats go on. A census
+  found 14 FO3 chats like this, 11 of them without Must Complete.
+- The SayTo loop. Stage 36 is guarded by `GetStageDone 38`, and stage 38
+  zeroes `InterrogationStage`.
+
+Blast radius (FO3 / FNV exports): 1,058 / 2,027 `evp` sites now call the
+polyfill. 314 / 406 of them name an actor that takes part in some NPC chat
+(through a Dialogue package aimed at an NPC, or `StartConversation`), and
+217 / 142 are bare (Self). The case most likely to fire mid-chat, an `evp` in
+the result script of a line reached from an NPC chat's topic (GREETING left
+out), comes to 28 in FO3 (13 on the speaker) and 8 in FNV. One of them is
+CG04's own "Go to hell" (`setstage CG04 36; evp`). Behavior changes only
+when that actor is in an NPC chat at the time and its package changes.
+Open: whether FO3's evp also drops a script-started (`StartConversation`)
+chat whose package still wins. Here such a chat ends only when the actor's
+own package changes.

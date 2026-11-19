@@ -88,10 +88,10 @@ def graft(ours: NifFile, processed: NifFile) -> NifFile:
     as vanilla's do.
     See: docs/fork/fo4_pipeline.md#collision-nodes
     """
-    owners = [i for i, (_, b) in enumerate(ours.blocks) if isinstance(b, dict) and b.get('collision', NONE) != NONE]
-    names = [ours.strings[ours.blocks[i][1]['name']].lower() for i in owners]
+    owners = [b for _, b in ours.blocks if isinstance(b, dict) and b.get('collision', NONE) != NONE]
+    names = [ours.strings[b['name']].lower() for b in owners]
     without_havok(ours)
-    systems = {}
+    index, systems = {id(b): i for i, (_, b) in enumerate(ours.blocks)}, {}
     for kind, raw in processed.blocks:
         if kind != 'bhkNPCollisionObject':
             continue
@@ -104,8 +104,8 @@ def graft(ours: NifFile, processed: NifFile) -> NifFile:
         if data not in systems:
             ours.blocks.append(('bhkPhysicsSystem', processed.blocks[data][1]))
             systems[data] = len(ours.blocks) - 1
-        ours.blocks.append(('bhkNPCollisionObject', struct.pack('<iHiI', owner, flags, systems[data], body_id)))
-        ours.blocks[owner][1]['collision'] = len(ours.blocks) - 1
+        ours.blocks.append(('bhkNPCollisionObject', struct.pack('<iHiI', index[id(owner)], flags, systems[data], body_id)))
+        owner['collision'] = len(ours.blocks) - 1
     return ours
 
 

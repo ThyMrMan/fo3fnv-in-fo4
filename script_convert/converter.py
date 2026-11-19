@@ -28,6 +28,7 @@ from script_convert import assemble as _assemble
 from script_convert import trace_points as _trace
 from script_convert import commands as _commands
 from script_convert.context import ScriptContext
+from script_convert.message_menus import sex_buttons
 from script_convert.implicit_subject import stage_subject as implicit_stage_subject
 from script_convert.poll_interval import quest_delay_arm, update_interval
 from script_convert.target import av_call, is_fallout4, script_as_actor, self_as_actor, variable_type
@@ -582,6 +583,10 @@ class ScriptConverter:
         """
         low = name.lower()
         return low in COMPARISON_BOOL_FUNCTIONS or is_fallout4() and low in _fo4_rows.COMPARISON_BOOL
+
+    def returns_number(self, name: str) -> bool:
+        """Does the target's row answer `name` with a number?"""
+        return is_fallout4() and name.lower() in _fo4_rows.NUMBER_VALUED
 
     def emit_name(self, name: str, extends: str) -> str:
         """A local, a zero-argument command read, or an external property."""
@@ -1292,6 +1297,7 @@ class ScriptConverter:
         # otherwise lands a String in whatever the target is declared as.
         self.sc.obse_arrays = {v.name.lower() for v in tree.variables
                              if v.vtype.lower() == 'array_var'}
+        self.sc.sex_buttons = sex_buttons(source)
         variables = [(v.vtype, v.name) for v in tree.variables]
         return variables, [(b.btype, b.filter, b.body) for b in tree.blocks]
 

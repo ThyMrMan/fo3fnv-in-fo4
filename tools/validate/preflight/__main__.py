@@ -20,7 +20,7 @@ from pathlib import Path
 
 from tools.validate.preflight import (asset_fo4, asset_load, build_diff, build_history, built_masters, condition_diff,
                                       dialogue_loss, dlc_overrides, findings, log_triage, package_ai, quest_progression,
-                                      quest_start, quest_targets, script_health, script_props, timing,
+                                      quest_start, quest_targets, scene_targets, script_health, script_props, timing,
                                       world_links)
 from tools.validate.preflight import behavior
 from tools.validate.preflight import menus
@@ -131,9 +131,10 @@ def run_dialogue(game: Game) -> list:
 
 
 def run_conditions(game: Fo4Game) -> list:
-    """The condition differential findings for one Fallout 4 build."""
+    """The condition differential and scene-step findings for one Fallout 4 build."""
     ctx = game.ctx
-    return condition_diff.audit(ctx, game.parts, game.args.export / game.source, ledger_path(game.plugin))
+    return (condition_diff.audit(ctx, game.parts, game.args.export / game.source, ledger_path(game.plugin))
+            + scene_targets.audit(game.name, game.index, game.parts, [game.script_sources]))
 
 
 def run_menus(game: Fo4Game) -> list:

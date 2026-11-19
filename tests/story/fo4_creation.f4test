@@ -1,0 +1,22 @@
+# Fallout 4's character creation, standing in for either source game's; run it before an opening's folder:
+#   python -m tools.live.fo4_story_cases tests/story/fo4_creation.f4test tests/story/fo3_opening --set SEX=male
+# Started from a coc: stage 5 of the new game quest runs Fallout 4's opening by hand (MQ101 stage 0:
+# its movie, then the mirror), and leaving the sink starts the source game (docs/fork/fo4_pipeline.md#character-creation).
+
+case fo4_character_creation
+run coc QASmoke
+ready 240
+run setstage FNV_NewGame 5
+menu 120 PlayBinkMenu                                 # Fallout 4's intro movie, interruptible
+wait 2
+press T                                               # the first T shows the skip prompt (Esc does nothing)
+wait 1
+press T                                               # the second skips
+menu 400 LooksMenu                                    # the mirror scene opens the character creation
+${SEX=male:wait 1,female:call LooksMenu ChangeSex}    # from Nate to Nora
+close 30 LooksMenu                                    # its Done (once Nora's face loaded): the Confirm box
+answer 30 OK
+wait 2
+press 1 W                                             # leave the sink: MQ101PlayerScript ends the mirror
+expect player.GetIsSex Female == ${SEX=male:0,female:1}
+end

@@ -28,9 +28,10 @@ from script_convert import anim_action_falloutnv as _anim, \
     udf_fallout4 as _udf4
 from script_convert.poll_motion import relative_sets
 from script_convert.poll_interval import MIN_INTERVAL, QUEST_DEFAULT, QUEST_DELAY_VAR, float_literal
-from script_convert.target import (HIT_REGISTRATION, REMOTE_DEATH, arm_update, death_registration, event_opener,
-                                   is_fallout4, is_hit_event, menu_close_guard, menu_registration,
-                                   on_talking_activator, remote_death, run_update_now, sleep_registration,
+from script_convert.target import (CONTROLS_PROPERTY, CONTROLS_SCRIPT, HIT_REGISTRATION, REMOTE_DEATH, arm_update,
+                                   death_registration, event_opener, is_fallout4, is_hit_event, menu_close_guard,
+                                   menu_registrations, on_talking_activator, race_menu_skipped, remote_death,
+                                   run_update_now, sleep_registration,
                                    target_menu_name, variable_type)
 from script_convert.emit import script as _script
 from script_convert.say_to_done import held_says
@@ -877,11 +878,11 @@ _INSURANCE_SECS = '5.0'
 def poll(conv, tree, extends: str) -> list:
     """The OnUpdate loop that replaces TES4's per-frame `begin GameMode`.
 
-    Emitted whenever the script DECLARES a poll block, empty or not: an empty
-    `begin ScriptEffectUpdate` still declares one, and 19 scripts have one
-    (GhostEffectScript's is empty by design -- the work is in
-    ScriptEffectStart, and the update block exists to keep the effect alive).
-    Gating on a non-empty body dropped the whole event for them.
+    Emitted whenever the script declares a poll block, empty or not: 19 scripts
+    have an empty `begin ScriptEffectUpdate` that keeps the effect alive. Armed
+    twice: a long insurance arm at the top (a runtime error aborts the event)
+    and the real interval at the bottom.
+    See: docs/commentary/script_convert.md#poll-arms
     """
     sc = conv.sc
     if not (sc.has_gamemode or sc.has_scripteffectupdate):
@@ -906,24 +907,6 @@ def poll(conv, tree, extends: str) -> list:
                 + ['    Return', '  EndIf'])
         rearm = QUEST_DELAY_VAR
 
-    # Arm the poll TWICE: an insurance arm at the TOP and the real re-arm at
-    # the BOTTOM.
-    #
-    # The TOP arm is abort insurance ONLY, and it is LONG.  A runtime error
-    # anywhere in the body ("Cannot call X on a None object", a bad cast)
-    # ABORTS the event at that line, and with only a bottom re-register one
-    # abort silently killed the poll for the rest of the game -- the
-    # intermittent "the NPCs just stand there" class of failure.
-    #
-    # It must NOT arm at the real interval.  RegisterForSingleUpdate counts
-    # from NOW, so a top arm at `interval` starts the next pass `interval`
-    # after this one STARTED -- and a pass whose body takes longer than that
-    # (MQ01Script's tutorial poll: ~15 latent natives per 0.1s tick) overlaps
-    # itself, every overlap slows the VM further, and the pile grows without
-    # bound.  Measured in game 251 concurrent OnUpdate stacks, End
-    # fragments of 1-2s lines running 19-24s late.  A 5s insurance arm bounds
-    # the overlap to one extra stack per 5s of blocking, and any pass that
-    # finishes replaces it with the real interval.
     out += _arm(conv, _INSURANCE_SECS, load_gated) + _pass_guard(extends)
 
     passes = _menu_passes(conv, tree)
@@ -991,11 +974,12 @@ def _poll_body(conv, tree, extends: str, interval: str, load_gated: bool) -> lis
     out += _elapsed_prologue(conv, interval)
     out += _glide_prologue(sc)
 
+    split = is_fallout4() and not _menu_hold(conv, tree, extends)
     for block in (tree.blocks if tree else ()):
         btype = block.btype.lower()
         if btype in POLL_BLOCKS or (btype == 'menumode'
                                      and _menumode_kind(block) == 'poll'):
-            out += _script.emit_body(conv, block.body, extends, 1)
+            out += _menu_gated(conv, block, extends, split)
 
     # Stage-arrival latches: record the stage each guarded quest is on NOW, so
     # the next pass can tell "we have already seen this stage" from "it just
@@ -1005,6 +989,17 @@ def _poll_body(conv, tree, extends: str, interval: str, load_gated: bool) -> lis
         quest = var[len('TES4_LastStage_'):]
         out.append(f'  {var} = {quest}.GetStage()')
     return out
+
+
+def _menu_gated(conv, block, extends: str, split: bool) -> list:
+    """A polled block's body; with `split`, MenuMode runs on FO3/FNV's menu frames (MenuFrame), the rest outside menus.
+
+    See: docs/commentary/script_convert.md#bare-menumode-on-fallout-4
+    """
+    if not split:
+        return _script.emit_body(conv, block.body, extends, 1)
+    test = 'TES4Polyfill.MenuFrame()' if block.btype.lower() == 'menumode' else '!TES4Polyfill.InMenuMode()'
+    return [f'  If {test}'] + _script.emit_body(conv, block.body, extends, 2) + ['  EndIf']
 
 
 def _menu_hold(conv, tree, extends: str) -> list:
@@ -1182,7 +1177,7 @@ def lifecycle(conv, tree, extends: str) -> list:
     start = polls + ([f'  {HIT_REGISTRATION}'] if hits else []) + (death_registration() if deaths else [])
     if sleeps:
         start.append(f'  {sleep_registration(True)}')
-    start += [f'  {menu_registration(m)}' for m in menus]
+    start += [f'  {line}' for m in menus for line in menu_registrations(m)]
 
     if extends not in ('ObjectReference', 'Actor'):
         restart = ['Event OnQuestInit()'] + polls + ['EndEvent', ''] if polls and _delayed_quest(extends) else []
@@ -1503,7 +1498,7 @@ def menu_blocks(conv, tree, extends: str) -> list:
     """
     blocks = [b for b in (tree.blocks if tree else ())
               if b.btype.lower() == 'menumode' and _menumode_kind(b) == 'menu']
-    out, arms = message_box_closed(conv, blocks, extends), []
+    out, arms, menus = message_box_closed(conv, blocks, extends), [], set()
     for block in blocks:
         if conv.sc.msgbox_hook and _is_message_box(block) or is_fallout4() and _is_dialogue_menu(block):
             continue
@@ -1513,13 +1508,17 @@ def menu_blocks(conv, tree, extends: str) -> list:
             out.append('; --- TES4 `begin %s` - no Skyrim equivalent; body preserved but NOT executed ---' % label)
             out += [';  %s' % ln.strip() for ln in body if ln.strip()] + ['']
             continue
+        menus.add(menu)
         arms += [f'  ; TES4 `begin {label}` - runs when {menu} closes',
                  f'  If TES4_MenuName == "{target_menu_name(menu)}"'] + body + ['  EndIf']
     if not arms:
         return out
     out += [event_opener('Event OnMenuClose(String TES4_MenuName)')] + menu_close_guard()
     out += ['  If (!IsRunning())', '    Return', '  EndIf'] if extends == 'Quest' else []
-    return out + arms + ['EndEvent', '']
+    skipped = race_menu_skipped(menus)
+    if skipped:
+        conv.sc.property_refs[CONTROLS_PROPERTY] = CONTROLS_SCRIPT
+    return out + arms + ['EndEvent', ''] + skipped
 
 
 def _is_message_box(block) -> bool:

@@ -21,9 +21,10 @@ KEPT = (b'PRPS', b'DATA')
 class Classes:
     """The FO4 classes made for the FNV classes `lines` test, each written once through `builder`."""
 
-    def __init__(self, builder, lines, names: dict, citizen: int):
-        """The `names` classes `lines` test; any other maps to `citizen`."""
+    def __init__(self, builder, lines, names: dict, citizen: int, health: dict = None):
+        """`names` classes `lines` test; others: `citizen`. Copies join `health`."""
         self.builder, self.citizen, self.names, self.made = builder, citizen, names, {}
+        self.health = {} if health is None else health
         self.tested = {c['p1'] for line in lines for c in parsed(line) if c['func'] == TEST} & names.keys()
 
     def of(self, fnv: int) -> int:
@@ -45,6 +46,7 @@ class Classes:
         fid = self.builder.fnv_id(fnv)
         edid = pack_subrecord('EDID', f'FNV_{self.names[fnv]}'.encode('cp1252') + b'\0')
         self.builder.writer.add_record('CLAS', pack_fo4_record('CLAS', fid, 0, edid + kept))
+        self.health[fid] = self.health.get(self.citizen, 0.0)
         self.builder.counts['CLAS (tested by a line)'] += 1
         return fid
 

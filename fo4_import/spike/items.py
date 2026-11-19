@@ -48,6 +48,8 @@ CONTAINER_FLAGS = 0x2
 TYPE_LIST_CODES = {name: code for code, name in ITEM_TYPE_LISTS.items()}
 #: Cell builder maps {FNV FormID: FO4 FormID} of the non-item forms it has made, which a form list may hold.
 BUILT_MAPS = ('made', 'actor_refs', 'npc_ids', 'globals', 'factions')
+#: FNV leveled list flag Use All: every entry is given.
+USE_ALL = 0x4
 
 
 def _edid(rec) -> str:
@@ -140,6 +142,21 @@ class Items:
             return sig == 'ARMO'
         entries = _list(rec, 'Entry', ('FormID',))
         return bool(entries) and all(self.wearable(entry, seen + (fnv_fid,)) for (entry,) in entries)
+
+    def given(self, fnv_fid: int, count: int, condition: 'float | None', seen: tuple = ()) -> list:
+        """[(FNV item, count, condition)] an inventory entry gives: a Use All list with no chance none as its
+        entries' (always all given; an entry's own condition, else `condition`), any other item as itself.
+        See: docs/fork/fo4_pipeline.md#outfit-slots
+        """
+        sig, rec = self.records.get(fnv_fid, (None, None))
+        if sig != 'LVLI' or fnv_fid in seen or not int(rec.get('LVLF.Flags', 0)) & USE_ALL \
+                or int(rec.get('LVLD.ChanceNone', 0)):
+            return [(fnv_fid, count, condition)]
+        out = []
+        for i, (fid, n) in enumerate(_list(rec, 'Entry', ('FormID', 'Count'))):
+            own = condition_of(fnv_fid, i)
+            out += self.given(fid, count * n, condition if own is None else own, seen + (fnv_fid,))
+        return out
 
     def item(self, fnv_fid: int) -> 'int | None':
         """The FO4 record for an FNV item, leveled item or container; None when its type is not converted."""

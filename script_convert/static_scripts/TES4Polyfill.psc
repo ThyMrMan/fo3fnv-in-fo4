@@ -1540,11 +1540,17 @@ Function LineBegan(ObjectReference akSpeakerRef, Float afLength) Global
   ; player, so PlayerIsInDialogue() can ask that actor whether the menu is
   ; still open (Skyrim has no direct "is the player in dialogue" query).
   If akSpeakerRef.IsInDialogueWithPlayer()
-    Int fid = (akSpeakerRef as Form).GetFormID()
-    Actor p = Game.GetPlayer()
-    p.SetActorValue("Variable05", Math.Floor(fid / 65536) as Float)
-    p.SetActorValue("Variable06", (fid - Math.Floor(fid / 65536) * 65536) as Float)
+    _StampTalker(akSpeakerRef)
   EndIf
+EndFunction
+
+; The speaker PlayerIsInDialogue() asks: its FormID in two halves on the
+; player (Variable05/06), as an actor value float cannot hold all 32 bits.
+Function _StampTalker(ObjectReference akSpeakerRef) Global
+  Int fid = (akSpeakerRef as Form).GetFormID()
+  Actor p = Game.GetPlayer()
+  p.SetActorValue("Variable05", Math.Floor(fid / 65536) as Float)
+  p.SetActorValue("Variable06", (fid - Math.Floor(fid / 65536) * 65536) as Float)
 EndFunction
 
 ; OnEnd fragment hook: the line (all of its responses) has finished -- or was

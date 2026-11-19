@@ -250,7 +250,7 @@ class CellBuilder:
             self.writer.reserve_source_ids({self.ids.fo4(fid) for fid in self.fnv_types if self.ids.is_own(fid)})
         self.in_masters = held_by(self.built, self.masters) if self.built else None
         self.made, self.meshes, self.items, self.activators, self.scripts = {}, {}, None, None, None
-        self.faulted = set()
+        self.faulted, self.plugin_file = set(), ''
         self.actor_ids, self.npc_ids, self.say, self.packages, self.objectives = {}, {}, None, None, {}
         self.quest_vars, self.actor_refs, self.own_refs, self.master_owners = {}, {}, None, {}
         self.globals, self.factions, self.zones, self.places, self.regions = {}, {}, {}, {}, {}
@@ -658,19 +658,18 @@ def _base_type(builder: CellBuilder, fnv: int) -> str:
 
 
 def _placed_at(builder: CellBuilder, ref: dict) -> tuple:
-    """(position, rotation) of FNV reference `ref`; a terminal's heading takes back its mesh's turn (Terminals.turn;
-    a tilted one, counted, only about Z), a converted gun its mesh's (guns.turned).
+    """(position, rotation) of FNV reference `ref`; a terminal or converted gun takes back its mesh's move
+    (Terminals.move, Guns.turn) through guns.turned.
     See: docs/fork/fo4_spikes.md#placed-guns
     """
     pos, rot = place(ref)
     readables = getattr(builder, 'readables', None)
-    turn = readables.terminals.turn(ref) if readables else 0.0
-    builder.counts['terminal tilted, turned about Z only'] += bool(turn and (rot[0] or rot[1]))
+    move = readables.terminals.move(ref) if readables else None
     fnv, equipment = int(ref['NAME'], 16), getattr(builder, 'equipment', None)
-    if equipment is None or fnv not in equipment.weapon_ammo:
-        return pos, (rot[0], rot[1], rot[2] + turn)
-    builder.counts['placed guns turned as their mesh'] += 1
-    return turned(pos, rot, float(ref.get('XSCL.Scale', 1.0)), equipment.guns.turn(fnv))
+    if equipment is not None and fnv in equipment.weapon_ammo:
+        builder.counts['placed guns turned as their mesh'] += 1
+        move = equipment.guns.turn(fnv)
+    return (pos, rot) if move is None else turned(pos, rot, float(ref.get('XSCL.Scale', 1.0)), move)
 
 
 def _lock(builder: CellBuilder, ref: dict) -> bytes:
@@ -790,13 +789,8 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
                             rec['EditorID'] not in HAND_STARTED, radio[0], radio[3])
                for fid, rec, _branches, _blobs, talks, radio in done]
     built, pending = _greetings(builder, say, form_map, shared)
-    for (fid, rec, branches, blobs, talks, radio), record in zip(done, records):
-        built |= {prop for prop, scene in list(builder.scripts.talks.items())
-                  if prop not in built and talks.talk(prop, scene)}
-        builder.writer.add_record('QUST', pack_quest(record, fid, branches, blobs + talks.topics,
-                                                     talks.scenes + radio[2]))
-        builder.counts['QUST'] += 1
-        builder.counts['SCEN'] += len(talks.scenes)
+    for item, record in zip(done, records):
+        built |= _write_quest(builder, item, record, built)
     for prop in set(builder.scripts.talks) - built:
         builder.counts[f'{prop}: no lines in the cell quests'] += 1
     ActorDialogue(builder, say, form_map, shared).write()
@@ -808,6 +802,23 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
         builder.writer.add_record('QUST', say.once.record())
         builder.counts['Say Once markers'] = len(say.once.stages)
     builder.talkers.write(form_map)
+
+
+def _write_quest(builder: CellBuilder, item: tuple, record: bytes, built: set) -> set:
+    """Write cell quest `item` (FormID, FNV quest, branches, topics, Conversations, radio) as `record` once its
+    scenes are built, then each NPC chat's own quest; the `TES4Talk_<topic>` properties it built not in `built`.
+    See: docs/fork/fo4_pipeline.md#chat-quests
+    """
+    fid, rec, branches, blobs, talks, radio = item
+    found = {prop for prop, scene in list(builder.scripts.talks.items()) if prop not in built and talks.talk(prop, scene)}
+    builder.writer.add_record('QUST', pack_quest(record, fid, branches, blobs + talks.topics, talks.scenes + radio[2]))
+    builder.counts['QUST'] += 1
+    builder.counts['SCEN'] += len(talks.scenes)
+    for chat_fid, edid, chat in talks.chats:
+        _greetings_quest(builder, (chat_fid, edid), int(rec.get('DATA.Priority', 0) or 0), chat.topics, chat.scenes)
+        builder.counts['QUST (an NPC chat of its own)'] += 1
+        builder.counts['SCEN'] += len(chat.scenes)
+    return found
 
 
 def _hub(builder: CellBuilder, export_dir: Path, say: SayTopics, recs: list, quests: dict, form_map: dict) -> Hub:
@@ -1071,11 +1082,11 @@ def _world_groups(builder: CellBuilder, worlds: list, placing: tuple) -> None:
 
 @timed('renamed files')
 def _renamed(builder: CellBuilder, data_dir: Path, plugin: str) -> None:
-    """Write `plugin` as a master when it is an .esm; move the voice and FaceGen folders an older build filed
-    under its other extension, and drop that plugin file (plugin_rename).
+    """Name the build `plugin` (plugin_file), written as a master when it is an .esm; move the voice and FaceGen
+    folders an older build filed under its other extension, and drop that plugin file (plugin_rename).
     See: docs/fork/fo4_plugin_layout.md#saves
     """
-    builder.writer.is_esm = is_master(plugin)
+    builder.plugin_file, builder.writer.is_esm = plugin, is_master(plugin)
     staged, sounds = staging_root(data_dir), sound_root(data_dir)
     parents = [data_dir / folder for folder in facegen.FACEGEN_DIRS] + [
         staged / facegen.FACEGEN_DIRS[1], sounds / 'Sound' / 'Voice', sounds / VOICE_CACHE, data_dir / 'Sound' / 'Voice']

@@ -139,13 +139,18 @@ class Sounds:
         return self.descriptor(int(rec[key], 16)) if rec.get(key) else 0
 
     def _files(self, rec: dict) -> list:
-        """The FNV sound files of SOUN `rec` (paths under Data\\Sound): its file, or every file of its folder."""
-        name = rec.get('FNAM.Filename', '').replace('\\', '/').strip('/')
-        source = export_file(self.export_dir, 'sound', name.lower())
+        """The FNV sound files of SOUN `rec` (paths under Data\\Sound): its file, or every file of its folder. A
+        file missing as named is its stem with another AUDIO extension, as the engine falls back (.wav named, .ogg
+        shipped: FNV's music stingers).
+        See: docs/fork/fo4_pipeline.md#sound-properties
+        """
+        name = rec.get('FNAM.Filename', '').replace('\\', '/').strip('/').lower()
+        source = export_file(self.export_dir, 'sound', name)
         if source.is_dir():
-            return sorted(f'{name.lower()}/{p.name}' for p in source.iterdir()
-                          if p.suffix.lower() in AUDIO)
-        return [name.lower()] if source.is_file() else []
+            return sorted(f'{name}/{p.name}' for p in source.iterdir() if p.suffix.lower() in AUDIO)
+        stem = name.rsplit('.', 1)[0] if '.' in name.rsplit('/', 1)[-1] else name
+        found = [f for f in (name, *(stem + ext for ext in AUDIO)) if export_file(self.export_dir, 'sound', f).is_file()]
+        return found[:1]
 
     def song(self, fnv: int, file: str) -> int:
         """FNV song SOUN `fnv` as a radio song SNDR playing `file`, made once."""

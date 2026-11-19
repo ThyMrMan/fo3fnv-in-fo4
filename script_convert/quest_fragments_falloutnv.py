@@ -9,6 +9,7 @@ result script only under its conditions, written back as FO3 script text
 See: docs/fork/fo4_pipeline.md#stage-items
 """
 
+import re
 import struct
 from functools import cache
 
@@ -26,6 +27,8 @@ VARIABLES, GLOBAL_VALUE = frozenset({'GetQuestVariable', 'GetScriptVariable'}), 
 PLAYER_REF, PLAYER = 0x14, 'player'
 #: The guard of an item whose conditions cannot be written: it never runs.
 NEVER = '0'
+#: A line opening or closing an FO3 script block.
+BLOCK = re.compile(r'(if|elseif|else|endif|begin|end)\b')
 
 
 @cache
@@ -96,6 +99,26 @@ def item_guard(rec: dict, prefix: str, xref) -> str:
 def guarded(script: str, guard: str) -> str:
     """FO3 result `script` run only when `guard` holds ('' : always)."""
     return f'if {guard}\n{script}\nendif' if guard and script.strip() else script
+
+
+def aged_first(script: str) -> str:
+    """FO3 `script` with each AgeRace line moved ahead of the EquipItem lines before it in its block: FO3 equips
+    whatever the race, FO4 only what the actor's race can wear (CG02's adult suit, equipped on the child).
+    See: docs/fork/fo4_fo3_child_player.md#age-then-equip
+    """
+    out, equips = [], []
+    for line in script.splitlines():
+        code = line.split(';', 1)[0].strip().lower()
+        if BLOCK.match(code):
+            equips = []
+        elif 'agerace' in code and equips:
+            out.insert(equips[0], line)
+            equips = [k + 1 for k in equips]
+            continue
+        elif 'equipitem' in code and 'unequipitem' not in code:
+            equips.append(len(out))
+        out.append(line)
+    return '\n'.join(out)
 
 
 def stage_calls(fragments: list) -> dict:

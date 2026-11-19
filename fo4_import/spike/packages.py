@@ -22,9 +22,9 @@ from fo4_import.spike.say_topics import blocker, conditions_of
 from fo4_import.spike.readiness import PACKAGE_LEFT_OUT
 from fo4_import.spike.records import pack_flst
 from fo4_import.spike.script import PACKAGE, QUEST, declared_properties, prefix
-from script_convert.constants import FALLOUT4_ACTOR_VALUE_IDS, FALLOUT4_CHAT_PREFIX
-from script_convert.package_events import (DAY_DONE, ONCE_PER_DAY, WALK_DONE, WALK_PLACE, WALK_REACH, WALK_TRIGGER,
-                                           day_marked, package_hooks, quest_gated)
+from script_convert.constants import FALLOUT4_ACTOR_VALUE_IDS, FALLOUT4_CHAT_PREFIX, FALLOUT4_WALK_PREFIX
+from script_convert.package_events import (DAY_DONE, ONCE_PER_DAY, WALK_DONE, WALK_FILE, WALK_PLACE, WALK_REACH,
+                                           WALK_SCENE, WALK_TRIGGER, daily, day_marked, package_hooks, quest_gated)
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.packages.scripts_falloutnv import package_flags, says_to_player
@@ -35,13 +35,16 @@ from tes5_import.record_types.navm_falloutnv import parse_vertices
 #: Vanilla instances copied per template, inputs in its order at its defaults; their conditions give way to FNV's.
 INSTANCES = {'Travel': 0x248982, 'Sit': 0x2471DB, 'Sandbox': 0x24674E, 'ForceGreet': 0x1BEAD3, 'Sleep': 0x1B9EB0,
              'Eat': 0x1AE26C, 'HoldPosition': 0x2491F8, 'Patrol': 0x248492, 'FollowNPC': 0x232257,
-             'FleeTo': 0x204C1D, 'FleeFrom': 0x1D4388, 'UseWeapon': 0x19632E, 'EscortPlayer': 0x112EED}
+             'FleeTo': 0x204C1D, 'FleeFrom': 0x1D4388, 'UseWeapon': 0x19632E, 'EscortPlayer': 0x112EED,
+             'SitFoundRef': 0x08CA6A}
+#: FNV PKDT type Find, and its PTDT object type Furniture (wbObjectTypeEnum, the same code in FO3 and FNV).
+FNV_FIND, FURNITURE_TYPE = '0', '11'
 #: A copy's first input from FNV: its location, its target, its location as a Patrol start, or the template's.
 PLACE, TARGET, START, KEEP = 'place', 'target', 'start', 'keep'
-#: FNV PKDT type: (FO4 template, first input). Wander sandboxes; Guard holds its position; Patrol walks linked refs.
+#: FNV PKDT type: (FO4 template, first input). Wander sandboxes; Patrol walks linked refs; Guard and Ambush: stay().
 PLANS = {'1': ('FollowNPC', TARGET), '7': ('FollowNPC', TARGET), '3': ('Eat', PLACE), '4': ('Sleep', PLACE), '5': ('Sandbox', PLACE),
          '6': ('Travel', PLACE), '8': ('Sit', TARGET), '12': ('Sandbox', PLACE), '13': ('Patrol', START),
-         '14': ('HoldPosition', PLACE), '15': ('ForceGreet', PLACE)}
+         '15': ('ForceGreet', PLACE)}
 FNV_SLEEP, FNV_TRAVEL, FNV_DIALOGUE, FNV_FLEE, FNV_AMBUSH, FNV_GUARD = '4', '6', '15', '10', '9', '14'
 #: FNV PKDT type Escort: lead its target (PTDT) to its location; FO4 EscortPlayer's Target to Escort input.
 FNV_ESCORT, ESCORTED_INPUT = '2', 1
@@ -73,6 +76,8 @@ SANDBOX_TYPES = ('5', '12')
 #: FO4 Sandbox Allow inputs and the FNV type-specific No flag each negates (No Furniture covers both seats).
 ALLOWS = {'Allow Eating': 0x1, 'Allow Sleeping': 0x2, 'Allow Conversation': 0x4, 'Allow Idle Markers': 0x8,
           'Allow Sitting': 0x10, 'Allow Special Furniture': 0x10, 'Allow Wandering': 0x20}
+#: The No flags of a Guard's Sandbox copy: all but No Wandering, as an FNV Guard with a radius only wanders in it.
+GUARD_NO_FLAGS = 0x1F
 #: FNV PLDT location types near a reference and near the actor's linked reference, as the export writes them.
 NEAR_LOCATION, NEAR_LINKED = '0', '6'
 #: FNV FURN MNAM flag of sleep furniture.
@@ -213,7 +218,8 @@ class Packages:
             rec = self.packs[fnv]
             plan = self._plan(rec, form_map, npc)
             form_map.update({} if isinstance(plan, str) else condition_items(self.builder, [rec], form_map))
-            conditions = conditions_of(rec, form_map, self.builder.script_vars)
+            target = target_reference(rec, form_map)
+            conditions = conditions_of(rec, form_map, self.builder.script_vars, reference=target)
             if isinstance(plan, str) or conditions is None:
                 why = plan if isinstance(plan, str) else f'condition {blocker(rec, form_map, self.builder.script_vars)}'
                 self.builder.counts[f'package left out ({why})'] += 1
@@ -241,15 +247,15 @@ class Packages:
 
     def _write(self, fnv: str, rec: dict, plan: tuple, conditions: bytes, form_map: dict) -> int:
         """Write FNV package `rec`'s copy by `plan` (_plan) with `conditions`; an FNV Guard kept through combat
-        (CONTINUE_DURING_COMBAT) also gets a combat override copy, without fragments; a ForceGreet is numbered and
-        parked (GreetOnce). The copy's FormID."""
+        (CONTINUE_DURING_COMBAT) also gets a HoldPosition combat override copy, without fragments; a ForceGreet is
+        numbered and parked (GreetOnce). The copy's FormID."""
         template, fid = plan[0], self.builder.fnv_id(fnv)
         number = self.once.walk_number() if says_to_player(rec) else self.once.number(fid) if template == 'ForceGreet' else 0
         values = {0: plan[2]} if len(plan) > 2 else self._values(rec, template)
         inputs = {'ForceGreet': self._trigger, 'UseWeapon': self._weapon, 'EscortPlayer': self._escorted}.get(
             template, lambda *_: {})(rec, form_map)
         own = self.once.unspoken(number) if number else b''
-        own += self.once.undone(rec) if day_marked(rec) else b''
+        own += self.once.undone(rec) if day_marked(rec) or self._chat(rec) and daily(rec) else b''
         args = (self.vanilla[template], plan[1], conditions + own)
         self.builder.writer.add_record('PACK', pack_package(fid, rec, *args, self._fragments(rec, form_map, number),
                                                             values, inputs, idles=self._event_idles(rec)))
@@ -259,7 +265,8 @@ class Packages:
         if rec.get('PKDT.Type') == FNV_GUARD and fnv_flags(rec) & CONTINUE_DURING_COMBAT:
             self.combat[fnv] = held = self.builder.writer.derive_formid(COMBAT_SITE, int(fnv, 16))
             self.builder.writer.add_record('PACK', pack_package(held, {**rec, 'EditorID': rec['EditorID'] + 'Combat'},
-                                                                *args, b'', values, inputs, COMBAT_OVERRIDE))
+                                                                self.vanilla['HoldPosition'], *args[1:], b'',
+                                                                override=COMBAT_OVERRIDE))
             self.builder.counts['PACK HoldPosition (combat override)'] += 1
         if number:
             self._park(fnv, rec, number, conditions)
@@ -333,12 +340,15 @@ class Packages:
         return {slot: struct.pack('<f', distance)} if distance else {}
 
     def _allows(self, rec: dict) -> dict:
-        """{value slot: Bool} of an FNV Sandbox or Wander `rec`'s copy: each FO4 Allow input from FNV's No flag.
+        """{value slot: Bool} of an FNV Sandbox or Wander `rec`'s copy: each FO4 Allow input from FNV's No flag;
+        a Guard's copy only wanders (GUARD_NO_FLAGS).
         See: docs/fork/fo4_pipeline.md#sandbox-allows
         """
-        if rec.get('PKDT.Type') not in SANDBOX_TYPES:
+        kind = rec.get('PKDT.Type')
+        if kind not in (*SANDBOX_TYPES, FNV_GUARD):
             return {}
-        flags, slots = int(rec.get('PKDT.TypeFlags', 0) or 0), self.slots['Sandbox']
+        flags = GUARD_NO_FLAGS if kind == FNV_GUARD else int(rec.get('PKDT.TypeFlags', 0) or 0)
+        slots = self.slots['Sandbox']
         return {slots[name]: bytes([not flags & bit]) for name, bit in ALLOWS.items() if name in slots}
 
     def _radii(self, rec: dict) -> dict:
@@ -382,22 +392,27 @@ class Packages:
         """FO4 idles of FNV package `rec`'s OnBegin, OnEnd, OnChange (0: none)."""
         return tuple(self.builder.idles.idle(int(rec[key], 16)) or 0 if rec.get(key) else 0 for key in EVENT_IDLES)
 
+    def _chat(self, rec: dict) -> bool:
+        """Whether NPC chat `rec` (talks_to_npc) has no script blocks of its own."""
+        return talks_to_npc(rec) and not package_flags(rec, self.hooks.get(rec['FormID'].upper(), {}))
+
     def _fragments(self, rec: dict, form_map: dict, number: int = 0) -> bytes:
         """VMAD binding FNV package `rec`'s converted PF_ script, filled (a SayTo to the player's walk_up properties:
-        its GreetOnce `number`, its trigger_area, place -1 without one); a cower's (cowers()) COWER_SCRIPT; a Dialogue with an NPC's DIALOGUE_SCRIPT, its
-        topic's chat scene and target; b'' without any."""
+        its GreetOnce `number`, its trigger_area, place -1 without one); a cower's (cowers()) COWER_SCRIPT; a _chat's
+        DIALOGUE_SCRIPT, its topic's chat scene, target and, when daily, its day_faction; b'' without any."""
         flags, name = package_flags(rec, self.hooks.get(rec['FormID'].upper(), {})), prefix(PACKAGE) + rec['FormID'].upper()
         scripts = self.builder.scripts
         if cowers(rec) and not flags:
             self.builder.counts['cower package'] += 1
             return pack_subrecord('VMAD', package_fragments(COWER_SCRIPT, COWER_FRAGMENTS,
                                                             {'Confidence': FALLOUT4_ACTOR_VALUE_IDS['Confidence']}))
-        if talks_to_npc(rec) and not flags:
+        if self._chat(rec):
             self.builder.counts['dialogue package with an NPC'] += 1
+            self.builder.counts['dialogue package with an NPC, once a day'] += daily(rec)
             chat = scripts.talk(FALLOUT4_CHAT_PREFIX + self.topic_names[rec['PKDD.Topic'].upper()])
-            target = form_map[int(rec['PTDT.Target'], 16)]
-            return pack_subrecord('VMAD', package_fragments(DIALOGUE_SCRIPT, DIALOGUE_FRAGMENTS,
-                                                            {'Chat': chat, 'Target': target}))
+            props = {'Chat': chat, 'Target': form_map[int(rec['PTDT.Target'], 16)]}
+            props.update({DAY_DONE: self.once.day_faction(rec)} if daily(rec) else {})
+            return pack_subrecord('VMAD', package_fragments(DIALOGUE_SCRIPT, DIALOGUE_FRAGMENTS, props))
         if not flags or not scripts.dir or not (scripts.dir / f'{name}.psc').exists():
             return b''
         scripts.used.append(name)
@@ -407,7 +422,9 @@ class Packages:
         if says_to_player(rec):
             place, form, reach = self.trigger_area(rec, form_map) or (-1, 0, 0)
             props.update({WALK_TRIGGER: form} if form else {})
-            values = {WALK_DONE: ('int', number), WALK_PLACE: ('int', place), WALK_REACH: ('float', float(reach))}
+            values = {WALK_DONE: ('int', number), WALK_PLACE: ('int', place), WALK_REACH: ('float', float(reach)),
+                      WALK_SCENE: ('int', props.get(FALLOUT4_WALK_PREFIX + rec['FormID'].upper(), 0) & 0xFFFFFF),
+                      WALK_FILE: ('string', self.builder.plugin_file)}
         return pack_subrecord('VMAD', package_fragments(name, flags, props, values))
 
     def _plan(self, rec: dict, form_map: dict, npc: int) -> 'tuple | str':
@@ -417,15 +434,12 @@ class Packages:
         See: docs/fork/fo4_pipeline.md#packages
         """
         kind = rec.get('PKDT.Type')
-        if kind == FNV_FLEE:
-            return self._flee(rec, form_map)
-        if kind == FNV_AMBUSH:
-            template = 'HoldPosition' if not int(rec.get('PLDT.Radius', 0) or 0) else 'Sandbox'
-            return self._at(rec, kind, template, form_map)
-        if kind == FNV_USE_WEAPON:
-            return self._use_weapon(rec, form_map)
-        if kind == FNV_ESCORT:
-            return self._escort(rec, form_map)
+        special = {FNV_FLEE: self._flee, FNV_USE_WEAPON: self._use_weapon, FNV_ESCORT: self._escort,
+                   FNV_FIND: self._find}.get(kind)
+        if special:
+            return special(rec, form_map)
+        if kind in (FNV_GUARD, FNV_AMBUSH):
+            return self._at(rec, kind, stay(rec), form_map)
         if kind not in PLANS:
             return f'type {FNV_TYPES.get(kind, kind)}'
         if talks_to_npc(rec) or says_to_player(rec):
@@ -461,6 +475,15 @@ class Packages:
         if rec.get('PTDT.Type') != str(TARGET_REFERENCE) or int(rec.get('PTDT.Target', '0') or '0', 16) not in form_map:
             return 'escort target not built'
         return self._at(rec, FNV_ESCORT, 'EscortPlayer', form_map)
+
+    def _find(self, rec: dict, form_map: dict) -> 'tuple | str':
+        """(SitFoundRef, PLDT payload) of FNV Find `rec` aimed at a furniture type: vanilla's sit in a chair found
+        near its location (Target Selector Furniture: Chairs, kept from the instance); why not, otherwise.
+        See: docs/fork/fo4_pipeline.md#find-furniture
+        """
+        if rec.get('PTDT.Type') != str(TARGET_TYPE) or rec.get('PTDT.Target') != FURNITURE_TYPE:
+            return 'find target not furniture'
+        return self._at(rec, FNV_FIND, 'SitFoundRef', form_map)
 
     def _talk_to(self, rec: dict, form_map: dict) -> 'tuple | str':
         """(template, PLDT payload) of FNV Dialogue `rec`: to an NPC, a Travel to it (_toward), whose arrival plays
@@ -604,6 +627,16 @@ def walk_package(writer, fnv: str) -> int:
     return writer.derive_formid(WALK_SITE, int(fnv, 16))
 
 
+def target_reference(rec: dict, form_map: dict) -> 'int | None':
+    """The built reference FNV package `rec` targets (PTDT), the one its Run On Target tests test; None without one.
+    See: docs/fork/fo4_pipeline.md#package-target
+    """
+    if rec.get('PTDT.Type') != str(TARGET_REFERENCE):
+        return None
+    target = int(rec['PTDT.Target'], 16)
+    return form_map.get(target, target)
+
+
 def talks_to_npc(rec: dict) -> bool:
     """True for a Dialogue package aimed at a reference other than the player."""
     return rec.get('PKDT.Type') == FNV_DIALOGUE and rec.get('PTDT.Target') != PLAYER_TARGET
@@ -612,6 +645,13 @@ def talks_to_npc(rec: dict) -> bool:
 def cowers(rec: dict) -> bool:
     """True for a Flee Not Combat with no location or target (it cowers)."""
     return rec.get('PKDT.Type') == FNV_FLEE and 'PLDT.Type' not in rec and 'PTDT.Type' not in rec
+
+
+def stay(rec: dict) -> str:
+    """Guard or Ambush `rec`'s template: Sandbox within its radius, else Travel.
+    See: docs/fork/fo4_pipeline.md#guard-goes-to-its-post
+    """
+    return 'Sandbox' if int(rec.get('PLDT.Radius', 0) or 0) else 'Travel'
 
 
 def fnv_flags(rec: dict) -> int:

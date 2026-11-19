@@ -11,6 +11,8 @@ side reads them (tes5_import actors_falloutnv). FNV marks an NPC or
 creature placed dead on its record (STARTS_DEAD_FNV); FO4 on the placed
 actor (STARTS_DEAD). An actor whose FNV script resets its health when hit
 (hit_proof_scripts) is Protected: FO4's hit lands before a script's reset.
+FO4 adds its race's (and class's, or level) health to the actor's own
+(added_health), which the converted actor's Health takes off.
 
 See: docs/fork/fo4_pipeline.md#npcs
 """
@@ -19,6 +21,7 @@ import functools
 import re
 import struct
 from pathlib import Path
+from typing import NamedTuple
 
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import subrecords
@@ -30,8 +33,12 @@ from tes5_import.record_types.actors_falloutnv import aggro_radius, aidt_tiers, 
 IS_GHOST, INVULNERABLE = 0x20000000, 0x80000000
 #: FNV creature ACBS Allow PC Dialogue (bit 21); FO4 keeps it on the race.
 ACBS_ALLOW_PC_DIALOGUE = 0x200000
+#: ACBS Auto-calc stats and PC Level Mult (the level is a multiplier of the player's), FNV's and FO4's alike.
+AUTO_CALC, PC_LEVEL_MULT = 0x10, 0x80
 #: FNV ACBS flags FO4 defines alike: an NPC's Female, Essential, Respawn, Auto-calc, PC Level Mult; a creature's 5.
-NPC_FLAGS, CREATURE_FLAGS = 0x1 | 0x2 | 0x8 | 0x10 | 0x80, 0x2 | 0x8 | 0x80 | IS_GHOST | INVULNERABLE
+NPC_FLAGS, CREATURE_FLAGS = 0x1 | 0x2 | 0x8 | AUTO_CALC | PC_LEVEL_MULT, 0x2 | 0x8 | 0x80 | IS_GHOST | INVULNERABLE
+#: Fallout4.esm's Health actor value; the Health FO4 adds to an Auto-calc NPC per level past 1 (fNPCHealthLevelBonus).
+HEALTH, LEVEL_HEALTH = 0x2D4, 5.0
 #: A creature's flags FNV keeps under Base Data, not Stats: Essential, Respawn, Is Ghost, Invulnerable.
 BASE_DATA_FLAGS = 0x2 | 0x8 | IS_GHOST | INVULNERABLE
 #: The body's ACBS flags a copy drops besides those: Protected, and Unique, which FNV has no flag for.
@@ -46,6 +53,27 @@ STARTS_DEAD = 0x200
 LEVEL_AT = 6
 #: An FNV OnHit block (to its END) that resets the actor's health.
 RESET_ON_HIT = re.compile(r'(?ims)^\s*begin\s+onhit\b(?:(?!^\s*end\b).)*\bresethealth\b')
+
+
+class StatTables(NamedTuple):
+    """Fallout4.esm's {RACE or CLAS: Health (PRPS)} and {RACE: its unarmed weapon's base damage}."""
+    health: dict
+    race_unarmed: dict
+
+
+def added_health(subs: bytes, tables: StatTables) -> float:
+    """The Health FO4 adds to NPC_ `subs`' own: its race's, then with Auto-calc the level bonus (none at PC Level
+    Mult), else its class's.
+    See: docs/fork/fo4_pipeline.md#npc-health
+    """
+    found = dict(subrecords(subs))
+    race, cls = (struct.unpack('<I', found[tag])[0] if tag in found else None for tag in (b'RNAM', b'CNAM'))
+    flags, _, level = struct.unpack_from('<IhH', found[b'ACBS']) if b'ACBS' in found else (0, 0, 1)
+    if flags & AUTO_CALC:
+        extra = 0.0 if flags & PC_LEVEL_MULT else LEVEL_HEALTH * (level - 1)
+    else:
+        extra = tables.health.get(cls, 0.0)
+    return tables.health.get(race, 0.0) + extra
 
 
 @functools.cache

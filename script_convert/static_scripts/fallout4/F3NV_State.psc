@@ -1,14 +1,28 @@
 ScriptName F3NV_State extends Quest
-{Source-game state Fallout 4 does not keep, written by one script and read by others: which actors ignore crime (IgnoreCrime) with the crime faction each had, whether the source game's character generation is on (SetInCharGen), and whether a script is still asking for lines (SayAsked, SaysPending). The helper plugin's start-game quest; TES4Polyfill.IgnoreCrime, GetIgnoreCrime, SetInCharGen and GetInCharGen use it. The oldest of 128 ignoring actors gives way. See docs/fork/fo4_plan_script_functions.md#ignore-crime}
+{Source-game state Fallout 4 does not keep, written by one script and read by others: which actors ignore crime (IgnoreCrime) with the crime faction each had, whether the source game's character generation is on (SetInCharGen), whether a script is still asking for lines (SayAsked, SaysPending), and the speaker of the player's dialogue (Talker, the dialogue gate). The helper plugin's start-game quest; TES4Polyfill.IgnoreCrime, GetIgnoreCrime, SetInCharGen and GetInCharGen use it. The oldest of 128 ignoring actors gives way. See docs/fork/fo4_plan_script_functions.md#ignore-crime}
 
 Bool Property InCharGen Auto
-Bool Property SexChosen Auto
-{A script set the player's sex (TES4Polyfill.SetSex) since the last race menu, which then skips its own sex box.}
 
 Actor[] Ignoring
 Faction[] CrimeFactions
 Int Asking
 Float LastAsked
+ObjectReference Property Talker Auto Hidden
+{The speaker of the last line in the player's dialogue (TES4Polyfill.PlayerIsInDialogue, the dialogue gate).}
+
+Function Talked(ObjectReference akSpeaker)
+  {A line in the player's dialogue began, said by akSpeaker.}
+  Talker = akSpeaker
+EndFunction
+
+Bool Function TalkOver(ObjectReference akSpeaker)
+  {The gate found akSpeaker's talk over: forgotten, True, unless a newer line's speaker has taken its place.}
+  If Talker != akSpeaker
+    Return False
+  EndIf
+  Talker = None
+  Return True
+EndFunction
 
 Function SayAsked(Int aiChange)
   {A TES4Polyfill.SayWhenFree call began (1) or returned (-1).}

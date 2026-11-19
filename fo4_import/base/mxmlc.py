@@ -20,8 +20,15 @@ from asset_convert.ui.swf import Swf
 from core.subprocess_flags import POPEN_FLAGS
 
 REPO = Path(__file__).resolve().parents[2]
+
+
+def main_checkout(repo: Path) -> Path:
+    """`repo`, or the main checkout above it when it is a worktree."""
+    return repo.parents[2] if repo.parent.name == 'worktrees' and repo.parents[1].name == '.claude' else repo
+
+
 #: The Flex SDK 4.16.1 with playerglobal 11.2 (docs/fork/swf_framework.md#mxmlc-setup): F3NV_FLEX, else tools_ext.
-FLEX = Path(os.environ.get('F3NV_FLEX', REPO.parent / 'tools_ext' / 'FlexSDK'))
+FLEX = Path(os.environ.get('F3NV_FLEX', main_checkout(REPO).parent / 'tools_ext' / 'FlexSDK'))
 #: Our shared AS3 library (package f3ui), on every movie's source path.
 LIBRARY = Path(__file__).resolve().parent / 'as3'
 #: Stage, frame rate, background, player and SWF version.

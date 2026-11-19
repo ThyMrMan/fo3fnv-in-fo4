@@ -10,7 +10,7 @@ See: docs/commentary/script_convert.md#quest-fragments
 from script_convert.constants import papyrus_script_name, script_prefix
 from script_convert.converter import ScriptConverter
 from script_convert.cross_ref import CrossRefGraph
-from script_convert.quest_fragments_falloutnv import guarded, item_guard, stage_calls
+from script_convert.quest_fragments_falloutnv import aged_first, guarded, item_guard, stage_calls
 from script_convert.target import is_fallout4
 from script_convert.objective_completion import (
     objective_lines,
@@ -70,7 +70,7 @@ def _fragment_lines(conv, rec: dict, xref, edid: str, frag: tuple,
     """
     stage_idx, log_idx, _text, script_src, completes, i, j = frag
     guard, later = items_run or ('', [])
-    script_src = guarded(script_src or '', guard)
+    script_src = aged_first(guarded(script_src or '', guard))
     preload_stage_scro_refs(conv, rec, xref, i, j)
     conv.set_scro_aliases(resolve_scro_aliases(
         script_src or '', scro_list(rec, f'Stage[{i}].Log[{j}].'), xref))

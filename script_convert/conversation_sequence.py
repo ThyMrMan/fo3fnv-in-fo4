@@ -13,6 +13,7 @@ See: docs/commentary/script_convert.md#sequenced-fragment-surgery
 import re
 import struct
 
+from script_convert.atomic_adds import PREFIX as ADD_PREFIX
 from script_convert.constants import safe_property_name
 from script_convert.tes5.blocks import (
     Kind,
@@ -110,8 +111,16 @@ def _is_state_write(line: str) -> bool:
     return base is None or base.lower() == m.group('lhs').lower()
 
 
+def _step_re(counter: str):
+    """`<counter> = <counter> + n`, or the Fallout 4 adder call `<owner>.TES4Add_<var>((n))` (atomic_adds)."""
+    owner, _, var = counter.rpartition('.')
+    added = rf'|{re.escape(owner)}\.{ADD_PREFIX}{re.escape(var)}\(-?\([\d.]+\)\)' if owner else ''
+    return re.compile(rf'^\s*(?:{re.escape(counter)}\s*=\s*{re.escape(counter)}\s*[-+]\s*[\d.]+{added})\s*(;.*)?$',
+                      re.IGNORECASE)
+
+
 def split_counter_step(lines: list, seq_gate: str) -> tuple:
-    """Split off the `<counter> = <counter> + n` step the gate tests.
+    """Split off the step of the counter the gate tests (_step_re).
 
     Returns (counter_lines, rest) preserving order; ([], lines) when the body
     has no such step, meaning this INFO is not a sequencer.
@@ -120,10 +129,7 @@ def split_counter_step(lines: list, seq_gate: str) -> tuple:
     m = re.match(r'\s*(\S+)\s*==', seq_gate or '')
     if not m:
         return [], list(lines)
-    counter = m.group(1)
-    step = re.compile(
-        r'^\s*' + re.escape(counter) + r'\s*=\s*' + re.escape(counter)
-        + r'\s*[-+]\s*[\d.]+\s*(;.*)?$', re.IGNORECASE)
+    step = _step_re(m.group(1))
     idx = next((i for i, ln in enumerate(lines) if step.match(ln)), None)
     if idx is None:
         return [], list(lines)
@@ -155,7 +161,8 @@ def stepped_gate(seq_gate, counter_step):
     m = re.match(r'(.*?==\s*)(-?[\d.]+)\s*$', seq_gate or '')
     if not m or not counter_step:
         return seq_gate
-    step = re.search(r'([-+])\s*([\d.]+)', counter_step[0].split('=', 1)[1])
+    added = re.search(rf'{ADD_PREFIX}\w+\((-?)\(([\d.]+)\)\)', counter_step[0])
+    step = added or re.search(r'([-+])\s*([\d.]+)', counter_step[0].split('=', 1)[-1])
     if not step:
         return seq_gate
     delta = float(step.group(2))

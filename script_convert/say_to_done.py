@@ -26,10 +26,9 @@ BLOCK_TYPE = 'saytodone'
 
 #: FO4 says bookkeeping: the end fragment's wait, and the call that asks for a line.
 _SETTLED, _SAY_CALL = '  TES4Polyfill.SaysSettled()', 'TES4Polyfill.SayWhenFree('
-#: A block's hold flag: declared, taken before each ask, released before each Return and at the end.
+#: A block's hold flag: declared, taken before each ask (for its speaker), released before each Return and at the end.
 _HELD = 'TES4_SaysHeld'
-_DECLARE, _TAKE, _RELEASE = f'Bool {_HELD} = False', f'{_HELD} = TES4Polyfill.HoldSays({_HELD})', \
-    f'TES4Polyfill.ReleaseSays({_HELD})'
+_DECLARE, _RELEASE = f'Bool {_HELD} = False', f'TES4Polyfill.ReleaseSays({_HELD})'
 _OPENER = re.compile(r'^(Function|Event) ')
 _CLOSERS = frozenset({'EndFunction', 'EndEvent'})
 _RETURN_RE = re.compile(r'^(\s*)Return\b')
@@ -136,9 +135,22 @@ def _held(body: list) -> list:
     out = body[:at] + ['  ' + _DECLARE]
     for line in body[at:]:
         indent = line[:len(line) - len(line.lstrip())]
-        out += [indent + _TAKE] if _SAY_CALL in line else [indent + _RELEASE] if _RETURN_RE.match(line) else []
+        if _SAY_CALL in line:
+            out.append(f'{indent}{_HELD} = TES4Polyfill.HoldSays({_HELD}, {_speaker(line)})')
+        elif _RETURN_RE.match(line):
+            out.append(indent + _RELEASE)
         out.append(line)
     return out + ['  ' + _RELEASE]
+
+
+def _speaker(line: str) -> str:
+    """The first argument (the speaker) of the SayWhenFree call in `line`."""
+    text, depth = line[line.index(_SAY_CALL) + len(_SAY_CALL):], 0
+    for i, char in enumerate(text):
+        depth += (char == '(') - (char == ')')
+        if depth < 0 or (char == ',' and depth == 0):
+            return text[:i].strip()
+    return text.strip()
 
 
 def fragment_calls(hooks, subject: str = 'akSpeakerRef') -> list:

@@ -12,7 +12,7 @@ here, so a later patch can close the gap. Content is never dropped.
 | Scripted conversations | Each line's result says the next; the first line whose conditions pass plays | One scene per run of steps, a phase per step; lines picked by scene order. Pacing between lines is FO4's | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Topic menus | Any number of topics; Tab leaves | XDI menus; a `[Leave]` option stands in for Tab | [spike 1](fo4_spikes.md#spike-1-design) |
 | Vit-o-matic (SPECIAL) | FNV's menu, 40 points, every stat starting at 5 | FO4's SPECIAL menu with `uSPECIALPoints` set to 40; the new game sets each stat to the FNV player record's 5 | [vcg01](fo4_spikes.md#spike-2-vcg01) |
-| Choosing sex | The Reflectron's race menu | A Male/Female box before the Reflectron opens FO4's appearance editor | [vcg01](fo4_spikes.md#spike-2-vcg01) |
+| Choosing sex | The Reflectron's race menu | Fallout 4's own character creation at the mirror, before the source game starts | [character creation](fo4_pipeline.md#character-creation) |
 | Naming the character | The Reflectron's name entry | FO4's SPECIAL menu name field, at the Vit-o-matic | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Skills page | Pip-Boy Skills tab | Spent in our level-up menu, a screen of its own after the Pip-Boy closes ([level-up](fo4_level_up_plan.md#open)); shown on our Pip-Boy SKILLS tab ([tabs](fo4_pipboy_tabs.md)) | [vcg01](fo4_spikes.md#spike-2-vcg01) |
 | Traits | Effects on pick | Picked in our level-up menu's trait page ([tags](fo4_level_up_plan.md#tags)); their effects are the perk conversion's, with its gaps (next row) | [perks](fo4_perks.md#records) |

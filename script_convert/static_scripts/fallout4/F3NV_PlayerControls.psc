@@ -15,22 +15,29 @@ Function Disable(bool abMovement = true, bool abFighting = true, bool abCamSwitc
 EndFunction
 
 Bool CamSwitchLifted
-Message Property ChooseSex Auto
-{Male or Female, asked before the appearance edit: FO4's remake menu cannot change sex, FO3/FNV's race menu could.}
+Bool Property RaceMenuDone Auto
+{Set by F3NV_NewGame as the source game starts: Fallout 4's character creation (the MQ101 mirror) stood in for the
+source game's first race menu, so ShowRaceMenu skips that one.}
+
+CustomEvent RaceMenuSkipped
+Int SkipTimer = 1
+Float SkippedUntil
+;/ How long a skipped race menu counts as open, so one pass of each polled MenuMode body sees it. /;
+Float SkipSeconds = 2.0
 
 Function ShowRaceMenu()
-  {FO3/FNV ShowRaceMenu: the sex (ChooseSex, set through TES4Polyfill.SetSex; skipped once a script set it, as FO3's
-  birth does before its race menu), then FO4's full appearance edit
-  as the vault exit elevator opens it (chargen skeleton, the face data precached for the sex just set as MQ101
-  precaches it, cleared when the menu closes as MQ101PlayerScript clears it, neutral face, third person, the player turned to the
-  camera, LooksMenu mode 1). The menu needs third person, so a camera switch this layer disabled is enabled
-  until the menu closes; then first person again. A held player stands for it and sits again after.}
-  F3NV_State remembered = TES4Polyfill.SourceState()
-  If ChooseSex && !(remembered && remembered.SexChosen)
-    TES4Polyfill.SetSex(Game.GetPlayer(), ChooseSex.Show() as String)
-  EndIf
-  If remembered
-    remembered.SexChosen = false
+  {FO3/FNV ShowRaceMenu. The source game's first one is skipped (RaceMenuDone): it counts as open for SkipSeconds
+  (RaceMenuSkipping), then closes (RaceMenuSkipped, which the converted race menu close listeners take).
+  Later ones are FO4's appearance edit as the vault exit elevator opens it (chargen skeleton, the face data
+  precached as MQ101 precaches it, cleared when the menu closes as MQ101PlayerScript clears it, neutral face,
+  third person, the player turned to the camera, LooksMenu mode 1, which cannot change sex). The menu needs third
+  person, so a camera switch this layer disabled is enabled until the menu closes; then first person again. A
+  held player stands for it and sits again after. See: docs/fork/fo4_pipeline.md#character-creation}
+  If RaceMenuDone
+    RaceMenuDone = false
+    SkippedUntil = Utility.GetCurrentRealTime() + SkipSeconds
+    StartTimer(SkipSeconds, SkipTimer)
+    Return
   EndIf
   CamSwitchLifted = Layer && !Layer.IsCamSwitchEnabled()
   If CamSwitchLifted
@@ -66,6 +73,18 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
       Resit = false
       Sit()
     EndIf
+  EndIf
+EndEvent
+
+Bool Function RaceMenuSkipping()
+  {Whether a skipped race menu still counts as open (ShowRaceMenu).}
+  Return Utility.GetCurrentRealTime() < SkippedUntil
+EndFunction
+
+Event OnTimer(int aiTimerID)
+  If aiTimerID == SkipTimer
+    SkippedUntil = 0.0
+    SendCustomEvent("RaceMenuSkipped")
   EndIf
 EndEvent
 

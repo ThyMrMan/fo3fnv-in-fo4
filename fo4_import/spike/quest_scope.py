@@ -111,7 +111,16 @@ class QuestScope:
         named |= self._spoken(actor_bases, named)
         named = (named | set(held)) & self.quests.keys()
         started = set().union(*(self._starts(self.quests[q]) for q in named)) & self.quests.keys()
-        return [self.quests[q] for q in sorted(named | started)]
+        return [self.quests[q] for q in sorted(named | started | self._empty_reads(named | started))]
+
+    def _empty_reads(self, quests: set) -> set:
+        """The authored-empty quests (no script, stages or lines) the scripts of `quests` name: built as they are,
+        so a property naming one fills and reads 0, as FNV reads it (VCGTutorial's CG02 stub).
+        See: docs/fork/fo4_pipeline.md#quest-scope
+        """
+        named = set().union(*(self._scanned(self.quests[q])[0] for q in quests)) & self.quests.keys()
+        return {q for q in named - quests if not self.quests[q].get('SCRI') and not self.lines.get(q)
+                and not any(key.startswith('Stage[') for key in self.quests[q])}
 
     def _spoken(self, bases: set, named: set) -> set:
         """Quests outside `named` with a line whose speaker tests (TRAITS, GetInFaction, IsInList on the Subject,
@@ -200,12 +209,15 @@ class QuestScope:
         return out
 
     def _starts(self, quest: dict) -> set:
-        """Quests an FNV quest's scripts start, set a stage on or write a variable of: quest script, stage results,
-        lines' results."""
-        out = self._script(quest.get('SCRI'))[1] | self._file(f'{prefix(QUEST)}{quest["EditorID"]}')[1]
-        for line in self.lines[int(quest['FormID'], 16)]:
-            out |= self._file(f'{prefix(FRAGMENT)}{line["FormID"].upper()}')[1]
-        return out
+        """Quests an FNV quest's scripts start, set a stage on or write to."""
+        return self._scanned(quest)[1]
+
+    def _scanned(self, quest: dict) -> tuple:
+        """_file() over a quest's script, stage and line results, joined."""
+        files = [self._script(quest.get('SCRI')), self._file(f'{prefix(QUEST)}{quest["EditorID"]}')]
+        lines = self.lines[int(quest['FormID'], 16)]
+        files += [self._file(f'{prefix(FRAGMENT)}{line["FormID"].upper()}') for line in lines]
+        return set().union(*(f[0] for f in files)), set().union(*(f[1] for f in files))
 
     def _script(self, scri: 'str | None') -> tuple:
         """_file() of the converted FNV script `scri` (FormID hex)."""

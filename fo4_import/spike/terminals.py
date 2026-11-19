@@ -23,6 +23,8 @@ import re
 import struct
 from pathlib import Path
 
+import numpy as np
+
 from fo4_import.base.source_fault import without_fault
 from fo4_import.base.vmad import object_scripts, terminal_fragments
 from fo4_import.base.writer import pack_fo4_record
@@ -100,11 +102,11 @@ class Terminals:
                 self.builder.counts['TERM'] += 1
         return self.made[fnv]
 
-    def turn(self, ref: dict) -> float:
-        """Radians `ref`'s terminal mesh is turned by (nif.terminal); else 0."""
+    def move(self, ref: dict) -> 'np.ndarray | None':
+        """The 4x4 `ref`'s terminal mesh was moved by (nif.terminal), or None."""
         rec = self.records.get(int(ref['NAME'], 16), {})
         screen = self.looks.get(rec.get('Model.MODL', ''), (None, None))[1]
-        return screen[2] if screen else 0.0
+        return screen[2] if screen else None
 
     def _look(self, model: str) -> tuple:
         """((FO4 model, bounds), screen) of FNV terminal mesh `model`, converted once; screen None without one. A

@@ -42,10 +42,12 @@ from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
 CONVERSATION, TOPIC_TYPE = '1', '0'
 #: FNV's GREETING topic: the greeting scene says it (conversation.greeting), never a quest's scripted topic.
 GREETING = '000000C8'
+#: FNV's GOODBYE topic: the speaker's line when the player leaves a talk (conversation's [Leave] answer).
+GOODBYE_TOPIC = '000000D4'
 #: A converted Say: TES4Polyfill.SayWhenFree(speaker, Topic, target).
 SAY_FREE = re.compile(r'SayWhenFree\([^,]+,\s*(\w+)\s*,')
 #: FNV topics the engine plays itself (HELLO, GOODBYE, the barks) -> the FO4 topic kind its engine plays the same way.
-ENGINE_TOPICS = {'000000D2': R.TOPIC_HELLO, '000000D4': R.TOPIC_GOODBYE, **ENGINE_BARKS}
+ENGINE_TOPICS = {'000000D2': R.TOPIC_HELLO, GOODBYE_TOPIC: R.TOPIC_GOODBYE, **ENGINE_BARKS}
 #: FNV INFO key of the line before it in its topic: a DLC inserting lines rewrites it on the master's.
 ORDER = 'PNAM.PrevInfo'
 #: FNV INFO DATA flag Say Once.
@@ -451,14 +453,15 @@ def conditions_under(rec: dict, prefix: str) -> dict:
 
 
 def conditions_of(rec: dict, form_map: dict, script_vars: dict, swap: bool = False,
-                  target: 'int | None' = None, item: bool = False, linked: 'int | None' = None) -> 'bytes | None':
+                  target: 'int | None' = None, item: bool = False, linked: 'int | None' = None,
+                  reference: 'int | None' = None) -> 'bytes | None':
     """An FNV record's conditions as FO4 CTDAs (and CIS1/CIS2s); None when one cannot convert.
 
     Variables read the converted property `script_vars` names (`::<name>_var`).
     `swap` flips Subject and Target (a player line); Target tests run on
-    quest alias `target`, else on the linked reference of keyword `linked`.
-    Tests of forms the build lacks are settled first (conditions.without_absent);
-    type tests are keyword tests, a weapon subject when `item`.
+    quest alias `target`, else keyword `linked`'s linked reference, else
+    `reference` (a package's target). Absent forms are settled first
+    (conditions.without_absent); type tests are keyword tests, on a weapon when `item`.
     """
     conds = _settled(rec, form_map, item)
     if conds is None:
@@ -470,16 +473,19 @@ def conditions_of(rec: dict, form_map: dict, script_vars: dict, swap: bool = Fal
             return None
         func, p1, p2, cis1, cis2 = fo4
         run_on, ref = (R.RUN_REFERENCE, form_map[cond['p1']]) if cis1 else C.run_on_of(cond, swap, form_map)
-        run_on, ref, param3 = _target_run_on(run_on, ref, target, linked)
+        run_on, ref, param3 = _target_run_on(run_on, ref, target, linked, reference)
         flag, value = C.fo4_value(cond, form_map)
         out += R.pack_ctda(cond['op_flags'] & (COMPARE | OR) | flag, value, func, p1, p2, run_on, ref, param3)
         out += (R.pack_cis1(cis1) if cis1 else b'') + (R.pack_cis2(cis2) if cis2 else b'')
     return out
 
 
-def _target_run_on(run_on: int, ref: int, target: 'int | None', linked: 'int | None') -> tuple:
-    """(Run On, reference, parameter 3) of a test: a Target test on alias `target`, else on keyword `linked`.
+def _target_run_on(run_on: int, ref: int, target: 'int | None', linked: 'int | None',
+                   reference: 'int | None') -> tuple:
+    """(Run On, reference, parameter 3) of a test: a Target test on alias `target`, else on keyword `linked`,
+    else on `reference`.
     See: docs/fork/fo4_pipeline.md#say-target
+    See: docs/fork/fo4_pipeline.md#package-target
     """
     if run_on != R.RUN_TARGET:
         return run_on, ref, -1
@@ -487,4 +493,6 @@ def _target_run_on(run_on: int, ref: int, target: 'int | None', linked: 'int | N
         return R.RUN_QUEST_ALIAS, 0, target
     if linked is not None:
         return R.RUN_LINKED_REF, 0, linked
+    if reference is not None:
+        return R.RUN_REFERENCE, reference, -1
     return run_on, ref, -1

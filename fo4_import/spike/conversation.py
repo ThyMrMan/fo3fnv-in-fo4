@@ -51,7 +51,7 @@ from fo4_import.spike.quest import LISTENER_ALIAS, SPEAKER_ALIAS
 from fo4_import.spike.readiness import CHOICE_UNANSWERED
 from fo4_import.spike.script_packages import quest_id
 from fo4_import.spike.skill_tags import tag_check, tagged
-from fo4_import.spike.say_topics import GREETING, PART, PARTS, SHARED, conditions_of, parsed, raws
+from fo4_import.spike.say_topics import GOODBYE_TOPIC, GREETING, PART, PARTS, SHARED, conditions_of, parsed, raws
 from fo4_import.spike.packages import ACTIVATE_DISTANCE, walk_package
 from script_convert.constants import FALLOUT4_CHAT_PREFIX, FALLOUT4_TALK_PREFIX, FALLOUT4_WALK_PREFIX
 from tes5_import.base.tes5_reader import subrecords
@@ -69,6 +69,8 @@ IS_ID, QUEST_RUNNING, GLOBAL_VALUE = C.FO4.index(SPEAKER_TEST), C.FO4.index('Get
     'GetGlobalValue')
 #: FO4 IsInList: a talker in an actor's talking-as list (talking_activators) speaks as that actor.
 IN_LIST = C.FO4.index('IsInList')
+#: FO4 IsInScene: the subject is in a playing scene.
+IN_SCENE = C.FO4.index('IsInScene')
 #: The script the Greeting line carries: it opens the GREETING scene with its speaker, stopping one left playing.
 GREETING_SCRIPT = 'F3NV_Greeting'
 #: _joined's answer when a step's lines lead to different steps.
@@ -191,7 +193,7 @@ class Conversations:
         self.say, self.quest, self.fid, self.form_map = say, quest, quest_fid, form_map
         self.lines = {r['FormID'].upper(): r for r in say.infos.get(quest['FormID'].upper(), [])}
         self.hub, self.topics, self.scenes, self.own, self.labels = shared, [], [], {}, {}
-        self.packaged, self.legacy, self.building = {}, {}, 0
+        self.packaged, self.legacy, self.building, self.chats = {}, {}, 0, []
 
     def has_lines(self) -> bool:
         """True when the quest has lines (said from its Speaker and Listener)."""
@@ -214,8 +216,19 @@ class Conversations:
         step = ('chat', SPEAKER_ALIAS, ('line', tuple(infos)), *walk[1:2]) if chat else ('line', tuple(infos))
         if infos:
             self.labels[step] = prop.lower() if walk else f'{"chat" if chat else "talk"} {topic}'
-            self.scene(step, fid)
+            (self._chat_quest(topic) if chat and not walk else self).scene(step, fid)
         return bool(infos)
+
+    def _chat_quest(self, topic: str) -> 'Conversations':
+        """The Conversations building NPC chat `topic` in a quest of its own (noted in `chats`), so its Speaker and
+        Listener are its own while another chat of this quest plays; it shares this quest's placed steps and keys.
+        See: docs/fork/fo4_pipeline.md#chat-quests
+        """
+        fid = self.say.builder.new_id(f'QUST chat {self.quest["FormID"]} {topic}')
+        child = Conversations(self.say, self.quest, fid, self.form_map, self.hub)
+        child.own, child.labels, child.packaged, child.legacy = self.own, self.labels, self.packaged, self.legacy
+        self.chats.append((fid, f'{self.quest["EditorID"]}_Chat_{topic}', child))
+        return child
 
     def _walk(self, prop: str) -> tuple:
         """(topic EditorID, walk Travel, topic FormID) of a `TES4Walk_<FNV package>` scene: the SayTo package's
@@ -459,14 +472,21 @@ class Conversations:
         return info
 
     def _exit(self) -> int:
-        """The answer topic ending the talk ([Leave], FNV's Tab): one silent End Scene line, made once."""
+        """The answer topic ending the talk ([Leave], FNV's Tab), made once: the Hub's GOODBYE lines in Hub order (FNV
+        has the speaker say one, its result run, as the player leaves), then one silent line; each ends the scene.
+        See: docs/fork/fo4_pipeline.md#leave-goodbye
+        """
         if LEAVE not in self.hub.answers:
             take = self.say.builder.new_id
             fid, line = take('DIAL answer leave'), take('INFO answer leave')
             self.say.silent.append((line, False))
-            info = R.pack_info(line, R.INFO_END_SCENE, (R.SILENT_LINE,), notes='FNV Tab exit', vmad=CHOICE_VMAD)
-            self.topics.append(pack_topic(R.pack_dial(fid, 'FNV_Answer_Leave', self.fid, R.TOPIC_SCENE, 1), fid,
-                                          [info]))
+            infos = [info for info in (self.say.info(rec, self.form_map, flags=R.INFO_END_SCENE, owner=self.fid,
+                                                     extra=self._running(rec), place='leave')
+                                       for rec in self._members(('menu', (GOODBYE_TOPIC,)))) if info]
+            infos.append(R.pack_info(line, R.INFO_END_SCENE, (R.SILENT_LINE,), notes='FNV Tab exit', vmad=CHOICE_VMAD))
+            self.topics.append(pack_topic(R.pack_dial(fid, 'FNV_Answer_Leave', self.fid, R.TOPIC_SCENE, len(infos)),
+                                          fid, infos))
+            self.say.builder.counts['[Leave] GOODBYE lines'] += len(infos) - 1
             self.hub.answers[LEAVE] = fid
         return self.hub.answers[LEAVE]
 
@@ -561,7 +581,7 @@ class Conversations:
         talkers = sorted({self.form_map[(C.TALKING_AS, p)] for p in named if (C.TALKING_AS, p) in self.form_map} - skip)
         if not speakers + talkers:
             return b''
-        opened = _any([(PLAYER_ACTIVATED, 0)] + [(CURRENT_PACKAGE, p) for p in greets])
+        opened = _any([(PLAYER_ACTIVATED, 0)] + [(CURRENT_PACKAGE, p) for p in greets]) + _unscened(greets)
         opened += _any([(IS_ID, npc) for npc in speakers] + [(IN_LIST, flst) for flst in talkers])
         greet = self.say.builder.new_id(f'INFO greeting {key}')
         self.say.silent.append((greet, False))
@@ -637,6 +657,16 @@ def or_groups(rec: dict) -> list:
 def _any(tests: list) -> bytes:
     """One OR-group of `tests` [(FO4 function, param 1)], each == 1 on the subject."""
     return b''.join(R.pack_ctda(OR if i < len(tests) - 1 else 0, 1.0, func, p1) for i, (func, p1) in enumerate(tests))
+
+
+def _unscened(greets: list) -> bytes:
+    """With force greets `greets`: the OR-group "player activated, or the speaker in no scene", so a force greet waits
+    for its actor's scene (a talk) to end, as FO3/FNV's waits for its conversation; b'' without.
+    See: docs/fork/fo4_pipeline.md#greeting-waits
+    """
+    if not greets:
+        return b''
+    return R.pack_ctda(OR, 1.0, PLAYER_ACTIVATED, 0) + R.pack_ctda(0, 0.0, IN_SCENE, 0)
 
 
 def opener_forms(body: bytes) -> frozenset:

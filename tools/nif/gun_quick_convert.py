@@ -6,7 +6,7 @@
 Guns the default chart keeps on an FO4 gun of their own (not "as": "fnv") are skipped unless --template is given.
 Each gun goes on the FO4 gun its default chart entry names (replacements.json, a Fallout4.esm target), else on
 the one the build's own choice picks (gun_choice), and is written under <dir> as the build writes it
-(Meshes/fnv/<model>_gun.nif, the first-person clips under Meshes/Actors/FNV/...), so gun_pose_scene.py can view
+(Meshes/fnv/<model>_<editorid>_gun.nif, the first-person clips under Meshes/Actors/FNV/...), so gun_pose_scene.py can view
 it with --data <dir>. Per gun it prints the template, whether the hold was moved for being off screen, how much
 of the gun is on FO4's screen in WPNIdleReady's first frame and how far the left middle finger's base is from it.
 See: docs/fork/fo4_spikes.md#spike-4-gun-clips
@@ -28,7 +28,7 @@ from fo4_import.havok.gun_clips import (FO4_VIEW_FOV, GRIP_FINGER, VIEW_ASPECT, 
 from fo4_import.nif import file as nif_file
 from fo4_import.nif import gun
 from fo4_import.spike import replacements
-from fo4_import.spike.guns import GUN_SUFFIX, Guns
+from fo4_import.spike.guns import Guns, gun_mesh
 from tes5_import.base.tes5_reader import first_sub, walk
 from tes5_import.base.text_reader import parse_export_file
 from tools.nif.gun_pose_scene import FO4_ARMS, fo4_skinned, shapes, with_helpers
@@ -76,7 +76,7 @@ def convert(guns: Guns, clips: GunClips, rec: dict, only: tuple, out: Path) -> '
     choice, subs, (_, fnv_path, static, nodes, _) = chosen
     receiver = Archives(FALLOUT4_DIR / 'Data').read('meshes' + B + choice.model.lower())
     matrix, made = gun.built(static, nodes, receiver)
-    mesh = out / 'Meshes' / 'fnv' / (model_path(rec)[:-4] + GUN_SUFFIX)
+    mesh = out / 'Meshes' / 'fnv' / gun_mesh(model_path(rec), rec['EditorID'])
     mesh.parent.mkdir(parents=True, exist_ok=True)
     mesh.write_bytes(made)
     result = clips.convert(rec, guns.choices.clip_keywords(subs, choice.includes), lambda old: old, fnv_path,
@@ -92,7 +92,7 @@ def hold(out: Path, rec: dict, skeleton) -> 'tuple | None':
     if not clip.is_file():
         return None
     world = vanilla_worlds(parse_fo4_animation(clip.read_bytes()), skeleton, 0)
-    raw = (out / 'Meshes' / 'fnv' / (model_path(rec)[:-4] + GUN_SUFFIX)).read_bytes()
+    raw = (out / 'Meshes' / 'fnv' / gun_mesh(model_path(rec), rec['EditorID'])).read_bytes()
     points = np.vstack([v for _, v, _ in shapes(nif_file.read(raw))])
     placed = np.hstack([points, np.ones((len(points), 1))]) @ world[skeleton.index[WEAPON]]
     seen = placed @ np.linalg.inv(world[skeleton.index[VIEWS[0].camera[1]]])

@@ -326,6 +326,20 @@ def stamp_argv(command: str) -> list:
     return out
 
 
+def stamp_options(plugin: Path) -> dict:
+    """{flag: [values]} of the command `plugin`'s build stamp records (stamp_argv); {} without a stamp."""
+    path = stamp_path(plugin)
+    out, flag = {}, None
+    command = json.loads(path.read_text(encoding='utf-8')).get('command', '') if path.is_file() else ''
+    for word in stamp_argv(command):
+        if word.startswith('--'):
+            flag = word
+            out.setdefault(flag, [])
+        elif flag:
+            out[flag].append(word)
+    return out
+
+
 def _paths(words: list) -> list:
     """`words` split into the longest runs naming existing paths (_longest)."""
     out, i = [], 0

@@ -31,7 +31,7 @@ from fo4_import.nif.convert_static import (PREFIX, fo4_texture, retextured, smoo
 from fo4_import.pipeline.elric_cache import finish, write_mesh, write_new
 from fo4_import.pipeline.mesh_cache import cached_convert, cached_files, mesh_files
 from fo4_import.pipeline.work_cache import glow_map, spec_map
-from fo4_import.nif.terminal import with_screen
+from fo4_import.nif.terminal import placed_bounds, with_screen
 from fo4_import.nif.tree import tree_mesh
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import CELL_FO4, vanilla_cell
@@ -71,13 +71,14 @@ def prop_assets(export_dir: Path, model: str, data_dir: Path, pose: dict, bone: 
 
 
 def terminal_assets(export_dir: Path, model: str, data_dir: Path) -> 'tuple | None':
-    """(write_converted() of FNV terminal `model` with its screen made FO4's, as `<name>terminal.nif`, the screen's
-    (centre, facing)); None when the mesh has no screen (nif.terminal)."""
+    """((model path, OBND) of FNV terminal `model` written with its screen made FO4's, as `<name>terminal.nif`, the
+    screen (nif.terminal.with_screen)); None when the mesh has no screen."""
     rel = model.replace('/', '\\').lower()
     made = with_screen(cached_convert(export_file(export_dir, 'meshes', rel), export_dir))
     if made is None:
         return None
-    return write_converted(export_dir, made[0], rel[:-4] + 'terminal.nif', data_dir), made[1]
+    path = write_converted(export_dir, made[0], rel[:-4] + 'terminal.nif', data_dir)[0]
+    return (path, placed_bounds(made[0].nif)), made[1]
 
 
 def tree_assets(export_dir: Path, rec: dict, data_dir: Path) -> tuple:

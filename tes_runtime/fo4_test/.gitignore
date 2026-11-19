@@ -1,0 +1,5 @@
+bin/
+obj/
+bridge/build/
+bridge/lib/
+bridge/.xmake/

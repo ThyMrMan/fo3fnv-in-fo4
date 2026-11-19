@@ -28,7 +28,7 @@ from tools.validate.preflight.quest_source import decode_condition, speakable
 _SCENE_PLAYED = ('SCEN', 'CUST')
 
 #: SCEN FNAM flag: the scene begins when its quest starts.
-_BEGIN_ON_QUEST_START = 0x01
+BEGIN_ON_QUEST_START = 0x01
 #: NOTE DNAM of a voice holotape, which plays its scene (SNAM) when the player plays it.
 _VOICE_NOTE = 1
 
@@ -79,7 +79,7 @@ class Fo4Dialogue:
         """(scenes, topics) reachable before any link: quest-start scenes, a voice holotape's scene (NOTE SNAM),
         engine topics, script properties."""
         named = {target for _script, _prop, target in self.index.object_props}
-        scenes = {r.form_id for r in self.index.by_type['SCEN'] if u32(first(r, 'FNAM')) & _BEGIN_ON_QUEST_START}
+        scenes = {r.form_id for r in self.index.by_type['SCEN'] if u32(first(r, 'FNAM')) & BEGIN_ON_QUEST_START}
         scenes |= named & set(self.actions)
         scenes |= {u32(first(r, 'SNAM')) for r in self.index.by_type['NOTE']
                    if first(r, 'DNAM')[:1] == bytes([_VOICE_NOTE]) and first(r, 'SNAM')} & set(self.actions)

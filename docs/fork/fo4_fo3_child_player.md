@@ -20,6 +20,7 @@ Status is in [ROADMAP.md](ROADMAP.md#fo4-app); the spike itself is
 - [The route per age](#route)
 - [The child-race spike](#spike)
 - [The in-game test](#spike-test)
+- [Age before equipping](#age-then-equip)
 
 ## <a id="fo3"></a>What Fallout 3 does
 
@@ -289,3 +290,17 @@ OneDrive `Documents` copy):
 - `F3NV.log` only when the save also runs our converted game plugins (the
   plain FO4 save writes nothing there);
 - which step crashed and which race id was set.
+
+## <a id="age-then-equip"></a>Age before equipping (2026-11-18, found by the stage sweep; not yet played)
+
+CG02 stage 100 removes the child's items, adds `VaultSuit101`, equips it, and
+only then runs `player.AgeRace 1`. FO3 equips any armor whatever the race. FO4
+equips only what an addon draws on the actor's race, so the suit stayed
+unequipped: "armor cannot be equipped by the passed in actor's race" (FO3
+sweep, `QF_CG02` stage 100), and the player would start CG03 without it.
+The quest fragment writer now moves each `AgeRace` line ahead of the
+`EquipItem` lines before it in the same block
+(`quest_fragments_falloutnv.aged_first`). That gives FO4 the end state
+FO3 reaches, since the race does not matter to FO3's equip. Of Fallout3.esm's 4
+`AgeRace` calls, this is the only one after an equip; CG02 stage 5 and
+MQ04 age the player first.

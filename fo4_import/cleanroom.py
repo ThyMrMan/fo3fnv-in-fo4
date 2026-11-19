@@ -14,7 +14,7 @@ import tarfile
 from pathlib import Path
 
 from core.subprocess_flags import POPEN_FLAGS
-from fo4_import.base.mxmlc import FLEX, REPO
+from fo4_import.base.mxmlc import FLEX, REPO, main_checkout
 
 #: The committed DLLs, ours and Cleanroom UI's.
 DIST = REPO / 'tes_runtime' / 'dist'
@@ -48,13 +48,8 @@ def checkout() -> 'Path | None':
     checkout, from a worktree under .claude/worktrees); None when there is none."""
     home = os.environ.get('CRUI_HOME')
     places = [REPO / 'external' / 'cleanroom_ui', *([Path(home)] if home else []), REPO.parent / 'cleanroom_ui',
-              main_checkout().parent / 'cleanroom_ui']
+              main_checkout(REPO).parent / 'cleanroom_ui']
     return next((place for place in places if (place / 'crui' / '__main__.py').is_file()), None)
-
-
-def main_checkout() -> Path:
-    """REPO, or the main checkout holding it when REPO is a worktree."""
-    return REPO.parents[2] if REPO.parent.name == 'worktrees' and REPO.parents[1].name == '.claude' else REPO
 
 
 def pinned() -> str:

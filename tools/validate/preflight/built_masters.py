@@ -7,11 +7,10 @@ masters do not lead the build's is left out, since its FormIDs would read differ
 See: docs/fork/fo4_preflight.md#targets
 """
 
-import shlex
 from pathlib import Path
 
 from fo4_import.base.install import file_masters
-from tools.validate.preflight.build_history import read_stamp
+from fo4_import.pipeline.build_plan import stamp_options
 
 #: The pipeline option naming the folders that hold built masters.
 PLUGIN_DIRS = '--plugin-dirs'
@@ -19,15 +18,7 @@ PLUGIN_DIRS = '--plugin-dirs'
 
 def stamp_dirs(plugin: Path) -> list:
     """The folders the build's `--plugin-dirs` named, from its stamp's command."""
-    words = shlex.split(read_stamp(plugin).get('command', ''), posix=False)
-    if PLUGIN_DIRS not in words:
-        return []
-    out = []
-    for word in words[words.index(PLUGIN_DIRS) + 1:]:
-        if word.startswith('--'):
-            break
-        out.append(Path(word.strip('"')))
-    return out
+    return [Path(word) for word in stamp_options(plugin).get(PLUGIN_DIRS, [])]
 
 
 def master_paths(plugin: Path, masters: tuple, dirs: list) -> list:

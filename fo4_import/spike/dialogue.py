@@ -68,7 +68,6 @@ FNV_SKILLS = range(32, 46)
 FNV_VARIABLES = range(62, 72)
 MASTERS = ['Fallout4.esm', 'XDI.esm', FALLOUT4_HELPER_PLUGIN]
 HELPER_INDEX = MASTERS.index(FALLOUT4_HELPER_PLUGIN)
-FO4_AVIF_DUMP = Path(__file__).resolve().parents[2] / 'references' / 'Fallout4.esm' / 'AVIF.txt'
 TOP_LEVEL = 0x02
 #: Conditions that pick the speaker; one naming nobody in the test world is false.
 SPEAKER_TESTS = ('GetIsID', 'GetInFaction', 'GetIsVoiceType')
@@ -194,7 +193,8 @@ class Spike:
                 self.infos.setdefault(int(rec['ParentDIAL'], 16), []).append(rec)
         self.ids, self.report, self.stages, self.avs = Ids(), [], {}, {}
         self.quest, self.main = self.ids.take(), self.ids.take()
-        self.fo4_avs = {r.get('EditorID'): int(r['FormID'], 16) for r in parse_export_file(str(FO4_AVIF_DUMP))}
+        self.fo4_avs = {r.get('EditorID'): int(r['FormID'], 16)
+                        for r in parse_export_file(str(script_spike.fo4_dump() / 'AVIF.txt'))}
         self.form_map = {**{s[1]: s[2] for s in SPEAKERS if s[1]}, **FACTIONS, **{f: f for f in SAME_IN_FO4}}
         self.scenes, self.topics, self.choice_scenes, self.scene_records = [], [], {}, []
         self.voiced, self.fragments, self.actor_ids, self.trace = [], None, [], ''

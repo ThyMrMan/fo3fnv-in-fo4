@@ -223,22 +223,24 @@ def pack_scen(fid: int, edid: str, quest: int, alias: int, actions: list, keywor
               phases: tuple = ('Menu',), flags: int = 0, listener: 'int | None' = None, vmad: bytes = b'',
               ends: 'dict | None' = None) -> bytes:
     """A scene of named `phases` in order with actor `alias` and `actions` (indices 1..n), tagged with `keyword`
-    (0: none), FNAM SCENE_FLAGS plus `flags`; with a `listener` actor too, an NPC-only scene (NPC_SCENE_FLAGS);
-    `vmad` its fragments; `ends` {phase: completion conditions}.
+    (0: none), FNAM SCENE_FLAGS plus `flags`; with a `listener` too, an NPC-only scene (NPC_SCENE_FLAGS), the
+    listener Optional unless an action is its; `vmad` its fragments; `ends` {phase: completion conditions}.
 
-    A one-phase scene also completes once the alias is farther than
-    DIALOGUE_DISTANCE from the player; with several phases each completes
-    on its actions (a completion condition holds a phase until true).
+    A one-phase player scene also completes once the alias is farther than DIALOGUE_DISTANCE from the player.
+    See: docs/fork/fo4_pipeline.md#npc-chat-distance
+    See: docs/fork/fo4_pipeline.md#chat-listener-required
     """
-    walked_off = b'' if len(phases) > 1 else pack_ctda(OP_GREATER, DIALOGUE_DISTANCE, FUNC_GET_DISTANCE, PLAYER,
-                                                       run_on=RUN_QUEST_ALIAS, param3=alias)
+    alone = len(phases) > 1 or listener is not None
+    walked_off = b'' if alone else pack_ctda(OP_GREATER, DIALOGUE_DISTANCE, FUNC_GET_DISTANCE, PLAYER,
+                                             run_on=RUN_QUEST_ALIAS, param3=alias)
+    acts = listener is not None and any(_s32('ALID', listener) in action for action in actions)
     subs = _zstr('EDID', edid) + (pack_subrecord('VMAD', vmad) if vmad else b'')
     subs += pack_u32('FNAM', (SCENE_FLAGS if listener is None else NPC_SCENE_FLAGS) | flags)
     for phase in phases:
         subs += pack_subrecord('HNAM', b'') + _zstr('NAM0', phase) + pack_subrecord('NEXT', b'')
         subs += (ends or {}).get(phase, walked_off)
         subs += pack_subrecord('NEXT', b'') + pack_u32('WNAM', 350) + pack_subrecord('HNAM', b'')
-    for actor, optional in ((alias, 0),) if listener is None else ((alias, 0), (listener, ACTOR_OPTIONAL)):
+    for actor, optional in ((alias, 0),) if listener is None else ((alias, 0), (listener, 0 if acts else ACTOR_OPTIONAL)):
         subs += _s32('ALID', actor) + pack_u32('LNAM', 4 | optional) + pack_u32('DNAM', 10)
     subs += b''.join(actions) + pack_u32('PNAM', quest) + pack_u32('INAM', len(actions))
     subs += pack_subrecord('VNAM', struct.pack('<4I', 3, 3, 3, 3)) + pack_subrecord('ACTV', struct.pack('<f', DIALOGUE_DISTANCE))

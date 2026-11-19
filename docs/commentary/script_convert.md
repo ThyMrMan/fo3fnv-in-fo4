@@ -1180,7 +1180,7 @@ widespread: **115 Returns across 96 scripts**, including quest drivers
 `MS04`/`MS09`/`MS14`). `MG05RockScript` fires one shock bolt per tick and uses
 `return` to serialize six — it fired exactly one bolt, ever.
 
-The poll is armed at three places, each for a different reason (2026-08-16):
+<a id="poll-arms"></a>The poll is armed at three places, each for a different reason (2026-08-16):
 
 * **top of `OnUpdate`: `RegisterForSingleUpdate(5.0)` — abort insurance
   ONLY.** A runtime error mid-body aborts the event; without this the poll
@@ -1232,6 +1232,31 @@ bare MenuMode (`SE42Script`, `DAOghmaInfiniumScript`) gets no loop at all.
 
 Two exceptions keep their own routes: the `isPCSleeping` idiom becomes
 `OnSleepStart`/`OnSleepStop`, and menu-ID blocks take the route below.
+
+### <a id="bare-menumode-on-fallout-4"></a>Bare MenuMode on Fallout 4: each body on its own frames
+
+FO3/FNV's bare MenuMode blocks are not all bookkeeping. FO3's `CG00SCRIPT`
+has `if getstage CG00 == 60 → setstage CG00 61` ("set when player enters menu
+mode"), and its GameMode timer moves 61 to 62 ("set when player exits menu
+mode"), whose fragment seats the player. Merged unguarded, 61 fired as soon as
+stage 60 was set, 62 followed, and seating the player dismissed
+`ShowRaceMenu`'s sex box the moment it opened. Story case `cg00_name_and_face`
+found it on the laptop (2026-11-17).
+
+On Fallout 4 the poll pass keeps running while a menu is open (`_menu_hold`
+is skipped for such a script), so `assemble._menu_gated` puts each merged body
+back on its own frames: a MenuMode body under `If TES4Polyfill.MenuFrame()`
+(`InMenuMode() || PlayerIsInDialogue()`, or a race menu skipped for FO4's
+character creation, [character creation](../fork/fo4_pipeline.md#character-creation)),
+a GameMode body under `!InMenuMode()`. Oblivion's Skyrim build keeps the merge.
+
+Dialogue is in the MenuMode test because FO3/FNV's dialogue is a menu (1009)
+and FO4's is not: FO3's `HD01QuestScript`/`HD02QuestScript` apply a Home
+Decor theme bought in the vendor's dialogue from MenuMode, while the player
+still talks. GameMode stays on during dialogue, as `_menu_hold` leaves it for
+every other script. Affected: 9 FO3 scripts and 8 FNV scripts, among them
+FNV's `VCG00ScriptNV`, whose MenuMode `setstage VCG00 0` ran on every
+GameMode pass before stage 5 when it was merged unguarded.
 
 ### <a id="menumode-with-a-menu-id"></a>`begin MenuMode <id>` → `OnMenuClose`
 
@@ -2122,6 +2147,14 @@ body at OnEnd breaks it four different ways, each fixed by one helper.
   steps that counter — a line the quest script advances for is not a sequencer
   and must never be gated.
 
+- **The Fallout 4 counter step is an adder call (2026-11-18).** On Fallout 4,
+  `set Q.v to Q.v + 1` becomes `Q.TES4Add_v((1))` (`atomic_adds`), so
+  `split_counter_step` stopped finding the step. Nothing moved to OnBegin.
+  The next line's scene starts as the line ends (INFO Start Scene on End),
+  before the End fragment's add has run, so its gate failed. FO3's CG03
+  Amata/Butch chat stopped after Amata's first line (bullyConv still 0
+  when Butch's `== 1` line was picked). `_step_re` now matches the adder
+  call too, and `stepped_gate` reads its argument.
 - <a id="turn-handoff"></a>**`split_turn_handoff` — the handoff cannot wait for
   OnEnd.** In TES4 the result script set `convCount`/`speaker` and charged
   `convTimer` in the frame the line started, so the next speaker's guard

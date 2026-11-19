@@ -21,6 +21,8 @@ from tes5_import.packages.scripts_falloutnv import DIALOGUE_TYPE, package_sectio
 WALK_DONE = 'TES4WalkDone'
 #: The FNV Trigger Location of a SayTo (PLD2 type, -1: none; its form; its radius) its walk-up waits for the player in.
 WALK_PLACE, WALK_TRIGGER, WALK_REACH = 'TES4WalkPlace', 'TES4WalkTrigger', 'TES4WalkReach'
+#: The walk-up scene's id and plugin file, to look it up once its quest loads it (the Scene property binds None before).
+WALK_SCENE, WALK_FILE = 'TES4WalkScene', 'TES4WalkFile'
 #: Block type: the package fragments it runs in (Done on completion, Change on leaving it, End on either).
 SECTIONS = {'onpackagestart': ('OnBegin',), 'onpackagedone': ('OnEnd',), 'onpackageend': ('OnEnd', 'OnChange'),
             'onpackagechange': ('OnChange',)}
@@ -51,12 +53,16 @@ def quest_gated(rec: dict) -> bool:
     return any(parse(raw)['func'] in QUEST_TESTS for raw in raws(rec))
 
 
-def day_marked(rec: dict) -> bool:
-    """Whether non-Dialogue package `rec` is quest-gated Once Per Day.
+def daily(rec: dict) -> bool:
+    """Whether FO3/FNV package `rec` is quest-gated Once Per Day.
     See: docs/fork/fo4_pipeline.md#once-per-day
     """
-    once = int(rec.get('PKDT.Flags', 0) or 0) & ONCE_PER_DAY
-    return bool(once) and rec.get('PKDT.Type') != DIALOGUE_TYPE and quest_gated(rec)
+    return bool(int(rec.get('PKDT.Flags', 0) or 0) & ONCE_PER_DAY) and quest_gated(rec)
+
+
+def day_marked(rec: dict) -> bool:
+    """Whether non-Dialogue package `rec` is daily (its OnEnd marks it done)."""
+    return rec.get('PKDT.Type') != DIALOGUE_TYPE and daily(rec)
 
 
 def day_done(rec: dict, section: str) -> tuple:
@@ -75,9 +81,11 @@ def walk_up(rec: dict, end: 'str | None' = None) -> tuple:
     if not says_to_player(rec):
         return {}, []
     scene = FALLOUT4_WALK_PREFIX + rec['FormID'].upper()
-    call = f'TES4Polyfill.WalkUp(akActor, Self, {scene}, {WALK_DONE}, {WALK_PLACE}, {WALK_TRIGGER}, {WALK_REACH})'
+    call = (f'TES4Polyfill.WalkUp(akActor, Self, {scene}, {WALK_SCENE}, {WALK_FILE}, {WALK_DONE}, {WALK_PLACE}, '
+            f'{WALK_TRIGGER}, {WALK_REACH})')
     lines = [f'  If {call}', f'    {end}(akActor)', '  EndIf'] if end else [f'  {call}']
-    return {scene: 'Scene', WALK_DONE: 'Int', WALK_PLACE: 'Int', WALK_TRIGGER: 'Form', WALK_REACH: 'Float'}, lines
+    return {scene: 'Scene', WALK_SCENE: 'Int', WALK_FILE: 'String', WALK_DONE: 'Int', WALK_PLACE: 'Int',
+            WALK_TRIGGER: 'Form', WALK_REACH: 'Float'}, lines
 
 
 def package_hooks(scripts, packages) -> dict:

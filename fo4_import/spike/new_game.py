@@ -1,11 +1,13 @@
 """The FO3/FNV opening on Fallout 4: one start-game quest running F3NV_NewGame.
 
 Fallout 4's New Game runs MQ101 stage 0 (its intro movie, then the character
-creation state). F3NV_NewGame waits that out, undoes it with vanilla's own
+creation at the mirror, which stands in for the source game's). F3NV_NewGame
+waits until the player leaves the sink, undoes the opening with vanilla's own
 calls, stops Fallout 4's opening quests and sets the source game's first
 stage (START): FNV's VCG00 stage 0 moves the player to Doc Mitchell's and
 plays FNV's intro. A coc from the main menu skips MQ101 stage 0, so the
-source game waits: stage 10 (`setstage FNV_NewGame 10`) starts it by hand.
+source game waits: stage 5 (`setstage FNV_NewGame 5`) runs the opening and
+creation by hand, stage 10 starts the source game at once.
 Nothing in Fallout4.esm is overridden.
 
 See: docs/fork/fo4_pipeline.md#new-game
@@ -26,6 +28,8 @@ from script_convert.constants import FALLOUT4_ACTOR_VALUE_IDS
 START = {'FalloutNV.esm': ('VCG00', 0), 'Fallout3.esm': ('CG00', 0)}
 #: Fallout4.esm forms the script is given: MQ101, MQ102 (MQ03QuestScript's quest), TimeScale, the mirror imods.
 MQ101, MQ102, TIME_SCALE, CAMERA_IMOD, MIRROR_IMOD = 0x1ED86, 0x1CC2A, 0x3A, 0x1A71FC, 0x1E9902
+#: Fallout4.esm's AnimArchetypePlayer keyword, the player's movement archetype MQ101 stage 400 restores.
+ANIM_PLAYER = 0x6B508
 #: Fallout 4's opening quests besides MQ101: SanctuaryHills, Radio, TVStation, PlayerComments, Vault111.
 OPENING_QUESTS = (0xC3309, 0xBA4F3, 0xBA4F2, 0xF03D6, 0xD34DC)
 SITE, SCRIPT, PLAYER = 'FNV new game quest', 'F3NV_NewGame', 0x14
@@ -33,8 +37,10 @@ SITE, SCRIPT, PLAYER = 'FNV new game quest', 'F3NV_NewGame', 0x14
 PLAYER_ALIAS, ALIAS_SCRIPT = 0, 'F3NV_NewGamePlayer'
 #: The source game's player base record.
 PLAYER_BASE = 0x7
-#: The stage starting the source game by hand (setstage FNV_NewGame 10), its fragment script and function.
-START_BY_HAND, FRAGMENTS, FRAGMENT = 10, 'F3NV_NewGameStart', 'Fragment_Stage_0010_Item_00'
+#: The stages run by hand after a coc: Fallout 4's opening and character creation (5), the source game at once (10).
+OPEN_BY_HAND, START_BY_HAND = 5, 10
+#: Their fragment script.
+FRAGMENTS = 'F3NV_NewGameStart'
 
 
 def build(builder, export_dir: Path, quests: dict) -> None:
@@ -44,7 +50,8 @@ def build(builder, export_dir: Path, quests: dict) -> None:
         return
     fid = builder.writer.derive_formid(SITE, plugin_name(export_dir))
     props = {'MQ101': MQ101, 'MQ102': MQ102, 'TimeScale': TIME_SCALE, 'StartQuest': quests[quest],
-             'CharGenCameraImod': CAMERA_IMOD, 'CharGenMirrorImod': MIRROR_IMOD, 'SkillGates': builder.perks.gates,
+             'CharGenCameraImod': CAMERA_IMOD, 'CharGenMirrorImod': MIRROR_IMOD,
+             'AnimArchetypePlayer': ANIM_PLAYER, 'SkillGates': builder.perks.gates,
              'CombatRules': builder.combat.fid, **builder.combat.damage_rules[0],
              'CarryWeight': FALLOUT4_ACTOR_VALUE_IDS['CarryWeight']}
     rules = PlayerRules(builder, export_dir, builder.combat.settings).write()
@@ -52,9 +59,10 @@ def build(builder, export_dir: Path, quests: dict) -> None:
     values = {'OpeningQuests': ('objects', list(OPENING_QUESTS)), 'StartStage': ('int', stage),
               'Special': ('objects', [FALLOUT4_ACTOR_VALUE_IDS[s] for s in SPECIAL]),
               'SpecialStart': ('floats', start_special(export_dir)), **builder.combat.damage_rules[1]}
-    vmad = quest_fragments(FRAGMENTS, [(START_BY_HAND, 0, FRAGMENT)],
+    stages = [OPEN_BY_HAND, START_BY_HAND]
+    vmad = quest_fragments(FRAGMENTS, [(s, 0, f'Fragment_Stage_{s:04d}_Item_00') for s in stages],
                            aliases=[(PLAYER_ALIAS, fid, [(ALIAS_SCRIPT, {}, {})])], scripts=[(SCRIPT, props, values)])
-    builder.writer.add_record('QUST', R.pack_qust(fid, 'FNV_NewGame', '', 0, [START_BY_HAND], 'Player', PLAYER, vmad))
+    builder.writer.add_record('QUST', R.pack_qust(fid, 'FNV_NewGame', '', 0, stages, 'Player', PLAYER, vmad))
     builder.scripts.used.append(FRAGMENTS)
     builder.counts['QUST (new game)'] += 1
 

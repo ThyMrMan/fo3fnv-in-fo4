@@ -1,0 +1,135 @@
+# Fallout 3's opening on Fallout 4, part 5: CG04, Escape! (age 19).
+# CG03 100 starts CG04; its 0 plays the bink, moves the player to bed and starts its timers (2, 3). At 3 Amata
+# force greets: her GREETING "Come on, you've got to wake up!" (0002574D) sets 4 (controls back). One path through
+# her talk: A1, A1B1, A1B1C1, A2B1C3, B6 (10 at its end), D1New (the pistol), F1 (8: she hands it over).
+# Source refs (Fallout3.esm): Amata 0230E4. See docs/fork/fo4_opening_progression_plan.md#cases-fo3.
+
+case cg04_amata
+until 240 GetStageDone FNV_CG04 3 == 1                # CG04's timers after the bink
+menu 120 DialogueMenu                                 # her force greet (CG04AmataREF.evp at 3)
+choose 60 Huh? What's wrong, Amata?                   # CG04AmataStartA1
+until 30 GetStageDone FNV_CG04 4 == 1                 # her greeting's result: EnablePlayerControls
+choose 60 What do you mean, my Dad is "gone"?
+choose 60 I've never seen you so scared, Amata. What's happened?
+choose 60 So they killed Jonas, and I'm next, is that it?
+choose 60 I need to escape the Vault. And you're going to help me.
+choose 60 Sounds like a good plan. Let's get out of here! || Wait... If the door to the exit is sealed, how am I supposed to get out?
+choose 60 Secret tunnel... sounds promising. But how do I get into the Overseer's office? || Thanks, Amata. I'll only use it as a last resort, I promise.
+choose 60 Thanks, Amata. I'll only use it as a last resort, I promise. || -
+until 60 GetStageDone FNV_CG04 8 == 1                 # F1's result: her pistol and 36 rounds
+until 60 GetStageDone FNV_CG04 10 == 1                # "Enter the Overseer's office."
+closed 60 DialogueMenu
+end
+
+case cg04_hall
+walk 120 {Fallout3.esm:064912} 300                    # out of the apartment toward Officer Kendall
+until 60 GetStageDone FNV_CG04 12 == 1                # his bark "There she is! Hold it right there!" (0002D4B3)
+check until 5 {Fallout3.esm:064912}.GetEquipped {Fallout3.esm:01CBDD} == 1    # he wears his ArmorVault101Security
+check until 60 GetStageDone FNV_CG04 15 == 1         # he kills the ambush's three radroaches (CG04RadroachAmbushA)
+unless GetStageDone FNV_CG04 15 == 1 | run {Fallout3.esm:02D4C9}.kill player    # ours can lose (open:
+unless GetStageDone FNV_CG04 15 == 1 | run {Fallout3.esm:02D4CA}.kill player    # fo4_opening_progression_plan.md#npc-health);
+unless GetStageDone FNV_CG04 15 == 1 | run {Fallout3.esm:02D4C8}.kill player    # the player finishes them, as one would
+until 30 GetStageDone FNV_CG04 15 == 1
+unless {Fallout3.esm:064912}.GetDead == 1 | run {Fallout3.esm:064912}.kill player    # 15 turns him on the player
+end
+
+case cg04_butch
+walk 120 {Fallout3.esm:02A325}                        # CG04ButchTriggerWall: 18, Butch force greets
+until 30 GetStageDone FNV_CG04 18 == 1
+menu 60 DialogueMenu                                  # "You gotta help me! My mom's trapped in there..." (000289B7): 20
+choose 60 Sorry, Butch. I've got my own problems      # CG04ButchA3
+until 30 GetStageDone FNV_CG04 20 == 1
+choose 60 Um... no. I'm not going to help you. Bye, Butch.    # after his plea (000293A6): a goodbye
+closed 60 DialogueMenu
+end
+
+case cg04_atrium
+walk 120 {Fallout3.esm:09BA40} 150                    # the hall's open door first: from the apartments the engine finds
+walk 120 {Fallout3.esm:054285} 80                     # no path to the load door to Vault101b (a walk stops at one)
+activate {Fallout3.esm:054285}
+wait 3
+ready 60
+check walk 60 {Fallout3.esm:05396D} 80                # set aside (atrium-route): from the entrance no path or stride reached it (run 72)
+unless {Fallout3.esm:05396D}.GetOpenState == 1 | activate {Fallout3.esm:05396D}    # (atrium-path): open it
+wait 2
+check walk 60 {Fallout3.esm:02D4B6}                   # out and into the stop box
+unless GetStageDone FNV_CG04 35 == 1 | run player.moveto {Fallout3.esm:02D4B6}
+unless GetStageDone FNV_CG04 35 == 1 | walk 60 {Fallout3.esm:02D4B6}    # a walk into the box fires its trigger
+until 60 GetStageDone FNV_CG04 33 == 1                # CG04Script: the player is in Vault101b (Amata to the office)
+until 60 GetStageDone FNV_CG04 35 == 1                # CG04RadroachStopBoxSCRIPT: the interrogation starts
+end
+
+case cg04_overseer
+walk 120 {Fallout3.esm:0230E1} 150                    # up to him: from 630 units his Say Once greeting played with no
+until 60 GetStageDone FNV_CG04 38 == 1                # menu and was spent (fo4_opening_progression_plan.md#talk-from-afar)
+unless {Fallout3.esm:064913}.GetDead == 1 | run {Fallout3.esm:064913}.kill player    # 38: Officer Mack fights;
+unless {Fallout3.esm:06490E}.GetDead == 1 | run {Fallout3.esm:06490E}.kill player    # FO3's dialogue paused him,
+talk 120 {Fallout3.esm:0230E1}                        # FO4's doesn't (fo4_opening_progression_plan.md#talk-in-combat)
+choose 60 Just give me the keys to your office and your password. Then I'll be going.
+choose 60 Amata trusts me. If you don't give me what I want, I'll hurt her. Bad.
+until 30 player.GetItemCount {Fallout3.esm:029859} >= 1    # CG04OverseerA1B2: his key and CG04OverseerPassword
+closed 60 DialogueMenu                                # its answer 0002E0AB is a goodbye: ~11 s, then the talk ends
+end
+
+case cg04_office
+walk 120 {Fallout3.esm:539B5} 80                      # the player's engine path stops at a closed door (open:
+unless {Fallout3.esm:539B5}.GetOpenState == 1 | activate {Fallout3.esm:539B5}    # fo4_opening_progression_plan.md#atrium-path),
+wait 2                                                # so open each on Amata's way to the office: this one, then AE045
+walk 120 {Fallout3.esm:0AE045} 150                    # (she left it open), then his office door
+walk 120 {Fallout3.esm:053992} 80
+activate {Fallout3.esm:053992}                        # locked: Vault101OverseersKey opens it
+wait 2
+walk 120 {Fallout3.esm:057E98}                        # CG04OverseersOfficeTrigger, inside
+until 60 GetStageDone FNV_CG04 60 == 1                # "Use the Overseer's computer to access the secret tunnel."
+end
+
+case cg04_terminal
+walk 60 {Fallout3.esm:0506D8} 64                      # up to his desk: E needs the terminal's activate prompt
+activate {Fallout3.esm:0506D8}                        # the lock script opens it for the password holder
+menu 60 TerminalMenu
+wait 5                                                # its header types out first
+press s                                               # View Security Dossiers, View Scouting Reports,
+wait 1                                                # Vault-Tec Instructions, Open Overseer's Tunnel
+press s
+wait 1
+press s
+wait 1
+press e
+until 60 GetStageDone FNV_CG04 120 == 1               # the entry's result: the tunnel opens, "Open the vault door."
+close TerminalMenu                                     # off the terminal (no checkpoint saves while it is open; Tab
+closed 30 TerminalMenu                                # on its "Opening..." page did not close it)
+wait 3
+end
+
+case cg04_control_pod
+run player.moveto {Fallout3.esm:0B7E80}               # down the stairs his desk opened (the walk from the terminal
+wait 2                                                # stops at the desk's edge; placed here, the player lands below)
+walk 60 {Fallout3.esm:05396D} 80                      # the tunnel's hinged door (open already if cg04_atrium opened it)
+unless {Fallout3.esm:05396D}.GetOpenState == 1 | activate {Fallout3.esm:05396D}
+wait 2
+walk 120 {Fallout3.esm:052196} 80                     # along the hall to its load door into Vault101a
+activate {Fallout3.esm:052196}
+wait 3
+ready 60
+walk 120 {Fallout3.esm:057AE9} 64                     # CG04DoorSwitchREF: its activate child is the tunnel's secret
+activate {Fallout3.esm:057AE9}                        # door (CG04SecretDoorREF), which only a non-player opens
+wait 3
+walk 300 {Fallout3.esm:02987D} 80                     # to the control pod
+activate {Fallout3.esm:02987D}
+until 60 GetStageDone FNV_CG04 140 == 1               # CG04Vault101ControlPodScript: the gear door rolls
+until 120 GetStageDone FNV_CG04 144 == 1              # 141, 142 (Amata to the door), 144 once the door is open
+menu 120 DialogueMenu                                 # Amata's force greet
+until 60 GetStageDone FNV_CG04 145 == 1               # her GREETING's end: the exit unlocks
+bye
+end
+
+case cg04_exit
+walk 240 {Fallout3.esm:024720} 80                     # Vault101CaveDoorInterior
+activate {Fallout3.esm:024720}                        # Vault101ExitScript: forceSave, then its redo box
+answer 60 Finished - Exit Vault 101
+until 120 GetStageDone FNV_CG04 200 == 1              # out of Vault101: MQ01 10
+end
+
+case fo3_opening_checks
+report                                                # every `check` this run set aside (a missed shot, a fight the
+end                                                   # player finished, gear not worn) fails the run here

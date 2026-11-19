@@ -40,7 +40,7 @@ def test_plugin_is_a_light_master_with_every_record(tmp_path):
     assert (b'AVIF', FALLOUT4_HELPER_AVS['Variable01']) in got
     assert (b'QUST', FALLOUT4_HELPER_QUESTS['F3NV_PlayerControls']) in got
     assert (b'GLOB', FALLOUT4_HELPER_GLOBALS['TES4ControlsDisabled']) in got
-    assert (b'MESG', FALLOUT4_HELPER_MESSAGES['TES4ChooseSexMessage'][0]) in got
+    assert (b'MESG', FALLOUT4_HELPER_MESSAGES['TES4SpecialPointMessage'][0]) in got
     assert (b'KYWD', FALLOUT4_HELPER_SAY_TARGET_KEYWORD) in got
     assert {(b'RACE', FALLOUT4_HELPER_CHILD_RACE), (b'ARMA', FALLOUT4_HELPER_CHILD_PIPBOY), (b'ARMO', 0x21B3B)} <= got
     own = {(sig, fid) for sig, fid in got if fid >= 0x800 and sig != b'SPEL'}

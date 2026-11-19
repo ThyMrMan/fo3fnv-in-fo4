@@ -12,6 +12,7 @@ import pytest
 
 from fo4_import import cleanroom
 from fo4_import import dialogue_menu as D
+from fo4_import.base import mxmlc
 from fo4_import.dialogue_menu import test_mod as T
 from fo4_import.spike import records as R
 from tools.validate.preflight.plugin_index import every, first, load_plugin, u32
@@ -97,11 +98,10 @@ def test_links_move_to_cleanroom_uis_folder(tmp_path):
     assert D.LINKS == Path('F4SE', 'Plugins', 'CleanroomDialogue')
 
 
-def test_cleanroom_finds_the_main_checkout_from_the_main_checkout_and_a_worktree(monkeypatch):
+def test_main_checkout_from_the_main_checkout_and_a_worktree():
     """main_checkout(): the repo, or the one above .claude/worktrees."""
     for repo, main in ((Path('D:/C/x'), Path('D:/C/x')), (Path('D:/C/x/.claude/worktrees/w'), Path('D:/C/x'))):
-        monkeypatch.setattr(cleanroom, 'REPO', repo)
-        assert cleanroom.main_checkout() == main
+        assert mxmlc.main_checkout(repo) == main
 
 
 @pytest.mark.skipif(cleanroom.checkout() is None, reason='no Cleanroom UI checkout')

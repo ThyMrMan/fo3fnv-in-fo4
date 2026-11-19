@@ -1,5 +1,5 @@
 ScriptName F3NV_NewGame extends Quest Hidden
-{The FO3/FNV opening on Fallout 4, run once as this start-game quest starts. A new game first runs Fallout 4's own opening, MQ101 stage 0: its intro movie, then the character creation state. Once the movie is over that state is undone with the calls vanilla undoes it with (TimeScale 20 as vaultExitCommonWealthSCRIPT, SetInCharGen, the chargen skeleton, the mirror sequence flag ending MQ101's lighting timer, directional light and the camera imod as MQ101PlayerScript and MQ101QuestScript, ambient particles as a later MQ101 stage, the HUD mode as MQ03QuestScript, MQ101's and MQ03's input layers deleted), Fallout 4's opening quests are stopped and the source game's first stage (StartQuest, StartStage) is set. A coc from the main menu runs no MQ101 stage 0, so the source game does not start; setting this quest's stage 10 (F3NV_NewGameStart) starts it by hand. A save where the source game, or Fallout 4's own game, is already under way is left alone.}
+{The FO3/FNV opening on Fallout 4, run once as this start-game quest starts. A new game first runs Fallout 4's own opening, MQ101 stage 0: its intro movie, then the character creation at the mirror (CreateCharacter), which stands in for the source game's. Once the player leaves the sink the opening's state is undone with the calls vanilla undoes it with (TimeScale 20 as vaultExitCommonWealthSCRIPT, SetInCharGen, the chargen skeleton, the mirror sequence flag ending MQ101's lighting timer, directional light and the camera imod as MQ101PlayerScript and MQ101QuestScript, ambient particles as a later MQ101 stage, the HUD mode as MQ03QuestScript, MQ101's and MQ03's input layers deleted), Fallout 4's opening quests are stopped and the source game's first stage (StartQuest, StartStage) is set. A coc from the main menu runs no MQ101 stage 0, so the source game does not start; setting this quest's stage 5 (F3NV_NewGameStart) runs the opening and character creation by hand, stage 10 starts the source game at once. A save where the source game, or Fallout 4's own game, is already under way is left alone.}
 
 Quest Property MQ101 Auto Const
 Quest Property MQ102 Auto Const
@@ -11,6 +11,8 @@ ActorValue[] Property Special Auto Const
 {Fallout4.esm's seven SPECIAL actor values, in order.}
 Float[] Property SpecialStart Auto Const
 {Each one's value in the source game's player record.}
+Keyword Property AnimArchetypePlayer Auto Const
+{The player's own movement archetype, which MQ101 stage 400 gives back after stage 10's fast walk (walk only while holstered).}
 ImageSpaceModifier Property CharGenCameraImod Auto Const
 ImageSpaceModifier Property CharGenMirrorImod Auto Const
 {MQ101 stage 0's mirror camera effects: the camera one holds until removed (as MQ101PlayerScript removes it).}
@@ -34,6 +36,7 @@ ActorValue Property CarryWeight Auto Const
 {Nudged when the ability is added, so the engine takes up the new SpeedMult.}
 ; MQ101QuestScript's timer re-disabling directional light, SSR and god rays each second until var_MirrorSequenceDone.
 Int MirrorTimer = 50
+Bool Creating = False
 
 Event OnQuestInit()
   TracePlayerHits(Game.GetPlayer())
@@ -48,30 +51,60 @@ Event OnQuestInit()
     waited += 0.5
   EndWhile
   If MQ101.GetStageDone(0)
-    LeaveOpening()
-    Begin()
+    CreateCharacter()
   Else
-    Debug.Trace("TES4NewGame|no New Game opening (a coc): the source game waits for setstage FNV_NewGame 10")
+    Debug.Trace("TES4NewGame|no New Game opening (a coc): the source game waits for setstage FNV_NewGame 5 or 10")
   EndIf
 EndEvent
 
+Function RunOpening()
+  {Stage 5, for a game begun by a coc: Fallout 4's New Game opening by hand (MQ101 stage 0), then CreateCharacter.}
+  If StartQuest.IsRunning() || StartQuest.IsCompleted()
+    Return
+  EndIf
+  MQ101.SetStage(0)
+  CreateCharacter()
+EndFunction
+
+Function CreateCharacter()
+  {Fallout 4's character creation stands in for the source game's: MQ101 stage 0's movie, then its mirror (the
+  sex between the two spouses, the face, the body) until the player leaves the sink (MQ101PlayerScript sets
+  var_MirrorSequenceDone as it undoes the mirror); then the opening is left and the source game begun.
+  Once only: stage 5 and OnQuestInit's wait for MQ101 stage 0 can both call it, and a second Begin racing the
+  first restarts the source game's first quest under its running stage fragment.
+  See: docs/fork/fo4_pipeline.md#character-creation}
+  If Creating
+    Return
+  EndIf
+  Creating = True
+  Utility.Wait(1.0)
+  While UI.IsMenuOpen("PlayBinkMenu") || UI.IsMenuOpen("LoadingMenu")
+    Utility.Wait(0.5)
+  EndWhile
+  MQ101QuestScript opening = MQ101 as MQ101QuestScript
+  While opening.var_MirrorSequenceDone == 0
+    Utility.Wait(0.5)
+  EndWhile
+  Debug.Trace("TES4NewGame|character created: female " + (Game.GetPlayer().GetLeveledActorBase().GetSex() == 1))
+  LeaveOpening()
+  Begin()
+EndFunction
+
 Function Begin()
-  {Start the source game: the player's SPECIAL, then its first stage. Once only; stage 10 calls it by hand.}
+  {Start the source game: the player's SPECIAL, then its first stage, whose race menu Fallout 4's character
+  creation stood in for (F3NV_PlayerControls.RaceMenuDone). Once only; stage 10 calls it by hand, skipping the creation.}
   If StartQuest.IsRunning() || StartQuest.IsCompleted()
     Return
   EndIf
   SetStartSpecial()
+  TES4Polyfill.Controls().RaceMenuDone = true
   StartQuest.SetStage(StartStage)
   Game.FadeOutGame(False, True, 0.0, 1.0)
 EndFunction
 
 Function LeaveOpening()
-  {Wait out MQ101 stage 0 (its movie, then the rest of its fragment), then undo what it set up and stop its quests.}
-  Utility.Wait(1.0)
-  While UI.IsMenuOpen("BinkMenu") || UI.IsMenuOpen("LoadingMenu")
-    Utility.Wait(0.5)
-  EndWhile
-  Utility.Wait(2.0)
+  {Undo what MQ101 set up (stage 0, and stage 10's fast walk as the player leaves the sink) and stop its quests,
+  faded out.}
   Game.FadeOutGame(True, True, 0.0, 0.5, True)
   MQ101QuestScript opening = MQ101 as MQ101QuestScript
   opening.var_MirrorSequenceDone = 1
@@ -90,6 +123,7 @@ Function LeaveOpening()
     slice.VSEnableLayer = None
   EndIf
   Actor player = Game.GetPlayer()
+  player.ChangeAnimArchetype(AnimArchetypePlayer)
   Game.SetInCharGen(False, False, False)
   Game.PrecacheCharGenClear()
   Game.SetCharGenHUDMode(0)
@@ -123,6 +157,9 @@ EndFunction
 Event Actor.OnPlayerLoadGame(Actor akSender)
   TracePlayerHits(akSender)
   GivePerks(akSender)
+  If StartQuest.IsRunning() || StartQuest.IsCompleted()
+    akSender.ChangeAnimArchetype(AnimArchetypePlayer)
+  EndIf
 EndEvent
 
 Function GivePerks(Actor akPlayer)

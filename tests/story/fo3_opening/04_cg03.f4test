@@ -1,0 +1,111 @@
+# Fallout 3's opening on Fallout 4, part 4: CG03, Future Imperfect (the G.O.A.T., age 16).
+# CG02 stage 100 starts CG03; its 0 moves the player to CG03StartMarkerREF and sets 5 (NPCs enabled, the clock
+# set). Dad talks, then force greets; leaving him says his GOODBYE line, which sets 10. In the hall the player walks into
+# Amata's trigger (15); she meets the Tunnel Snakes (20, 25) and the player talks Butch away (30). Mr. Brotch
+# starts the G.O.A.T. (40, 42), the player sits (50), everyone sits (55, 60), his speech asks ten questions, each a
+# CG03Script message box (ShowMessage, GetButtonPressed), then 70. His result line sets 80 and SetTagSkills 3.
+# Leaving through Freddie's trigger sets 90; CG03Script's timer, 100, starts CG04.
+# Source refs (Fallout3.esm): Dad 01CE3A, Amata 01CE25, Butch 01CE27, Mr. Brotch 01CFB8, Amata's move trigger
+# 057AEB, Freddie's trigger 02B797; the classroom's eight desks (seven students) 02B793 02B790 02B78D 02B765
+# 02B5C8 02B5C7 034209 021425. See docs/fork/fo4_opening_progression_plan.md#cases-fo3.
+
+case cg03_dad
+until 120 GetStageDone FNV_CG03 5 == 1                # CG02 100 starts CG03: the start marker, the NPCs enabled
+menu 180 DialogueMenu                                 # Dad's speech (6), then his force greet (CG03DadRef.evp)
+choose 60 If you say so, Dad.                         # CG03DadChoice1: "Hey, it's not my call. Those are the rules."
+choose 60 [Leave]                                     # leaving says his GOODBYE line "Bye, Dad." (SetStage CG03 10)
+until 60 GetStageDone FNV_CG03 10 == 1
+closed 30 DialogueMenu
+end
+
+case cg03_amata
+walk 120 {Fallout3.esm:057AEB}                        # CG03AmataMoveTrigger: 15, Amata heads for the Tunnel Snakes
+until 30 GetStageDone FNV_CG03 15 == 1
+until 120 GetStageDone FNV_CG03 20 == 1               # she reaches CG03AmataTeasingTrigger
+until 120 GetStageDone FNV_CG03 25 == 1               # CG03BullyIntroConv between Amata and Butch
+end
+
+case cg03_butch
+walk 60 {Fallout3.esm:01CE27} 200
+talk 60 {Fallout3.esm:01CE27}
+choose 60 Looks like you're having fun.               # CG03ButchChoiceSpeech
+choose 60 If you keep messing with her, the Overseer is going to come down on your gang.
+until 60 GetStageDone FNV_CG03 30 == 1                # "Maybe you're right. We can deal with her later." (01CDEC)
+bye
+end
+
+case cg03_brotch
+walk 120 {Fallout3.esm:01CFB8} 200
+talk 60 {Fallout3.esm:01CFB8}
+choose 60 Sure, I'm ready. I bet I'll ace it!         # CG03BrotchStartA3: 40 and 42
+until 60 GetStageDone FNV_CG03 42 == 1
+bye
+end
+
+case cg03_sit
+until 120 {Fallout3.esm:01CE25}.GetSitting == 3       # the students first: their Find packages pick any free seat, so
+until 120 {Fallout3.esm:01CE27}.GetSitting == 3       # which one is left changes from run to run, and a student whose
+until 120 {Fallout3.esm:01CE29}.GetSitting == 3       # found seat the player takes stands for good (open:
+until 120 {Fallout3.esm:01CE2B}.GetSitting == 3       # fo4_opening_progression_plan.md#seat-taken)
+until 120 {Fallout3.esm:01D029}.GetSitting == 3
+until 120 {Fallout3.esm:02B795}.GetSitting == 3
+until 120 {Fallout3.esm:034203}.GetSitting == 3
+unless player.GetSitting == 3 | walk 30 {Fallout3.esm:02B793} 100    # each seat in turn: up to it, then E (a
+unless player.GetSitting == 3 | activate {Fallout3.esm:02B793}        # taken seat does nothing)
+wait 4
+unless player.GetSitting == 3 | walk 30 {Fallout3.esm:02B790} 100
+unless player.GetSitting == 3 | activate {Fallout3.esm:02B790}
+wait 4
+unless player.GetSitting == 3 | walk 30 {Fallout3.esm:02B78D} 100
+unless player.GetSitting == 3 | activate {Fallout3.esm:02B78D}
+wait 4
+unless player.GetSitting == 3 | walk 30 {Fallout3.esm:02B765} 100
+unless player.GetSitting == 3 | activate {Fallout3.esm:02B765}
+wait 4
+unless player.GetSitting == 3 | walk 30 {Fallout3.esm:02B5C8} 100
+unless player.GetSitting == 3 | activate {Fallout3.esm:02B5C8}
+wait 4
+unless player.GetSitting == 3 | walk 30 {Fallout3.esm:02B5C7} 100
+unless player.GetSitting == 3 | activate {Fallout3.esm:02B5C7}
+wait 4
+unless player.GetSitting == 3 | walk 30 {Fallout3.esm:034209} 100
+unless player.GetSitting == 3 | activate {Fallout3.esm:034209}
+wait 4
+unless player.GetSitting == 3 | walk 30 {Fallout3.esm:021425} 100
+unless player.GetSitting == 3 | activate {Fallout3.esm:021425}
+wait 4
+until 30 player.GetSitting == 3
+until 120 GetStageDone FNV_CG03 50 == 1               # CG03ClassroomTrigger: sitting at 40
+until 300 GetStageDone FNV_CG03 60 == 1               # Brotch walks in (55); every student seated: 60
+end
+
+case cg03_goat
+answer 240 "Yeah? Up yours too, buddy!"               # each box after Brotch's question line (CG03GoatQuestion01-10)
+answer 120 Medicate the infected area to the best of your abilities.
+answer 120 Lead the boy to safety, and then turn him in to the Overseer.
+answer 120 Catcher.
+answer 120 Obey your elder and kill the resident with the pistol.
+answer 120 Use a bobby pin to pick the lock on the door.
+answer 120 Removal of the mutated tissue with a precision laser.
+answer 120 Trade the comic book for one of your own valuable possessions.
+answer 120 Loosen the bolts on some pipes. When the sink is turned on, the restroom will flood.
+answer 120 The Overseer.
+until 180 GetStageDone FNV_CG03 70 == 1               # "You can have the rest of the day off" (034906)
+end
+
+case cg03_results
+talk 120 {Fallout3.esm:01CFB8}
+choose 60 Wow! That's what I've always wanted to be. My dreams are finally coming true!    # CG03BrotchA1
+until 60 GetStageDone FNV_CG03 80 == 1
+menu 60 CRUI_LevelUp                                  # SetTagSkills 3: our tags menu
+wait 2
+invoke CRUI_LevelUp ProcessUserEvent XButton 0        # X keeps the three tags the G.O.A.T. suggested
+closed 30 CRUI_LevelUp
+closed 60 DialogueMenu
+end
+
+case cg03_leave
+walk 120 {Fallout3.esm:02B797}                        # CG03FreddieBrotchTrigger: 90 at 80
+until 30 GetStageDone FNV_CG03 90 == 1
+until 120 GetStageDone FNV_CG03 100 == 1              # CG03Script's timer, the player standing: 100 starts CG04
+end

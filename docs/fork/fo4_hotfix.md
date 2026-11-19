@@ -31,7 +31,14 @@ only the newest.
 A hotfix takes the machine's build lock, so it waits for a running build instead of converting into the same
 folder. It refuses while Fallout 4 runs.
 
-**One-time setup (by hand in MO2):** enable `F3NV - Hotfix` and place it last, below every `F3NV - ` mod. Loose
+<a id="per-game"></a>**One hotfix mod per source game (2026-11-17).** `F3NV - Hotfix` is New Vegas's (its DLC builds
+share it), `F3NV - Fallout 3 Hotfix` is Fallout 3's (`fo4_deploy.HOTFIX_MODS`, picked by `fo4_deploy.hotfix_mod`
+from the build stamp's `--export`). Both games ship scripts of the same names (`TES4Polyfill`, the `F3NV_`
+helpers), so one shared mod put one game's copy into the other's profile, and clearing one game's hotfix deleted
+files the other had listed. Each game's MO2 profile enables its own: the "Fallout 3" profile has
+`F3NV - Fallout 3 Hotfix` where `F3NV - Hotfix` was, and `F3NV - Hotfix` off.
+
+**One-time setup (by hand in MO2):** enable the game's hotfix mod and place it last, below every `F3NV - ` mod. Loose
 files already win over BA2 archives, where the builds pack their scripts since 2026-11-11
 ([main archive](fo4_pipeline.md#main-archive)); being last makes it win over any loose script a mod still has.
 
@@ -40,6 +47,12 @@ files already win over BA2 archives, where the builds pack their scripts since 2
 - **Records.** A fix that adds or changes a record (a package input, an alias, a new property's value) needs a
   build. A script whose new property the plugin does not fill yet sees None. Scripts that check their
   properties keep the old behavior until the build lands.
+- <a id="needs-a-build"></a>**Refused: a property a record would fill (2026-11-17).** A changed script that adds
+  an object property with no default, or changes such a property's type, would see None until a build fills it
+  from the records: a quest fragment's every value empty looks like a converter bug and sends a test run chasing
+  it. So `fo4_hotfix` refuses with exit 2 and names each such property ("needs a full build"). Value properties
+  (`Int`, `Float`, `Bool`, `String`, `Var` and their arrays: the converted scripts' variables) and properties with
+  a `=` default are never filled by a record, so they ship.
 - **A changed function signature.** Unchanged callers keep the compiled call they had. Papyrus binds by name at
   run time, so a call with the wrong arguments fails until the build recompiles them.
 - **Saves.** Scripts only: no FormID is involved, so a save made with a hotfix carries over to the build.

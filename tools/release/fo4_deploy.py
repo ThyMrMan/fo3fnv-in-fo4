@@ -12,7 +12,8 @@ built only when <plugin>.files.txt names it, so a file an earlier build left the
 A loose build file that an archive at the top of the build folder holds (the meshes, materials and scripts in
 `<plugin> - Main.ba2`) is not copied, and the mod folder's copy is deleted on every run: loose wins over archived.
 The build's records (build_files.BOOKS: stamp, ledger, file list...) are copied, but its inputs record.
-A deploy also clears the F3NV - Hotfix mod's scripts (fo4_hotfix) of each plugin whose build began after them, and
+A deploy also clears the hotfix mod's scripts (fo4_hotfix; one mod per source game) of each plugin whose build
+began after them, and
 deletes the XDI-era dialogue hub plugin and links from the mods beside the mod folder.
 
 See: docs/reference/python_tools.md#fo4-deploy
@@ -33,6 +34,8 @@ from fo4_import.base.build_files import BOOKS, all_moved_in
 from fo4_import import dialogue_menu as menu_links
 from fo4_import.pipeline import stale_files
 from fo4_import.pipeline.build_inputs import RECORD_SUFFIX, SUFFIX
+from fo4_import.pipeline.build_plan import stamp_options
+from fo4_import.pipeline.export_index import source_game
 from fo4_import.pipeline.build_steps import STAMP_SUFFIX, stamp_path
 from fo4_import.pipeline.creation_kit import MO2
 
@@ -41,10 +44,18 @@ BUILD = ROOT / 'temp' / 'profile_data'
 MOD = MO2 / 'mods' / 'F3NV - Fallout New Vegas'
 #: Mod-folder files no build makes but that belong there (lowercase, relative).
 KEEP = frozenset({'meta.ini'})
-#: The MO2 mod fo4_hotfix ships changed scripts into, ahead of a build; it must sit last in MO2's order.
-HOTFIX_MOD = MOD.with_name('F3NV - Hotfix')
+#: Per source game, the MO2 mod fo4_hotfix ships changed scripts into; it sits last in MO2's order.
+HOTFIX_MODS = {'fnv': 'F3NV - Hotfix', 'fo3': 'F3NV - Fallout 3 Hotfix'}
 #: The hotfix mod's record of its files: {plugin: {'shipped': epoch seconds, 'files': [relative paths]}}.
 HOTFIX_MANIFEST = 'F3NV_Hotfix.json'
+
+
+def hotfix_mod(mods: Path, plugin: Path) -> Path:
+    """The hotfix mod in `mods` for `plugin`'s source game.
+    See: docs/fork/fo4_hotfix.md#per-game
+    """
+    export = stamp_options(plugin).get('--export')
+    return mods / HOTFIX_MODS[source_game(ROOT / export[0]) if export else 'fnv']
 
 
 def read_manifest(mod: Path) -> dict:
@@ -298,9 +309,10 @@ def clear_built_hotfixes(args: argparse.Namespace) -> None:
         plugin = stamp.name[:-len(STAMP_SUFFIX)]
         started = time.mktime(time.strptime(json.loads(stamp.read_text(encoding='utf-8'))['started'],
                                             '%Y-%m-%d %H:%M:%S'))
-        gone = clear_hotfix(args.mod.with_name(HOTFIX_MOD.name), plugin, started)
+        mod = hotfix_mod(args.mod.parent, args.build / plugin)
+        gone = clear_hotfix(mod, plugin, started)
         if gone:
-            print(f'{gone} hotfix scripts of {plugin} cleared from {HOTFIX_MOD.name}: the build holds them')
+            print(f'{gone} hotfix scripts of {plugin} cleared from {mod.name}: the build holds them')
 
 
 if __name__ == '__main__':

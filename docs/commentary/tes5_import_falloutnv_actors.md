@@ -157,14 +157,17 @@ attacks on entry as the source did.
 **Code:** `actors_falloutnv.npc_health`, used by `npc.source_health`.
 
 FO3/FNV computes an NPC's hit points from its Base Health, Endurance and
-level: `Base Health + Endurance x fAVDNPCHealthEnduranceMult + (Level - 1) x
-fAVDNPCHealthLevelMult`. Both settings are read through
-[game settings](#game-settings): 5.0 in Fallout3.esm and FalloutNV.esm, whose
-GMSTs override the exes' 5.0 and 20.0. The player's
-version uses the same shape with 20 and 10 (the wiki's `90 + Endurance x 20
-+ Level x 10`, base 100); the NPC level term starting at level 1 follows
-that shape and is not read from the exe. A PC Level Mult NPC takes no level
-term, since Skyrim adds its own. The result goes through the same offset
+level: `Base Health + (Endurance + fAVDNPCHealthEnduranceOffset) x
+fAVDNPCHealthEnduranceMult + (Level - 1) x fAVDNPCHealthLevelMult`, at least
+0, and 0 for Base Health 0 (FalloutNV.exe 0x603fc0 in `references/fnv_decomp`;
+FO3's 114 Base Health 0 NPCs are all placed dead). The settings are read
+through [game settings](#game-settings): the offset is the exes' −1 (no
+plugin sets it), the mults 5.0 in Fallout3.esm and FalloutNV.esm, whose GMSTs
+override the exes' 5.0 and 20.0. The player's version (offset 0 in both
+plugins, 20 and 10) gives the wiki's `90 + Endurance x 20 + Level x 10`. Until
+2026-11-19 the offset was left out, so every NPC had 5 too many. A PC Level
+Mult NPC takes no level term, since Skyrim adds its own. The FO4 converter
+reads the same function ([NPC health](../fork/fo4_pipeline.md#npc-health)). The result goes through the same offset
 solver as TES4's `DATA.Health`
 ([health offset](tes5_import_actors.md#health-offset)), and a template's
 Stats category passes `DATA.BaseHealth` along with the rest.

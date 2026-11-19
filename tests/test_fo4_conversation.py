@@ -166,6 +166,21 @@ def test_the_greeting_starts_for_a_talker_in_a_speakers_talking_as_list():
     assert (C.FO4.index('GetIsID'), 0x0A000005) in ctdas and (C.FO4.index('IsInList'), flst) in ctdas
 
 
+def test_a_force_greet_waits_for_its_actors_scene():
+    """Dad's force greet after the intercom took him out of the scene answering Jonas (CG02 stage 38 never set):
+    with force greets, the starter also needs the player's activation or the speaker in no scene (IsInScene 0);
+    without, no such test."""
+    line = {**_line('T1', GREETING, 'Q1'), 'ConditionCount': '1', 'Condition[0].Raw': _test('GetIsID', DOC)}
+    say = SimpleNamespace(infos={'Q1': [line]}, dials={GREETING: {'DATA.Type': '1'}}, script_vars={}, once=SayOnce(),
+                          silent=[], builder=SimpleNamespace(counts=Counter(), new_id=lambda owner, key=None: len(owner),
+                                                             scripts=SimpleNamespace(used=[]), writer=WRITER))
+    say.info = lambda rec, form_map, *args, **kwargs: b''
+    quest = {'FormID': 'Q1', 'EditorID': 'One'}
+    talk = Conversations(say, quest, 1, FORMS, hub(say, [quest], {'One': 1}, set()))
+    scene = (C.FO4.index('IsInScene'), 0)
+    assert scene in _ctdas_in(talk.greeting([0x0A000777])) and scene not in _ctdas_in(talk.greeting([]))
+
+
 def test_the_greeting_line_opens_its_scene_by_script_not_tsce():
     """A GREETING scene left playing (a talk cut off, a save made mid-talk) made every later TSCE start fail, so
     menus showed nothing; the starter line carries F3NV_Greeting, which stops it and starts it again."""
@@ -277,6 +292,34 @@ def test_the_topic_list_ends_in_leave_linked_to_the_exit():
     talk.scene(('menu', talk.hub.topics))
     assert say.links[-1][1] == talk.hub.answers[LEAVE] and len(say.links) == 2
     assert say.silent == [(next(f for f, _ in say.silent), False)]
+
+
+def test_each_npc_chat_is_built_in_a_quest_of_its_own():
+    """Two chats of one quest that play at once (CG03: Dad with Jonas, Amata with Butch) each get a quest of their
+    own for their scene and topic, so neither takes the other's Speaker and Listener.
+    See: docs/fork/fo4_pipeline.md#chat-quests
+    """
+    say = _say([_said('L1', 'D1', ''), _said('L2', 'D2', '')],
+               {'D1': {'EditorID': 'DadJonas'}, 'D2': {'EditorID': 'AmataButch'}})
+    talk = _quest(say)
+    assert talk.talk('TES4Chat_DadJonas', 0x0A000F01) and talk.talk('TES4Chat_AmataButch', 0x0A000F02)
+    (dad, _, dads), (amata, _, amatas) = talk.chats
+    assert dad != amata and talk.scenes == talk.topics == [] and len(dads.scenes) == len(amatas.scenes) == 1
+    assert (talk.hub.scene_quests[0x0A000F01], talk.hub.scene_quests[0x0A000F02]) == (dad, amata)
+
+
+def test_leave_says_the_hubs_goodbye_line_before_the_silent_one():
+    """[Leave]'s answer holds the Hub's GOODBYE line first (FNV says it as the player leaves, its result run), then
+    the silent line; each ends the scene. GOODBYE (a Conversation topic) is not listed."""
+    lines = [_said('L1', 'D1', 'Hi.'), _said('G1', SAY.GOODBYE_TOPIC, 'Bye, Dad.')]
+    say = _say(lines, {'D1': {'DATA.Type': '0', 'DATA.Flags': '2'}, SAY.GOODBYE_TOPIC: {'DATA.Type': '1'}})
+    talk = _quest(say)
+    talk.scene(('menu', talk.hub.topics))
+    leave = next(blob for blob in talk.topics if b'FNV_Answer_Leave' in blob)
+    infos = [(fid, subs) for sig, fid, subs in _records(leave) if sig == 'INFO']
+    assert talk.hub.topics == ('D1',)
+    assert [fid for fid, _ in infos] == [say.builder.new_id('INFO G1 at leave'), say.silent[0][0]]
+    assert all(struct.unpack_from('<H', subs['ENAM'])[0] & R.INFO_END_SCENE for _, subs in infos)
 
 
 def test_shared_steps_are_built_in_the_hubs_home_and_reached_with_the_speaker_forced():
