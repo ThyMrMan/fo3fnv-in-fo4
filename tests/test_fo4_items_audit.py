@@ -273,7 +273,14 @@ def test_choosing_a_gun_writes_none_of_its_fnv_assets_and_building_on_it_does(tm
     obts = struct.pack('<I', 1) + bytes(10) + b'\1' + b'\0' + bytes(2) + struct.pack('<I', 0x10) + bytes(3)
     guns.templates(0x1234, {'EditorID': 'WeapX'}, choice, [(b'FULL', b'Default\0'), (b'OBTS', obts)], chosen[2], False)
     assert written == ['Weapons\\Pistol.NIF']
-    assert (tmp_path / 'data' / 'Meshes' / 'fnv' / 'weapons' / 'pistol_gun.nif').read_bytes() == b'gun'
+    assert (tmp_path / 'data' / 'Meshes' / 'fnv' / 'weapons' / 'pistol_weapx_gun.nif').read_bytes() == b'gun'
+
+
+def test_guns_sharing_an_fnv_mesh_each_write_their_own_built_mesh():
+    """FO3's BB guns share one FNV mesh on three receivers: three files."""
+    edids = ('CG02WeapBBGun', 'WeapBBGun', 'WeapUniqueBlackBartsBBGun')
+    paths = [G.gun_mesh('fnv\\weapons\\2handrifle\\bbgun01.nif', edid) for edid in edids]
+    assert paths[0] == 'fnv\\weapons\\2handrifle\\bbgun01_cg02weapbbgun_gun.nif' and len(set(paths)) == 3
 
 
 def _guessing_guns(tmp_path, monkeypatch, calls: collections.Counter) -> 'G.Guns':
@@ -307,7 +314,7 @@ def test_a_guessed_gun_is_chosen_and_built_once_and_its_fault_counted_by_the_rea
     calls, taken = collections.Counter(), []
     monkeypatch.setattr(SF, 'FAULTS', {})
     guns = _guessing_guns(tmp_path, monkeypatch, calls)
-    good, bad = {'FormID': '1', 'Model.MODL': 'pistol.nif'}, {'FormID': '2', 'Model.MODL': 'bad.nif'}
+    good, bad = {'FormID': '1', 'EditorID': 'WeapA', 'Model.MODL': 'pistol.nif'}, {'FormID': '2', 'Model.MODL': 'bad.nif'}
     guns._predicted = lambda: [(1, good, None, ()), (2, bad, None, ())]
     guns._warm_clips()
     assert calls == {'convert': 2, 'chosen': 1, 'built': 1, 'key': 1, 'jobs': 1} and not SF.FAULTS

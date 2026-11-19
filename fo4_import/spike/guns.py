@@ -57,7 +57,7 @@ from fo4_import.pipeline.export_index import asset_root, export_file, own_record
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
-#: The built gun's file beside the plain conversion, which FNV's statics and misc items may share.
+#: How a built gun's file ends (gun_mesh), beside the plain conversion FNV's statics and misc items may share.
 GUN_SUFFIX = '_gun.nif'
 #: derive_formid site of a copied mod (key: the FNV gun's FormID and its attach point's EditorID, one part each).
 SITE = 'FNV OMOD'
@@ -79,6 +79,13 @@ RACE_EDID = 'FNV_HumanRaceSubGraphDataAdditive'
 def _fnv_path(export_dir, rec: dict):
     """FNV gun `rec`'s mesh file in the export."""
     return export_file(export_dir, 'meshes', rec['Model.MODL'].replace('\\', '/').lower())
+
+
+def gun_mesh(model: str, edid: str) -> str:
+    """Gun `edid`'s built mesh beside its plain conversion `model`, one per gun.
+    See: docs/fork/fo4_spikes.md#gun-mesh-per-gun
+    """
+    return f'{model[:-len(".nif")]}_{edid.lower()}{GUN_SUFFIX}'
 
 
 def turned(position: tuple, angle: tuple, scale: float, matrix: np.ndarray) -> tuple:
@@ -182,7 +189,7 @@ class Guns:
         name, obts = _default(template)
         model, fnv_path, static, nodes, layout = fnv_mesh
         path, _ = write_assets(self.builder.export_dir, model, self.builder.data_dir, animated=False)
-        out_path = path[:-len('.nif')] + GUN_SUFFIX
+        out_path = gun_mesh(path, rec['EditorID'])
         held = self.taken.pop(id(fnv_mesh), None)
         held = held[2:] if held is not None and held[0] is fnv_mesh and held[1] is choice else (None, None)
         receiver, matrix, made = held[0] or self.built(choice, fnv_mesh)

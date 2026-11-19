@@ -3333,6 +3333,36 @@ so every point of FNV's model lands where FNV put it
 mesh`. Melee and thrown weapons are not turned: FNV and FO4 build them
 along the same axis.
 
+### <a id="gun-mesh-per-gun"></a>One built mesh per gun (fixed 2026-11-19, not built or played)
+
+A built gun mesh is FNV's mesh on one FO4 receiver's skeleton, but its file
+was named after the FNV mesh alone (`<mesh>_gun.nif`). Guns sharing an FNV
+mesh on different templates wrote the same file, the last one built won, and
+the others drew a mesh rigged to another receiver's bones under their own
+clips and parts. Played 2026-11-19 on FO3's birthday BB gun
+(`CG02WeapBBGun`, Hunting Rifle): the archive held Black Bart's build on the
+Railway Rifle (its steam emitters included). Whole gun 1.4 units off, but
+the lever hangs from `WeaponBolt`, whose rest differs by (0, 11.6, 6.2)
+between the two receivers, so it floated; in the converted sighted pose 26%
+of it sat in the middle of the screen (0% on its own build), and the player
+could not aim down sights. The muzzle moved 1.4 units only, so this does not
+explain shots that never hit.
+
+Now each gun writes `<mesh>_<editorid>_gun.nif` (`guns.gun_mesh`), as its
+first-person clips already sit in a folder of its EditorID. Measured on the
+2026-11-19 builds:
+- FO3: 45 guns on 24 files, 35 sharing 14; 8 guns on 3 files built on 2 or
+  more receivers, 4 of them drawing another receiver's build: the BB gun
+  and `WeapBBGun` (Black Bart's Railway Rifle build), `WeapHuntingRifle`
+  (Ol' Painless's Railway Rifle build) and `WeapSniperRifle` (on the
+  Machinegun receiver, drawing Victory's and the Reservist's pipe rifle build).
+- FNV: 86 guns on 76 files, 19 sharing 9; 5 guns on 2 files on 2 or more
+  receivers, 2 drawing another's: `WeapBBGun` (CG02's Hunting Rifle build)
+  and `WeapNV44RevolverUnique` (the .44 receiver; Mysterious Stranger's and
+  Miss Fortune's revolver build).
+- Every other gun's file is renamed only (same bytes); guns sharing a file
+  on one receiver now write identical copies.
+
 ### <a id="spike-4-gun-clips"></a>FNV's own gun clips on a vanilla graph (built; played 2026-10-28/29; good enough, tweaks parked)
 
 **Code:** `fo4_import/havok/gun_clips.py` (clips), `fo4_import/nif/gun.py`
