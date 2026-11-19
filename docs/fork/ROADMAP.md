@@ -110,6 +110,7 @@ in full while the new build caches filled.
 | Lip sync | Mouths move with New Vegas's own lip data | Built, not played | | [lips](research/lip_format.md#built) |
 | Greetings | The line an NPC says when you start talking | Built, not played | Greetings play; the special first-meeting lines aren't checked. | [first meeting](fo4_pipeline.md#talked-to-pc) |
 | Force greets | NPCs who walk up and start talking (Ringo, the Primm trooper) | Partial | Ringo and the Primm trooper work; the rest is untested. | [greet trigger](fo4_pipeline.md#greet-trigger) |
+| Talking next to a fight | New Vegas and Fallout 3 stop the world while you talk; Fallout 4 doesn't, so an attacker keeps hitting you mid-conversation | Built, not played | The world pauses while the choices wait, through the game's own pause for an open menu. NPC lines still play on game time. | [built](fo4_talk_in_combat_plan.md#built) |
 | Barks | One-off lines shouted in combat or as you pass | Partial | Built, not listened for. The player's own barks are left out. | [barks](fo4_pipeline.md#barks) |
 | Companion barks | Companions remarking on low health, waking up or no ammo | Partial | 77 lines built, not heard. 91 others depend on things Fallout 4 doesn't track. | [companion barks](fo4_pipeline.md#companion-barks) |
 | Ambient chats | Two NPCs talking to each other | Built, not played | | [chats](fo4_pipeline.md#actor-dialogue) |

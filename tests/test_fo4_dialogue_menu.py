@@ -81,6 +81,13 @@ def test_test_mod_ships_cleanroom_uis_dialogue_release(tmp_path, built):
     assert T.DLL == cleanroom.DIST / 'CleanroomDialogue.dll'
 
 
+def test_the_build_turns_on_the_pause_while_choosing(tmp_path):
+    """The build's CleanroomDialogue.ini turns on bPauseWhileChoosing."""
+    path = D.write_settings(tmp_path)
+    assert path == tmp_path / 'F4SE' / 'Plugins' / 'CleanroomDialogue.ini'
+    assert path.read_text(encoding='utf-8').splitlines() == ['[Dialogue]', 'bPauseWhileChoosing=1']
+
+
 def test_links_move_to_cleanroom_uis_folder(tmp_path):
     """remove_legacy deletes the hub files and the plugin's own file in the old F3NV_Menus folder (and the folder
     once empty), never another plugin's."""
