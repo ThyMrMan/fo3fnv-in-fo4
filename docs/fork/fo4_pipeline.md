@@ -1700,25 +1700,74 @@ leveled gecko spawn at z 6668 over ground at 6672.
 
 <a id="creature-stats"></a>**Creature stats (built 2026-10-15, played 2026-10-21).**
 A converted creature is a copy of its FO4 stand-in with FNV's stats written
-into PRPS (`creatures.with_stats`). FO4 adds two things on top of the NPC's
-own health: its race's starting health (RACE PRPS) and a per-level bonus.
+into PRPS (`creatures.with_stats`). FO4 adds health on top of the NPC's own
+(`actor_data.added_health`, [NPC health](#npc-health)): its race's, then the
+level bonus on an Auto-calc stand-in or its class's on a fixed one.
 - **Measured (trace, 2026-10-15).** The base health of FNV's well-3 gecko
   (20 health, level 3, on the vicious dog: race 30) read 60. The Goodsprings
   settler (100, level 1, human race 40) read 140. Your varmint rifle took
   6–15 off a gecko per hit, so one needed 4–6 hits, against about 2 in FNV.
-- **The per-level bonus is a reading, not yet confirmed.** We use
-  (level − 1) × `fNPCHealthLevelBonus` (5.0); the gecko's extra 10 fits it.
-  (level − 1) × (Endurance / 2 + 2.5) fits the same point, so another
-  creature's trace decides.
-- **Health.** The NPC's health is now FNV's less the race's and the level
-  bonus, so in game the creature has FNV's health.
-- **Attack damage.** FNV's `AttackDamage` replaces the stand-in's
-  `UnarmedDamage`, which its unarmed attack deals (the vicious dog's 10 bit
-  the settler for 9).
+- **The per-level bonus is Auto-calc's** (read from Fallout4.exe 2026-11-19:
+  (level − 1) × `fNPCHealthLevelBonus`, run only for Auto-calc NPCs; both
+  measured stand-ins are Auto-calc). A fixed-level stand-in gets none, so it
+  is no longer taken off: 44 FO3 and 162 FNV creatures on fixed stand-ins
+  above level 1 (deathclaw, radscorpion, mirelurk, feral ghoul, robots) gain
+  1,360 and 7,715 health in all, back to FO3/FNV's. No stand-in's class has
+  a Health property.
+- **Health.** The NPC's health is FNV's less what FO4 adds, so in game the
+  creature has FNV's health.
+- **Attack damage.** An unarmed attack deals the race's unarmed weapon's
+  `Damage - Base` (WEAP DNAM offset 67, xEdit) plus `UnarmedDamage`, so FNV's
+  `AttackDamage` less that base goes in `UnarmedDamage`. The vicious dog's
+  weapon has 0 (its 10 bit the settler for 9); `UnarmedRadRoach` has 2, so
+  FO3's radroach, written as 3, bit Officer Kendall for 5 (2026-11-18 run).
+  Built: 29 of FO3's 71 and 202 of FNV's 465 creatures with their own
+  `UnarmedDamage` are on a race whose weapon has a base (2–25); each now
+  bites for FO3/FNV's damage. Not played yet.
   - The trace showed a giant mantis nymph, on the stingwing's attack, taking
     20–28 off a 105-health level-1 player.
   - FO4's player starts with about half of FNV's health (FO4 105 against
     FNV about 200 at Endurance 5). That gap is not converted yet.
+
+<a id="npc-health"></a>**NPC health (built 2026-11-19, not played).** A
+converted NPC keeps FO3/FNV's hit points (`npcs.with_health`). Before, it
+had FO4's: its body's PRPS Health plus what FO4 adds, so Officer Kendall
+(FO3: 40) had 100 and lost the CG04 radroach fight he wins in FO3.
+- **FO3/FNV's formula** (`actors_falloutnv.npc_health`; FalloutNV.exe
+  0x603fc0 in `references/fnv_decomp`, settings by JIP's addresses): Base
+  Health + (Endurance + `fAVDNPCHealthEnduranceOffset`) ×
+  `fAVDNPCHealthEnduranceMult` + (level − 1) × `fAVDNPCHealthLevelMult`, at
+  least 0, and 0 when Base Health is 0. The offset is −1 in both exes and
+  neither plugin sets it; the mults are 5 and 5 (the plugins' GMST over the
+  exe's 20). The player's same formula, with the plugins' offset 0, gives
+  the wiki's `90 + END×20 + Level×10` (FO3) and `100 + END×20 + (Level−1)×5`
+  (FNV). Base Health 0 is a corpse: all 114 such FO3 NPCs and 157 of FNV's
+  159 are placed dead. A PC Level Mult NPC counts level 1.
+- **What FO4 adds** (Fallout4.exe 1.11.240, `actor_data.added_health`). An
+  actor's base values are race PRPS + class PRPS + NPC PRPS (0xbb3e70, class
+  from the NPC's +0x240). An Auto-calc NPC (vtable slot 76 0x6448d0: NPC_
+  and ACBS 0x10) replaces Health with race + own + (level − 1) ×
+  `fNPCHealthLevelBonus` + a class-weighted share of `iAVDhmsLevelUp` (10)
+  × (level − 1) (0x65ac20, cached where DNAM's Calculated Health loads; all
+  472 vanilla Auto-calc NPCs' DNAM match it). A fixed NPC's DNAM is not used
+  (Evan Watson: DNAM 19521, wiki hp 40). Wiki checks: Doc Weathers 40,
+  Evan Watson 40, Enrico Thompson 90 (fixed, classes without Health); eight
+  level-6 Citizens 190 (Auto-calc). `Citizen`, every converted human's
+  class, has Health 60: Kendall's 100 is HumanRace 40 + Citizen 60 + 0.
+- **The conversion.** Auto-calc is cleared on every converted NPC and its
+  own Health is FO3/FNV's less race and class, so FO4 gives FO3/FNV's
+  number. A class copy (`classes.py`) registers Citizen's Health.
+- **Not exact: PC Level Mult NPCs** (40 built in FO3, 239 in FNV) get their
+  level-1 health. FO3/FNV adds 5 a level; FO4's Auto-calc would add 5 plus
+  Citizen's share (about 5 at level 6 from the wiki), as wrong the other
+  way.
+- **Blast radius** (the finished 2026-11-19 FO3 and FNV builds, today's
+  health by the rules above against the new): FO3 517 converted NPCs, 114
+  take Stats from an FO4 template (unchanged), 391 change (370 lower, 21
+  higher, median −35); FNV 2,756, 414 templated, 2,335 change (1,794
+  lower, 541 higher, median −30). FNV's VMS49 paladins and North Vegas
+  fiends (authored level about 1,000) drop from about 10,000 to FNV's 5,050–
+  5,180.
 
 <a id="packages"></a>**AI packages (played 2026-10-12: NPCs sandbox, sit
 and sleep).** `spike/packages.py` copies a vanilla instance of the

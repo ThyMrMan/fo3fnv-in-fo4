@@ -40,11 +40,11 @@ from fo4_import.base.source_fault import without_fault
 from fo4_import.nif import file as nif_file
 from fo4_import.nif.creature import PAIRS, creature_fit, creature_mesh, skeleton_parents, skin_texture
 from fo4_import.spike import records as R
-from fo4_import.spike.actor_data import (ACBS_ALLOW_PC_DIALOGUE, BASE_DATA_FLAGS, CREATURE_FLAGS, UNIQUE, hit_proof,
-                                        with_actor_data)
+from fo4_import.spike.actor_data import (ACBS_ALLOW_PC_DIALOGUE, BASE_DATA_FLAGS, CREATURE_FLAGS, HEALTH, UNIQUE,
+                                        StatTables, added_health, hit_proof, with_actor_data)
 from fo4_import.spike.creature_sounds import USE_MODEL, CreatureSounds
 from fo4_import.spike.creature_tint import tinted, tinted_materials
-from fo4_import.spike.npc_skills import with_creature_skills
+from fo4_import.spike.npc_skills import merged_prps, with_creature_skills
 from fo4_import.spike.attack_spells import AttackSpells
 from fo4_import.spike.creature_attacks import attack_list, fnv_groups, race_attacks, with_attacks
 from fo4_import.rig.build import Rigs
@@ -65,7 +65,7 @@ from fo4_import.spike.voice_types import VoiceTypes, fnv_voice_types, with_voice
 from fo4_import.pipeline.export_index import asset_root, export_file, export_records
 from fo4_import.pipeline.mesh_cache import cached_convert
 from fo4_import.pipeline.work_cache import cached
-from tes5_import.base.tes5_reader import subrecords, walk
+from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
 #: A unique target's (Dogmeat's) ties to its own quests and character, left out of an `fnv` creature.
@@ -76,13 +76,10 @@ FX_SLOT = 0x80000000
 STATS = {'DATA.Health': 0x2D4, 'DATA.Strength': 0x2C2, 'DATA.Perception': 0x2C3, 'DATA.Endurance': 0x2C4,
          'DATA.Charisma': 0x2C5, 'DATA.Intelligence': 0x2C6, 'DATA.Agility': 0x2C7, 'DATA.Luck': 0x2C8,
          'DATA.AttackDamage': 0x2DF}
-HEALTH = 0x2D4
-#: Health FO4 adds to an NPC per level past 1 (GMST fNPCHealthLevelBonus).
-LEVEL_HEALTH = 5.0
+#: Fallout4.esm's UnarmedDamage actor value; WEAP DNAM offset of Damage - Base (u16), which a bite adds to it.
+UNARMED_DAMAGE, BASE_DAMAGE_AT = 0x2DF, 67
 #: FNV template flag Use Actor Effect List.
 USE_SPELLS = 0x8
-#: ACBS flag PC Level Mult: the level is a multiplier of the player's, not a number.
-PC_LEVEL_MULT = 0x80
 #: A stand-in's own ties a creature leaves out: scripts, factions (FNV's go in their place), short name (FNV has none).
 STAND_IN_TIES = frozenset({b'VMAD', b'SNAM', b'SHRT', b'LTPT', b'LTPC'})
 #: Vanilla DefaultSandboxEditorLocation, the package of a converted creature none of whose FNV packages convert.
@@ -137,7 +134,7 @@ class Creatures:
         self.records = {int(r['FormID'], 16): r for r in export_records(export_dir, 'CREA')}
         table = builder.table
         keyed = {**table.rules.creature, **table.rules.ability, **table.creatures}
-        self.npcs, self.worn, self.race_health, self.gear, self.ranged = self._index(builder.fo4, keyed)
+        self.npcs, self.worn, self.stat_tables, self.gear, self.ranged = self._index(builder.fo4, keyed)
         self.as_is = targets({k: e for k, e in keyed.items() if e.mode == 'item'}, builder.fo4, builder.masters,
                              builder.plugin_dirs, CREATURE_TYPES)
         self.archives = Archives(FALLOUT4_DIR / 'Data', 'Fallout4 - Meshes.ba2')
@@ -153,15 +150,17 @@ class Creatures:
     @staticmethod
     def _index(fo4: bytes, keyed: dict) -> tuple:
         """({EditorID lowercased: NPC_} of the Fallout4.esm targets in `keyed`, {EditorID: (NPC_, skin ARMO,
-        addon ARMA)} of its `fnv` targets, {RACE: starting Health}, {its non-playable WEAP, AMMO, ARMO}, {its
-        non-playable ranged WEAP: the AMMO it fires, 0 for none})."""
+        addon ARMA)} of its `fnv` targets, its StatTables, {its non-playable WEAP, AMMO, ARMO}, {its non-playable
+        ranged WEAP: the AMMO it fires, 0 for none})."""
         wanted = {e.edid.lower() for e in keyed.values() if e.base}
-        npcs, armor, race_health, gear, ranged = {}, {}, {}, set(), {}
-        for rec, _ in walk(fo4, b'NPC_', b'ARMO', b'ARMA', b'RACE', b'WEAP', b'AMMO'):
+        npcs, armor, health, gear, ranged, unarmed, damage = {}, {}, {}, set(), {}, {}, {}
+        for rec, _ in walk(fo4, b'NPC_', b'ARMO', b'ARMA', b'RACE', b'WEAP', b'AMMO', b'CLAS'):
             gear.update({rec.form_id} if rec.sig in GEAR and rec.flags & NON_PLAYABLE else set())
             ranged.update(_ranged_gear(rec) if rec.sig == b'WEAP' and rec.flags & NON_PLAYABLE else {})
+            damage.update({rec.form_id: _base_damage(rec.body)} if rec.sig == b'WEAP' else {})
+            health.update({rec.form_id: _health(rec.body)} if rec.sig in (b'RACE', b'CLAS') else {})
             if rec.sig == b'RACE':
-                race_health[rec.form_id] = _health(rec.body)
+                unarmed.update({rec.form_id: _form(rec, b'UNWP')} if first_sub(rec.body, b'UNWP') else {})
             elif rec.sig in (b'ARMO', b'ARMA'):
                 armor[rec.form_id] = rec
             elif rec.sig == b'NPC_':
@@ -171,7 +170,7 @@ class Creatures:
         for edid in {e.edid.lower() for e in keyed.values() if e.base and e.mode == 'fnv'} & set(npcs):
             skin = armor[_form(npcs[edid], b'WNAM')]
             worn[edid] = (npcs[edid], skin, armor[_form(skin, b'MODL')])
-        return npcs, worn, race_health, gear, ranged
+        return npcs, worn, StatTables(health, {r: damage.get(w, 0) for r, w in unarmed.items()}), gear, ranged
 
     def inventory(self, rec: dict, body, outfit: bool, armed: bool = False):
         """The inventory edit of FNV creature `rec` on clone `body`: the body's attack gear (its non-playable
@@ -448,7 +447,7 @@ class Creatures:
         if templated:
             inherited = int(rec.get('ACBS.TemplateFlags', 0)) if 'TPLT.Template' in rec else 0
             factions = faction_snams(rec, self.builder.factions) + vendor
-            return (None if inherited & USE_STATS else with_stats(rec, self.race_health),
+            return (None if inherited & USE_STATS else with_stats(rec, self.stat_tables),
                     None if inherited & USE_STATS else self._combat_skill(rec),
                     None if inherited & USE_STATS else self._own_speed(rec),
                     None if inherited & USE_FACTIONS else with_factions(factions),
@@ -457,7 +456,8 @@ class Creatures:
                     None if inherited & USE_SPELLS else self._spells(rec),
                     None if template_source(self.records, rec, USE_TRAITS)[1] else self._keywords(rec))
         factions = faction_snams(self.source(rec, USE_FACTIONS), self.builder.factions) + vendor
-        return (with_stats(self.source(rec, USE_STATS), self.race_health), self._combat_skill(self.source(rec, USE_STATS)),
+        stats = self.source(rec, USE_STATS)
+        return (with_stats(stats, self.stat_tables), self._combat_skill(stats),
                 with_factions(factions),
                 self._death_item(self.source(rec, USE_TRAITS)), self.sounds.edit(rec),
                 self._spells(self.source(rec, USE_SPELLS)),
@@ -629,28 +629,20 @@ def _part_key(converted) -> bytes:
     return nif_file.write(converted.nif) + repr(fields).encode()
 
 
-def with_stats(rec: dict, race_health: dict):
+def with_stats(rec: dict, tables: StatTables):
     """A record edit setting PRPS's Health, S.P.E.C.I.A.L. and unarmed damage to FNV creature `rec`'s (STATS),
-    the rest kept. FO4 adds the race's health (`race_health` {RACE: Health}) and a per-level bonus to the NPC's,
-    so the NPC's is FNV's less those, and the creature has FNV's health in game.
+    the rest kept. FO4 adds health to the NPC's (added_health) and its race's unarmed weapon's base damage to its
+    UnarmedDamage, so the NPC's are FNV's less those, and the creature has FNV's health and bite in game.
     See: docs/fork/fo4_pipeline.md#creature-stats
     """
     values = {av: float(rec[key]) for key, av in STATS.items() if key in rec}
 
     def edit(subs: bytes) -> bytes:
         """The subrecords with PRPS updated."""
-        found = dict(subrecords(subs))
-        added = race_health.get(struct.unpack('<I', found[b'RNAM'])[0], 0.0) if b'RNAM' in found else 0.0
-        flags, _, level = struct.unpack_from('<IhH', found[b'ACBS']) if b'ACBS' in found else (PC_LEVEL_MULT, 0, 1)
-        added += 0.0 if flags & PC_LEVEL_MULT else LEVEL_HEALTH * max(level - 1, 0)
-        own = {**values, HEALTH: values[HEALTH] - added} if HEALTH in values else values
-        out = b''
-        for tag, data in subrecords(subs):
-            if tag == b'PRPS':
-                pairs = {**dict(struct.unpack_from('<If', data, i) for i in range(0, len(data), 8)), **own}
-                data = b''.join(struct.pack('<If', av, value) for av, value in pairs.items())
-            out += pack_subrecord(tag.decode(), data)
-        return out
+        race = first_sub(subs, b'RNAM')
+        added = {HEALTH: added_health(subs, tables),
+                 UNARMED_DAMAGE: float(tables.race_unarmed.get(struct.unpack('<I', race)[0] if race else None, 0))}
+        return merged_prps(subs, {av: value - added.get(av, 0.0) for av, value in values.items()})
     return edit
 
 
@@ -673,6 +665,12 @@ def _ranged_gear(rec) -> dict:
     dnam = dict(subrecords(rec.body)).get(b'DNAM', b'')
     ranged = len(dnam) > FO4_ANIM_TYPE and dnam[FO4_ANIM_TYPE] >= FO4_FIRST_RANGED
     return {rec.form_id: struct.unpack_from('<I', dnam)[0]} if ranged else {}
+
+
+def _base_damage(body: bytes) -> int:
+    """A WEAP's Damage - Base (DNAM), 0 without one."""
+    dnam = first_sub(body, b'DNAM') or b''
+    return struct.unpack_from('<H', dnam, BASE_DAMAGE_AT)[0] if len(dnam) >= BASE_DAMAGE_AT + 2 else 0
 
 
 def _health(body: bytes) -> float:
