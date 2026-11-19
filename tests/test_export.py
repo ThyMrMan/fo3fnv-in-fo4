@@ -863,6 +863,21 @@ class TestFalloutPackageScripts(unittest.TestCase):
         self.assertIn('PKDD.Topic=0015B6CF', lines)
         self.assertIn('PKDD.Type=SayTo', lines)
 
+    def test_idle_list_keeps_flags_count_timer_and_every_idle(self):
+        """IDLF/IDLC/IDLT/IDLA (FO3's count padded to 4 bytes); an IDLM writes the same after its bounds.
+        See: docs/commentary/tes4_export_falloutnv.md#idle-lists
+        """
+        from tes4_export.tes4_reader import Record, Subrecord
+        from tes4_export.record_types.falloutnv import export_IDLE_MARKER
+        idles = [('IDLF', b'\x05'), ('IDLC', b'\x02\0\0\0'), ('IDLT', struct.pack('<f', 2.5)),
+                 ('IDLA', struct.pack('<2I', 0x1F2AA, 0x1F2AB))]
+        expected = ['IDLF.Flags=5', 'IDLC.Count=2', 'IDLT.Timer=2.5', 'IDLA.Idle[0]=0001F2AA',
+                    'IDLA.Idle[1]=0001F2AB']
+        self.assertEqual(self._lines(*idles), expected)
+        marker = Record(type='IDLM', data_size=0, flags=0, form_id=1,
+                        subrecords=[Subrecord('EDID', b'M\0')] + [Subrecord(t, d) for t, d in idles])
+        self.assertEqual(export_IDLE_MARKER(marker)[-5:], expected)
+
 
 class TestFalloutTopicLinks(unittest.TestCase):
     """FO3/FNV DIAL flags and the INFO prompt are dumped.

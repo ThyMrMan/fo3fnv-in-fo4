@@ -5,15 +5,20 @@ See: docs/fork/fo4_pipeline.md#audit-fixes
 
 import struct
 from collections import Counter
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from fo4_import.base.install import FALLOUT4_ESM, FALLOUTNV_ESM
+from fo4_import.base.install import FALLOUT4_ESM
+from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import idle_markers as IM
 from fo4_import.spike.cell import CellBuilder
-from tes5_import.base.tes5_reader import first_sub, walk, zstr
-from tes5_import.base.writer import pack_group, pack_record, pack_string_subrecord, pack_subrecord
+from tes5_import.base.tes5_reader import first_sub, walk
+from tes5_import.base.writer import pack_group, pack_record, pack_string_subrecord
+
+#: The FalloutNV.esm export (a junction in the main checkout).
+FNV_EXPORT = Path(__file__).resolve().parents[1] / 'export' / 'FalloutNV.esm'
 
 #: Earlier EditorID choices the idle rule now makes (FNV IDLM -> Fallout4.esm marker).
 EARLIER = {'DefaultHumanPatrolIdleMarker': 'PatrolIdleMarker', 'PatrolScanAreaIdleMarker': 'PatrolIdleMarker',
@@ -33,15 +38,27 @@ def _plugin(*records: tuple) -> bytes:
     return pack_record('TES4', 0, 0, b'') + groups
 
 
-def _idle(fid: int, model: str) -> tuple:
-    """An FNV IDLE record playing `model`."""
-    return 'IDLE', fid, pack_string_subrecord('EDID', f'I{fid:X}') + pack_string_subrecord('MODL', model)
+def _export(folder: Path, sig: str, records: list) -> None:
+    """Write `records` (dicts) as export file `sig`.txt in `folder`."""
+    blocks = ['---RECORD_BEGIN---\nSignature=%s\n%s\n---RECORD_END---\n'
+              % (sig, '\n'.join(f'{k}={v}' for k, v in r.items())) for r in records]
+    (folder / f'{sig}.txt').write_text('\n'.join(blocks), encoding='utf-8')
 
 
-def _marker(fid: int, edid: str, idles: tuple = ()) -> tuple:
-    """An IDLM record listing `idles`."""
-    idla = pack_subrecord('IDLA', struct.pack(f'<{len(idles)}I', *idles))
-    return 'IDLM', fid, pack_string_subrecord('EDID', edid) + idla
+def _idle(fid: int, model: str) -> dict:
+    """An FNV IDLE export record playing `model` (backslashes doubled)."""
+    return {'FormID': f'{fid:08X}', 'EditorID': f'I{fid:X}', 'Model.MODL': model.replace('\\', '\\\\')}
+
+
+def _marker(rec: dict, idles: tuple = ()) -> dict:
+    """IDLM export record `rec` listing `idles` (IDLA.Idle[i])."""
+    return {**rec, **{f'IDLA.Idle[{i}]': f'{fid:08X}' for i, fid in enumerate(idles)}}
+
+
+def test_listed_idles_reads_the_export_list_in_order():
+    """IDLA.Idle[0], [1]... in order; none without them."""
+    assert IM.listed_idles({'IDLA.Idle[0]': '00000012', 'IDLA.Idle[1]': '0000000A'}) == [0x12, 0x0A]
+    assert IM.listed_idles({'EditorID': 'X'}) == []
 
 
 def test_plays_names_a_human_idle_by_file_and_a_creature_idle_by_skeleton():
@@ -76,21 +93,22 @@ def test_marker_without_idles_is_the_empty_marker_and_markers_keep_earlier_choic
     assert IM.stand_in('DefaultShopkeeperIdleMarker', idles) == 'NPCPushBroomSweep'
 
 
-def _engineer_and_robot() -> IM.IdleMarkers:
-    """IdleMarkers over plugin bytes: an engineer's terminal and fidget idles, a protectron's turn-on idle."""
+def _engineer_and_robot(folder: Path) -> IM.IdleMarkers:
+    """IdleMarkers over an export in `folder`: an engineer's terminal and fidget idles, a protectron's turn-on
+    idle."""
     fo4 = _plugin(('IDLM', 0x14B737, pack_string_subrecord('EDID', 'NPCStandingExamineIdleMarker')),
                   ('IDLM', 0x01E1B0, pack_string_subrecord('EDID', IM.EMPTY)))
-    fnv = _plugin(_idle(0x10, 'Characters\\_Male\\IdleAnims\\ScientistInspectTerminalA.kf'),
-                  _idle(0x11, 'Characters\\_Male\\IdleAnims\\LookingAround.kf'),
-                  _idle(0x12, 'Characters\\_Male\\IdleAnims\\SpecialIdle_Swatting.kf'),
-                  _idle(0x13, 'Creatures\\Protectron\\IdleAnims\\MTSpecialIdle_Activate.kf'),
-                  _marker(0x20, ENGINEER['EditorID'], (0x10, 0x11, 0x12)), _marker(0x21, ROBOT['EditorID'], (0x13,)))
-    return IM.IdleMarkers(fo4, fnv)
+    _export(folder, 'IDLE', [_idle(0x10, 'Characters\\_Male\\IdleAnims\\ScientistInspectTerminalA.kf'),
+                             _idle(0x11, 'Characters\\_Male\\IdleAnims\\LookingAround.kf'),
+                             _idle(0x12, 'Characters\\_Male\\IdleAnims\\SpecialIdle_Swatting.kf'),
+                             _idle(0x13, 'Creatures\\Protectron\\IdleAnims\\MTSpecialIdle_Activate.kf')])
+    _export(folder, 'IDLM', [_marker(ENGINEER, (0x10, 0x11, 0x12)), _marker(ROBOT, (0x13,))])
+    return IM.IdleMarkers(fo4, folder)
 
 
-def test_idle_markers_read_fnv_idle_lists_and_say_what_is_left_out():
-    """IDLA read from plugin bytes: the engineer stands, the protectron is left out."""
-    markers = _engineer_and_robot()
+def test_idle_markers_read_fnv_idle_lists_and_say_what_is_left_out(tmp_path):
+    """IDLA read from the export: the engineer stands, the protectron is left out."""
+    markers = _engineer_and_robot(tmp_path)
     assert markers.of(ENGINEER) == (0x14B737, 'NPCStandingExamineIdleMarker')
     assert markers.of(ROBOT) == (None, 'creatures\\protectron')
 
@@ -98,20 +116,21 @@ def test_idle_markers_read_fnv_idle_lists_and_say_what_is_left_out():
 def test_a_marker_fo4_plays_nothing_like_is_the_empty_marker_counted_by_what_it_plays(tmp_path):
     """The converter returns the stand-in, else the empty marker, as packages, patrol routes and scripts name
     the spot."""
-    builder = SimpleNamespace(idle_markers=_engineer_and_robot(), counts=Counter(), export_dir=tmp_path)
+    builder = SimpleNamespace(idle_markers=_engineer_and_robot(tmp_path), counts=Counter(), export_dir=tmp_path)
     assert CellBuilder.idle(builder, 0x20, 'IDLM', ENGINEER) == 0x14B737
     assert CellBuilder.idle(builder, 0x21, 'IDLM', ROBOT) == 0x01E1B0
     assert builder.counts == {'idle marker placed': 1, 'idle marker placed empty: creatures\\protectron': 1}
 
 
-@pytest.mark.skipif(not (FALLOUT4_ESM.exists() and FALLOUTNV_ESM.exists()), reason='needs both game masters')
+@pytest.mark.skipif(not (FALLOUT4_ESM.exists() and (FNV_EXPORT / 'IDLM.txt').exists()),
+                    reason='needs Fallout4.esm and the FalloutNV.esm export')
 def test_vanilla_stand_ins_exist_and_earlier_choices_hold():
     """Every stand-in is in Fallout4.esm, a furniture one standing the actor at the reference (SNAM offset and
     heading 0), and the rule gives each earlier EditorID choice its earlier marker."""
-    fo4, fnv = FALLOUT4_ESM.read_bytes(), FALLOUTNV_ESM.read_bytes()
-    markers = IM.IdleMarkers(fo4, fnv)
+    fo4 = FALLOUT4_ESM.read_bytes()
+    markers = IM.IdleMarkers(fo4, FNV_EXPORT)
     assert set(markers.vanilla) == {*IM.PLAYS, *IM.MARKERS.values(), IM.EMPTY}
     snams = {rec.form_id: first_sub(rec.body, b'SNAM') for rec, _ in walk(fo4, b'FURN')}
     assert all(struct.unpack_from('<4f', snams[fid]) == (0.0,) * 4 for fid in markers.vanilla.values() if fid in snams)
-    edids = {zstr(first_sub(rec.body, b'EDID')): rec.form_id for rec, _ in walk(fnv, b'IDLM')}
-    assert {e: markers.of({'FormID': f'{edids[e]:08X}', 'EditorID': e})[1] for e in EARLIER} == EARLIER
+    by_edid = {rec.get('EditorID'): rec for rec in export_records(FNV_EXPORT, 'IDLM')}
+    assert {e: markers.of(by_edid[e])[1] for e in EARLIER} == EARLIER

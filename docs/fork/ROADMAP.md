@@ -350,6 +350,11 @@ Please report what you find in
   ([drift](fo4_drift.md)).
 - **Fallout 3:** play the Vault 101 spike, then the whole Capital Wasteland,
   then Mart's Mutant Mod ([FO3 spike](fo4_fo3_plan.md#next)).
+- **Idles from every authored place:** package idle lists (the G.O.A.T.
+  students and the Overseer's waits; exported since 2026-11-19, not yet
+  converted), own idle markers, and held idles on FO4's loop event so its
+  graph releases them. Package event idles (FO3's birth scene) are built,
+  not played on their own ([review](fo4_idle_review.md#plan)).
 
 ## <a id="parked"></a>Parked
 
