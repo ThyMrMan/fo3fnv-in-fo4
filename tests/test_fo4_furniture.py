@@ -13,7 +13,7 @@ from tes5_import.base.tes5_reader import subrecords
 
 
 def _furn(marks: list, idles: tuple = (), motions: dict = None) -> dict:
-    """The subrecords of the FURN furniture() writes for one-marker-active FNV furniture with `marks`."""
+    """Subrecords of furniture() for `marks` with marker 0 active."""
     record = F.furniture(1, {'EditorID': 'T', 'MNAM.Flags': '1'}, 'm.nif', (-20, -20, 0, 20, 20, 40), marks,
                          collections.defaultdict(int), idles, motions)
     return dict(subrecords(record[24:]))
@@ -37,7 +37,7 @@ def test_scripted_furniture_keeps_its_script():
 
 
 def test_standing_furniture_keeps_fnv_marker_as_vanilla_lays_it_out():
-    """One SNAM marker where FNV has it, entered from every side, MNAM sit | marker 0 (vanilla NPCBartender)."""
+    """FNV's marker as is, any side, MNAM sit | 1 (as NPCBartender)."""
     subs = _furn([(0.0, 0.0, 0.0, 0.0, F.SPECIAL)], ('BarKeeping',))
     assert struct.unpack('<I', subs[b'MNAM'])[0] == F.SIT | 1
     assert struct.unpack('<4fIB3x', subs[b'SNAM']) == (0.0, 0.0, 0.0, 0.0, 0, F.ANY_ENTRY)
@@ -51,24 +51,49 @@ def test_furniture_idles_name_the_furniture_their_condition_tests():
 
 
 def test_stool_seat_is_where_the_enter_animation_leaves_the_actor():
-    """A stool marker moves by its enter motion (right, forward, turn) and takes the bar stool keywords."""
+    """A stool seats at its enter motion's end, with bar stool keywords."""
     seats, words, marker = F.slot_seats([(10.0, 0.0, 0.0, 0.0, F.SIT_STOOL)], 1, {F.SIT_STOOL: (0.0, 5.0, math.pi)})
     assert [tuple(round(v, 3) for v in s[:4]) + s[4:] for s in seats] == [(10.0, 5.0, 0.0, 3.142, F.ANY_ENTRY)]
     assert (words, marker) == F.SLOT_SEATS[F.SIT_STOOL]
 
 
+#: FO3's chair enter motions (right, forward, turn): chair_forwardenter, chair_leftenter, chair_rightenter.
+CHAIR = {F.SIT_FRONT: (0.0, 55.4, math.pi), F.SIT_LEFT: (0.0, 50.7, 3 * math.pi / 2),
+         F.SIT_RIGHT: (0.0, 50.7, math.pi / 2)}
+
+
+def _spots(seats: list) -> list:
+    """(x, y, heading in whole degrees, entry byte) of `seats`, rounded."""
+    return [(round(x, 1), round(y, 1), round(math.degrees(h)) % 360, e) for x, y, _, h, e in seats]
+
+
 def test_lone_front_seat_is_also_left_from_both_sides():
-    """A one-seat chair FNV enters from the front only gets vanilla's usual 0xFD; a two-seat couch keeps 0xF1."""
-    front = lambda x: (x, 40.0, 0.0, math.pi, F.SIT_FRONT)
-    assert [s[4] for s in F.seats([front(0.0)], 1, (-20, -20, 0, 20, 20, 40))] == [0xFD]
-    assert [s[4] for s in F.seats([front(-20.0), front(20.0)], 3, (-40, -20, 0, 40, 20, 40))] == [0xF1, 0xF1]
+    """A lone front seat gets vanilla's usual 0xFD; a couch keeps 0xF1."""
+    front = lambda x: (x, 55.4, 0.0, math.pi, F.SIT_FRONT)
+    assert _spots(F.seats([front(0.0)], 1, CHAIR)) == [(0.0, 0.0, 0.0, 0xFD)]
+    assert [s[4] for s in F.seats([front(-20.0), front(20.0)], 3, CHAIR)] == [0xF1, 0xF1]
 
 
-def test_side_entry_chair_gets_a_seat_between_its_side_markers():
-    """A chair entered only from the left (-30, facing +X) and right (+30, facing -X) seats once, midway."""
-    marks = [(-30.0, 0.0, 0.0, math.pi / 2, F.SIT_LEFT), (30.0, 0.0, 0.0, 3 * math.pi / 2, F.SIT_RIGHT)]
-    seats = F.seats(marks, 3, (-20, -20, 0, 20, 20, 40))
-    assert [(round(x, 3), round(y, 3), round(h, 3)) for x, y, _, h, _ in seats] == [(0.0, 2.0, 0.0)]
+def test_school_desk_seats_where_the_side_enter_animation_lands():
+    """VaultSchoolDesk01's right marker seats mid-desk, not in its top.
+    See: docs/fork/fo4_spikes.md#seat-landing
+    """
+    marks = [(-51.3, -0.5, -33.9, 1.570, F.SIT_LEFT), (51.8, -0.5, -33.9, 4.712, F.SIT_RIGHT)]
+    assert _spots(F.seats(marks, 2, CHAIR)) == [(1.1, -0.5, 0.0, F.UNUSED_ENTRY | F.RIGHT)]
+
+
+def test_side_markers_join_the_front_seat_they_land_on():
+    """Left, right and front markers landing together are one seat."""
+    marks = [(-50.7, 0.0, 0.0, math.pi / 2, F.SIT_LEFT), (50.7, 0.0, 0.0, 3 * math.pi / 2, F.SIT_RIGHT),
+             (0.0, 55.4, 0.0, math.pi, F.SIT_FRONT)]
+    assert _spots(F.seats(marks, 3, CHAIR)) == [(0.0, 0.0, 0.0, F.UNUSED_ENTRY | F.LEFT | F.RIGHT)]
+
+
+def test_bench_entered_from_both_ends_seats_two():
+    """NavalBench01's end markers land 75 apart: two seats."""
+    marks = [(-58.0, 89.7, 0.0, math.pi, F.SIT_LEFT), (-57.0, -86.7, 0.0, 0.0, F.SIT_RIGHT)]
+    assert _spots(F.seats(marks, 3, CHAIR)) == [(-58.0, 39.0, 90, F.UNUSED_ENTRY | F.LEFT),
+                                                (-57.0, -36.0, 90, F.UNUSED_ENTRY | F.RIGHT)]
 
 
 def test_a_wall_lean_marker_moves_to_where_fnvs_enter_animation_ends():

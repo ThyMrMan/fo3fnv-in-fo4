@@ -4,12 +4,10 @@ FNV marks each way into a seat or bed in the mesh (BSFurnitureMarker: offset,
 heading toward the furniture, animation slot) and activates some of them in
 the record (MNAM low bits). FO4 keeps one marker per seat in the record
 (SNAM: offset, heading the actor faces, entry sides) and picks animations by
-keyword. FNV's markers stand outside the furniture: a seat is FNV's
-sit-from-front marker turned to face out and moved onto the seat, entered
-from the sides of its active markers (a chair FNV enters only from the sides,
-such as one pushed under a table, gets the front marker midway between them);
-a stool, a floor sit or a restrained sit sits where FNV's enter animation
-leaves the actor, with vanilla's keywords for it; a sleeper lies at FNV's sleep marker
+keyword. FNV's markers stand outside the furniture: a seat, stool, floor or
+restrained sit is where FNV's enter animation leaves the actor, a chair
+entered from the sides of its active markers, the others with vanilla's
+keywords for them; a sleeper lies at FNV's sleep marker
 moved to the middle of its lane across the bed. Standing furniture (a wall
 lean, a special idle such as tending bar) keeps FNV's markers and takes the
 keywords of vanilla's equivalent, so a package can send an actor to it.
@@ -76,7 +74,12 @@ ENTER_ANIMS = {SIT_STOOL: 'characters\\_male\\idleanims\\stoolenter.kf',
                FLOOR_SIT: 'characters\\_male\\idleanims\\sitfloorenter.kf',
                RESTRAINED_SIT: 'characters\\_male\\idleanims\\restrainedsitenter.kf',
                WALL_LEAN: 'characters\\_male\\idleanims\\wallfrontentry.kf',
-               CRUCIFIED: 'characters\\_male\\idleanims\\specialidle_nvcrucifixenter.kf'}
+               CRUCIFIED: 'characters\\_male\\idleanims\\specialidle_nvcrucifixenter.kf',
+               SIT_LEFT: 'characters\\_male\\idleanims\\chair_leftenter.kf',
+               SIT_RIGHT: 'characters\\_male\\idleanims\\chair_rightenter.kf',
+               SIT_FRONT: 'characters\\_male\\idleanims\\chair_forwardenter.kf'}
+#: FO4 entry side of each FNV chair marker slot.
+SIT_SIDES = {SIT_FRONT: FRONT, SIT_LEFT: LEFT, SIT_RIGHT: RIGHT}
 #: FNV furniture animations turn the actor in quarter turns; the seated pose adds a few degrees of twist.
 QUARTER = math.pi / 2
 
@@ -145,65 +148,23 @@ def _right(heading: float) -> tuple:
     return math.cos(heading), -math.sin(heading)
 
 
-def _side_fronts(marks: list, bounds: tuple) -> list:
-    """Sit-from-front markers of a seat FNV enters only from its sides: one midway between each left marker and the
-    nearest right one facing the same seat, a lone side marker's on its line nearest the middle of `bounds`.
-
-    A side marker faces the seat; the seated actor faces a quarter turn from
-    it (Chair_LeftEnter.kf and Chair_RightEnter.kf turn -90 and +90 degrees).
+def seats(marks: list, active: int, motions: dict) -> list:
+    """FO4 seat markers (x, y, z, heading, entry byte) where FNV's chair enter animations (`motions`,
+    enter_motions()) leave the actor: one per sit-from-front marker, or per side marker in furniture without one,
+    entered from the sides of the active markers landing nearest it. A lone seat entered from the front is also
+    left from both sides, as most of vanilla's.
+    See: docs/fork/fo4_spikes.md#seat-landing
     """
-    sides = [(m, (m[3] + (-QUARTER if m[4] == SIT_LEFT else QUARTER)) % math.tau)
-             for m in marks if m[4] in (SIT_LEFT, SIT_RIGHT)]
-    lefts = [s for s in sides if s[0][4] == SIT_LEFT]
-    rights = [s for s in sides if s[0][4] == SIT_RIGHT]
-    out = []
-    for (x, y, z, _, _), facing in lefts:
-        match = [r for r in rights if math.isclose(math.cos(r[1] - facing), 1.0, abs_tol=1e-3)]
-        if match:
-            r = min(match, key=lambda s: (s[0][0] - x) ** 2 + (s[0][1] - y) ** 2)
-            rights.remove(r)
-            out.append(((x + r[0][0]) / 2, (y + r[0][1]) / 2, z, (facing + math.pi) % math.tau, SIT_FRONT))
-            continue
-        out.append(_on_line((x, y, z), facing, bounds))
-    return out + [_on_line(m[:3], facing, bounds) for m, facing in rights]
-
-
-def _on_line(point: tuple, facing: float, bounds: tuple) -> tuple:
-    """A sit-from-front marker at the point nearest the middle of `bounds` on the line through side marker `point`
-    across the seat facing `facing`."""
-    cx, cy = (bounds[0] + bounds[3]) / 2, (bounds[1] + bounds[4]) / 2
-    rx, ry = _right(facing)
-    t = (cx - point[0]) * rx + (cy - point[1]) * ry
-    return point[0] + t * rx, point[1] + t * ry, point[2], (facing + math.pi) % math.tau, SIT_FRONT
-
-
-def seats(marks: list, active: int, bounds: tuple) -> list:
-    """FO4 seat markers (x, y, z, heading, entry byte): FNV's sit-from-front markers, entered from their active ones.
-
-    FNV's marker is where the actor stands, in front of the seat; FO4's sits
-    SEAT_DEPTH behind the front of `bounds`, facing out. Without a front
-    marker the seat comes from the side markers (_side_fronts). A lone seat
-    entered from the front is also left from both sides, as most of vanilla's.
-    See: docs/fork/fo4_spikes.md#spike-2-furniture
-    """
-    fronts = [m for m in marks if m[4] == SIT_FRONT] or _side_fronts(marks, bounds)
-    sides = [0] * len(fronts)
-    for i, (mx, my, _, _, slot) in enumerate(marks):
-        if not fronts or not active >> i & 1 or slot not in (SIT_FRONT, SIT_LEFT, SIT_RIGHT):
-            continue
-        k = min(range(len(fronts)), key=lambda j: (fronts[j][0] - mx) ** 2 + (fronts[j][1] - my) ** 2)
-        x, y, _, heading, _ = fronts[k]
-        right = _right(heading + math.pi)
-        sides[k] |= FRONT if slot == SIT_FRONT else RIGHT if (mx - x) * right[0] + (my - y) * right[1] > 0 else LEFT
+    sits = [(i, m[4], landing(m, motions[m[4]])) for i, m in enumerate(marks) if m[4] in SIT_SIDES and m[4] in motions]
+    spots = [spot for _, slot, spot in sits if slot == SIT_FRONT] or [spot for *_, spot in sits]
+    sides = [0] * len(spots)
+    for i, slot, (x, y, _, _) in sits:
+        if active >> i & 1:
+            k = min(range(len(spots)), key=lambda j: (spots[j][0] - x) ** 2 + (spots[j][1] - y) ** 2)
+            sides[k] |= SIT_SIDES[slot]
     if len(sides) == 1 and sides[0] & FRONT:
         sides[0] |= LEFT | RIGHT
-    out = []
-    for (x, y, z, heading, _), side in zip(fronts, sides):
-        facing = (heading + math.pi) % math.tau
-        if side:
-            out.append(moved((x, y), facing, max(_corners(bounds, facing)) - SEAT_DEPTH)
-                       + (z, facing, UNUSED_ENTRY | (OTHER if side & FRONT else 0) | side))
-    return out
+    return [spot + (UNUSED_ENTRY | (OTHER if side & FRONT else 0) | side,) for spot, side in zip(spots, sides) if side]
 
 
 def _corners(bounds: tuple, facing: float) -> list:
@@ -252,18 +213,18 @@ def slot_seats(marks: list, active: int, motions: dict, poses=None) -> 'tuple | 
 
 
 def entered(marks: list, active: int, motion: tuple) -> list:
-    """Each active marker of `marks` moved and turned by an enter animation's `motion` (right, forward, turn):
-    where FNV's actor ends up, entered from every side.
+    """Each active marker's landing() by `motion`, entered from every side.
     See: docs/fork/fo4_pipeline.md#wall-lean
     """
+    return [landing(m, motion) + (ANY_ENTRY,) for i, m in enumerate(marks) if active >> i & 1]
+
+
+def landing(mark: tuple, motion: tuple) -> tuple:
+    """(x, y, z, heading) where an enter animation's `motion` (right, forward, turn) leaves an actor from `mark`."""
+    x, y, z, heading = mark[:4]
     right, forward, turn = motion
-    out = []
-    for i, (x, y, z, heading, _) in enumerate(marks):
-        if active >> i & 1:
-            (rx, ry), (fx, fy) = _right(heading), (math.sin(heading), math.cos(heading))
-            out.append((x + right * rx + forward * fx, y + right * ry + forward * fy, z, (heading + turn) % math.tau,
-                        ANY_ENTRY))
-    return out
+    (rx, ry), (fx, fy) = _right(heading), (math.sin(heading), math.cos(heading))
+    return x + right * rx + forward * fx, y + right * ry + forward * fy, z, (heading + turn) % math.tau
 
 
 def standing(marks: list, idles: tuple) -> 'tuple | None':
@@ -311,7 +272,7 @@ def furniture(fid: int, rec: dict, model: str, bounds: tuple, marks: list, keywo
     active = int(rec.get('MNAM.Flags', 0))
     bed = sleepers(marks, active, bounds)
     slotted = None if bed else slot_seats(marks, active, motions or {}, poses)
-    placed = bed or (slotted[0] if slotted else seats(marks, active, bounds))
+    placed = bed or (slotted[0] if slotted else seats(marks, active, motions or {}))
     floor = any(m[4] in SLEEP_FLOOR for m in marks)
     placed = floor_beds(placed) if bed and floor else placed
     flags = (SLEEP | MUST_EXIT_TO_TALK) if bed else SIT

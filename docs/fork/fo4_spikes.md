@@ -1144,7 +1144,8 @@ Exit to Talk, record flag Must Exit To Talk and XMRK `Markers\SleepBed.nif`.
 
 `fo4_import/spike/furniture.py` writes one SNAM per seat or sleeper:
 
-- **Seats.** FNV's front markers stand outside the chair, 31-36 units in
+- **Seats** (placement superseded by [seat landing](#seat-landing); the
+  entry sides stand). FNV's front markers stand outside the chair, 31-36 units in
   front of the converted mesh's front edge (Chair01F: edge 21, marker 54.6).
   Over 129 vanilla sit markers the seat marker sits a median 18 units behind
   the front edge (quartiles 16 and 21), at floor height, facing out. A seat
@@ -1167,6 +1168,36 @@ Exit to Talk, record flag Must Exit To Talk and XMRK `Markers\SleepBed.nif`.
   front marker is midway between a left and right marker facing the same
   seat, the seated actor a quarter turn from them (`Chair_LeftEnter.kf`
   −90°, `Chair_RightEnter.kf` +90°).
+- <a id="seat-landing"></a>**Seats land where FNV's enter animation puts the
+  actor** (replaces the two bullets above, 2026-11-19). The seat 18 behind
+  the front of the bounds assumed nothing stands in front of the seat. The
+  FO3 Vault 101 classroom desks (`VaultSchoolDesk01.nif`, a chair joined to
+  a desk top in front of it) have converted bounds Y −21..75, so the seat
+  went to Y 57, inside the desk top, and the students sat in their desks.
+  FO3's side markers stand at X ±51.5, Y −0.5, and `chair_leftenter.kf` /
+  `chair_rightenter.kf` carry Bip01 50.7 forward and turn ∓90°, landing the
+  student at X ≈ 0, Y −0.5 facing +Y. Vanilla's own school desk
+  (`NpcChairSchoolDeskSit01`) also seats at its mesh's middle (0, 0), not
+  near an edge. `seats()` now puts each sit marker's seat where its enter
+  animation lands it (`chair_forwardenter.kf`: 55.4 forward, 180°), as
+  stools already were: one seat per front marker, or per side marker when
+  the mesh has no front one; each active marker adds its slot's side to the
+  seat it lands nearest. On every one-seat chair the left, right and front
+  landings lie within 1.9 of each other; the two naval benches' left and
+  right markers land 75 apart, two seats the old midpoint merged into one
+  (`NavalBench0xBothSides` now seats two). The child and skirt enter clips
+  move the actor the same. Census over the exports (old seats: the built
+  FO3 plugin where present, else the old rule on the mesh's vertex bounds):
+  all 108 FO3 and 115 of 117 FNV chair bases move, nearly all by 0.5–6
+  units (FO4's median 18 behind the edge and FNV's landing agree that
+  closely); 16 FO3 and 14 FNV bases move more than 12 units or change their
+  seat count: the school desks (57.5), the outhouse (75.8), the naval
+  benches (38–89), the Oasis throne and chair (28–31), the museum benches,
+  `Bench02` and `TopsPoolLoungeChair` (12–18), each a mesh with geometry
+  in front of the seat. In the built FO3 plugin only the three desk bases
+  (`VaultSchoolDeskLeft`/`Right`, `CG03Chair`) move more than 6.2.
+  Vanilla's desk uses `AnimFurnSchoolDeskSitAnims`; FO3 authors no school
+  desk marker, so desks keep the chair keywords.
 - **Stools, floor and restrained sits** (slots 15, 17, 18): the seat is
   where FNV's enter animation leaves the actor (`stoolenter.kf`,
   `sitfloorenter.kf`, `restrainedsitenter.kf`: Bip01's travel, Bip01
@@ -1824,7 +1855,7 @@ walking). Each is a type 6 package whose only content is a special idle
   FNV's marker stands outside the bed: the twin bed's mesh reaches 49 units
   from its center, the marker 62 (13 outside its edge), and FNV's idle moves
   the player onto it. The seat moves back along the marker's facing to 18
-  units (`SEAT_DEPTH`, a converted chair seat's depth) inside the mesh edge of
+  units (`SEAT_DEPTH`, vanilla's median chair seat depth) inside the mesh edge of
   the nearest furniture, measured within 24 units to either side
   (`seat_place`): 33.7 units for Doc's bed. `HoldPlayer` enables it and has
   the player activate it once its 3D is loaded, with movement and activation
