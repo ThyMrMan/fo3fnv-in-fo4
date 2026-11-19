@@ -1,0 +1,221 @@
+{
+ "AACT": [
+  "FULL"
+ ],
+ "ACTI": [
+  "ATTX",
+  "FULL"
+ ],
+ "ALCH": [
+  "DESC",
+  "DNAM",
+  "FULL"
+ ],
+ "AMMO": [
+  "DESC",
+  "FULL",
+  "ONAM"
+ ],
+ "ARMO": [
+  "DESC",
+  "FULL"
+ ],
+ "AVIF": [
+  "ANAM",
+  "DESC",
+  "FULL"
+ ],
+ "BOOK": [
+  "CNAM",
+  "DESC",
+  "FULL"
+ ],
+ "BPTD": [
+  "BPTN"
+ ],
+ "CELL": [
+  "FULL"
+ ],
+ "CLAS": [
+  "DESC",
+  "FULL"
+ ],
+ "CLFM": [
+  "FULL"
+ ],
+ "CMPO": [
+  "FULL"
+ ],
+ "COBJ": [
+  "DESC"
+ ],
+ "COLL": [
+  "DESC"
+ ],
+ "CONT": [
+  "FULL"
+ ],
+ "DIAL": [
+  "FULL"
+ ],
+ "DOOR": [
+  "CNAM",
+  "FULL",
+  "ONAM"
+ ],
+ "ENCH": [
+  "FULL"
+ ],
+ "EXPL": [
+  "FULL"
+ ],
+ "EYES": [
+  "FULL"
+ ],
+ "FACT": [
+  "FNAM",
+  "FULL",
+  "MNAM"
+ ],
+ "FLOR": [
+  "ATTX",
+  "FULL",
+  "RNAM"
+ ],
+ "FLST": [
+  "FULL"
+ ],
+ "FURN": [
+  "ATTX",
+  "FULL"
+ ],
+ "HAZD": [
+  "FULL"
+ ],
+ "HDPT": [
+  "FULL"
+ ],
+ "INFO": [
+  "NAM1",
+  "RNAM"
+ ],
+ "INGR": [
+  "FULL"
+ ],
+ "INNR": [
+  "WNAM"
+ ],
+ "KEYM": [
+  "FULL"
+ ],
+ "KYWD": [
+  "FULL"
+ ],
+ "LCTN": [
+  "FULL"
+ ],
+ "LIGH": [
+  "FULL"
+ ],
+ "LSCR": [
+  "DESC"
+ ],
+ "LVLI": [
+  "ONAM"
+ ],
+ "MESG": [
+  "DESC",
+  "FULL",
+  "ITXT",
+  "NNAM"
+ ],
+ "MGEF": [
+  "DNAM",
+  "FULL"
+ ],
+ "MISC": [
+  "FULL"
+ ],
+ "MSTT": [
+  "FULL"
+ ],
+ "NOTE": [
+  "FULL"
+ ],
+ "NPC_": [
+  "ATTX",
+  "FULL",
+  "SHRT"
+ ],
+ "OMOD": [
+  "DESC",
+  "FULL"
+ ],
+ "PERK": [
+  "DESC",
+  "EPF2",
+  "FULL"
+ ],
+ "PROJ": [
+  "FULL"
+ ],
+ "QUST": [
+  "CNAM",
+  "FULL",
+  "NNAM"
+ ],
+ "RACE": [
+  "DESC",
+  "FMRN",
+  "FULL",
+  "MPPN"
+ ],
+ "REFR": [
+  "FULL"
+ ],
+ "REGN": [
+  "RDMP"
+ ],
+ "SCOL": [
+  "FULL"
+ ],
+ "SNCT": [
+  "FULL"
+ ],
+ "SPEL": [
+  "DESC",
+  "FULL"
+ ],
+ "STAT": [
+  "FULL"
+ ],
+ "TACT": [
+  "FULL"
+ ],
+ "TERM": [
+  "BTXT",
+  "FULL",
+  "ITXT",
+  "NAM0",
+  "RNAM",
+  "UNAM",
+  "WNAM"
+ ],
+ "TES4": [
+  "CNAM",
+  "SNAM"
+ ],
+ "TREE": [
+  "FULL"
+ ],
+ "WATR": [
+  "FULL"
+ ],
+ "WEAP": [
+  "DESC",
+  "FULL"
+ ],
+ "WRLD": [
+  "FULL"
+ ]
+}

@@ -45,6 +45,8 @@ EXTRA = {'ARMO': {'EITM': {'at': [0]}}, 'EXPL': {'EITM': {'at': [0]}}, 'WEAP': {
          'REGN': {'RDSD': {'at': [0], 'stride': 12, 'start': 0}}, 'DEBR': {'MODT': 'none'}}
 OPERATORS = {'+', '-', '*', '/', 'or', 'and', 'not', '=', '<', '>', '@', '^', 'div', 'mod'}
 COMPLEX = 'complex'
+#: A localizable string subrecord (--text), and xEdit's calls defining one.
+TEXT, TEXT_CALLS = 'text', frozenset({'wbLString', 'wbLStringKC'})
 #: xEdit's game checks Is<Game>(a, b) whose first branch FNV takes (it counts as Fallout 3); FO3 takes all but IsFNV.
 FIRST_BRANCH = {'fnv': {'IsFO3', 'IsTES4FO3', 'IsFNV'}, 'fo3': {'IsFO3', 'IsTES4FO3'}, 'fo4': set()}
 
@@ -132,6 +134,22 @@ class Parser:
             self.pos += 1
 
 
+class Caseless(dict):
+    """Pascal helper definitions by name, which match ignoring case as Pascal identifiers do."""
+
+    def __init__(self, items: dict):
+        """`items` ({name: definition}) keyed by lower-cased name."""
+        super().__init__((k.lower(), v) for k, v in items.items())
+
+    def __contains__(self, key) -> bool:
+        """Whether `key` (a name, any case) is defined."""
+        return isinstance(key, str) and super().__contains__(key.lower())
+
+    def __getitem__(self, key: str):
+        """The definition of `key`, any case."""
+        return super().__getitem__(key.lower())
+
+
 class Case:
     """A decider union's FormID: the selector field, the values that pick its branch, its offset."""
 
@@ -155,7 +173,7 @@ class Layouts:
 
     def __init__(self, helpers: dict, game: str, sigs: dict):
         """Definitions `helpers`, `game`'s branches (fnv, fo3), signature constants `sigs`."""
-        self.helpers, self.first, self.sigs = helpers, FIRST_BRANCH[game], sigs
+        self.helpers, self.first, self.sigs = Caseless(helpers), FIRST_BRANCH[game], sigs
         self.special = {k: v for k, v in SPECIAL.items() if game != 'fo4' or v != 'alt_textures'}
 
     def resolve(self, node):
@@ -348,6 +366,20 @@ class Layouts:
         return call.args[0], out
 
 
+class TextLayouts(Layouts):
+    """Each subrecord as TEXT when it is a whole-subrecord display string (wbLString/wbLStringKC, or translated
+    with cpTranslate), else `none`."""
+
+    def subrecord(self, node) -> 'tuple | None':
+        """(signature, TEXT or 'none') of a subrecord definition; None when `node` is not one."""
+        found = super().subrecord(node)
+        if found is None:
+            return None
+        named = self.named(node)
+        text = isinstance(named, Call) and (named.name in TEXT_CALLS or 'cpTranslate' in named.args)
+        return found[0], TEXT if text else 'none'
+
+
 def layout(size, at: list):
     """A subrecord's layout from its (size, offsets or Cases): `none`, {"at"}, with `select` and `cases`, or COMPLEX."""
     cases = [a for a in at if isinstance(a, Case)]
@@ -408,11 +440,12 @@ def _number(token) -> 'int | None':
     return None
 
 
-def build(pas: Path, game: str = 'fnv') -> dict:
-    """{record: {subrecord: layout}} of definitions file `pas`, wbDefinitionsCommon.pas's helpers behind it."""
+def build(pas: Path, game: str = 'fnv', kind: type = Layouts) -> dict:
+    """{record: {subrecord: layout}} of definitions file `pas` as `kind` reads them, wbDefinitionsCommon.pas's
+    helpers behind it."""
     common, _ = Parser((pas.parent / COMMON).read_text(encoding='utf-8', errors='replace')).definitions()
     helpers, records = Parser(pas.read_text(encoding='utf-8', errors='replace')).definitions()
-    layouts = Layouts({**common, **helpers}, game, signatures(pas.parent / SIGNATURES))
+    layouts = kind({**common, **helpers}, game, signatures(pas.parent / SIGNATURES))
     out = {}
     for call in records:
         if isinstance(call, Call) and call.args and layouts.sig_of(call.args[0]):
@@ -425,13 +458,26 @@ def build(pas: Path, game: str = 'fnv') -> dict:
     return dict(sorted(out.items()))
 
 
+def text_subrecords(pas: Path, game: str = 'fo4') -> dict:
+    """{record: [subrecord]} of `pas`'s localizable string subrecords."""
+    table = build(pas, game, TextLayouts)
+    return {rec: sorted(s for s, v in subs.items() if v == TEXT) for rec, subs in table.items()
+            if TEXT in subs.values()}
+
+
 def main() -> None:
-    """Write the table and print how many subrecords are complex."""
+    """Write the table and print how many subrecords are complex (with --text, the text subrecords instead)."""
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('pas', type=Path)
     ap.add_argument('-o', '--out', type=Path, required=True)
     ap.add_argument('--game', choices=sorted(FIRST_BRANCH), default='fnv')
+    ap.add_argument('--text', action='store_true', help='write the localizable string subrecords instead')
     args = ap.parse_args()
+    if args.text:
+        texts = text_subrecords(args.pas, args.game)
+        args.out.write_text(json.dumps(texts, indent=1, sort_keys=True) + '\n', encoding='utf-8')
+        print(f'{len(texts)} records, {sum(map(len, texts.values()))} text subrecords')
+        return
     table = build(args.pas, args.game)
     args.out.write_text(json.dumps(table, indent=1, sort_keys=True) + '\n', encoding='utf-8')
     complex_ = sorted(f'{r}.{s}' for r, subs in table.items() for s, v in subs.items() if v == COMPLEX)

@@ -3622,6 +3622,62 @@ Measured on the 2026-11-04 plugin, compressing a copy:
 The bodies go through our [pinned zlib](#pinned-zlib), so the plugin is the
 same bytes on every machine.
 
+## <a id="text-encoding"></a>Text is written as UTF-8 (2026-11-19, after play; not yet played)
+
+In the FO3 intro the G.O.A.T. answer "But doctor, wouldn’t that cause…" drew
+"wouldn▯t". FO3 stores a curly apostrophe as cp1252 `0x92`. The export decodes it
+to `’`, and every writer encoded it back to cp1252. Fallout 4 hands a plugin's
+text bytes to its menus as UTF-8, so a lone `0x92` is an invalid byte and draws
+as a box. Evidence:
+- FO4's menu fonts all have `’ ‘ “ ” – — …` (`Interface/fonts_en.swf`:
+  Roboto Condensed and its Bold, Share-TechMono, Futura PT). The message box
+  and the Cleanroom DialogueMenu, which embeds no font of its own, use
+  `$MAIN_Font` = Roboto Condensed. So the glyph exists, and the bytes are what
+  failed.
+- `Interface/fontconfig.txt` is UTF-8, and the one string Bethesda added to
+  `Fallout4_en.DLSTRINGS` later (a Creations description) is UTF-8.
+- Fallout4.esm's English strings hold `0x92` in only 61 + 14 strings (for
+  example "O’Neill Family Manufacturing"), and the six DLCs in 5. Bethesda
+  wrote almost nothing outside ASCII. xEdit still reads FO4 English as cp1252,
+  so xEdit shows these strings correctly even though the game does not.
+
+`fo4_import/base/text_encoding.py` re-encodes cp1252 text as UTF-8 while the
+writer writes each top-level group (`FO4PluginWriter._finish_groups`, before
+[compression](#record-compression)). The writer is the one place every record
+passes. Text is built by about 50 cp1252 encode sites and copied raw from the
+source plugin and FO4's masters. The pass touches only the subrecords xEdit's
+FO4 definitions name as display text: `wbLString`/`wbLStringKC`, or a string
+marked `cpTranslate`. That gives 101 subrecords in 59 records, in
+`fo4_import/data/fo4_text_subrecords.json`, written by
+`gen_fnv_subrecord_formids.py --text`. Binary data that happens to hold `0x92`
+(FormIDs, colors) is left alone. Text that is already valid UTF-8 stays as it
+is: the built FNV plugin already had "Fire Ant Fricass\xc3\xa9e" from some
+writer. The five bytes cp1252 leaves undefined keep their Latin-1 code points,
+as Windows converts them. Compressed records are skipped; only LAND and NAVM
+are compressed, and they hold no text.
+
+The generator also had a bug: it matched helper names case-sensitively, but
+Pascal ignores case. So BOOK's `wbDESCreq` (helper `wbDESCReq`) went
+unresolved. Fixing it added only `BOOK.DESC: none` to
+`fo4_subrecord_formids.json`; the FNV and FO3 tables regenerate identical.
+
+Counts:
+- **Exports:** Fallout3.esm has 244 strings outside ASCII: 140 subtitles, 64
+  notes or holotapes, 9 message buttons, 8 message bodies, 6 topics, 6
+  terminals, 3 prompts, 2 container names, 2 objectives, and one each of a
+  log entry, a loading screen, an actor note and a script comment. The characters: `’`×364, `…`×49, `“”`×93, `–`×6, `©`×6,
+  `‘`×5, `®`×2, `é`×1. FalloutNV.esm has 96: 46 notes, 12 subtitles, 9 + 8
+  messages, 7 topics, 5 terminals, 4 + 1 food or recipe names, and 3
+  containers.
+- **Built plugins:** the 20 MB Vault 101 build changes 80 subrecords in 62
+  records (52 INFO NAM1, 9 MESG ITXT, 8 TERM UNAM, 7 MESG DESC, 2 QUST NNAM, 2
+  INFO RNAM). The 253 MB FalloutNV.esm build changes 30 subrecords in 24
+  records, and the pass adds 1.1 s to its write.
+- Every non-ASCII subrecord the pass leaves alone in both builds is binary.
+  There are 3,024 in FO3 and 9,992 in FNV, for example NPC_ NAM5, RACE STKD
+  and PTRN FormIDs.
+- The two FO3/FNV scripts with non-ASCII characters have them only in comments.
+
 ## <a id="pinned-zlib"></a>One zlib for everything we compress (2026-11-12)
 
 **Python's zlib is not byte-stable across machines.** The `zlib` module is
