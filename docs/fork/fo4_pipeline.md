@@ -6781,6 +6781,34 @@ Centurion armors). `NPCs._dressed` now keeps, per biped slot, the armor
 with the best rating, then value, as FNV does; the rest are carried, so
 scripts can still equip them. Leveled lists stay in the outfit.
 
+**Use All lists are opened (built 2026-11-19, not yet played).** The FO3
+Vault 101 security officers (`CG04Vault101Security01`..`08`) stood in
+underwear with "Vault 101 Security Armor+" in their inventory. Their one
+item is `CG04SecurityInventoryWithHelmet`, a Use All list (LVLF 4, chance
+none 0) of the helmet and `CG04SecurityInventoryNoHelmet`, itself Use All:
+the armor, the Pip-Boy, its glove and `WeapPoliceBaton`. `Items.wearable`
+calls a list worn only when every entry is armor, so the baton made the
+whole list carried, and the NPC got no DOFT at all. FO3 equips armor from
+inventory; FO4 doesn't. Fallout4.esm dresses 2,181 of its 3,015 NPCs
+through a DOFT, and only 52 hold armor in CNTO. A Use All list with no
+chance none always gives every entry, so `Items.given` now replaces it in
+an NPC's inventory with its entries, nested lists too. Counts multiply, and
+each entry keeps its own COED, else the list entry's. The armor then goes
+to the outfit and the rest is carried. A random list, or one with chance
+none, stays whole.
+- Fixed: the 26 FO3 NPCs and 1 FNV NPC (`LvlScavenger`) whose armor sat in
+  a mixed list; all were Use All lists. No mixed list remains in either
+  plugin.
+- Blast radius: 656 FO3 and 1,139 FNV NPCs hold a Use All list. Their
+  CNTOs now list the items, the same items as before. For 315 and 341 of
+  them the list was all armor, and its pieces now go through the
+  one-per-slot rule above. None of the 2,020 and 4,127 entries is above
+  level 1, so opening the lists ignores no level.
+- The "+" after the armor's name is not ours: no converter code, menu or
+  DLL source writes one, and FO4's quality names are "Fine" through
+  "Legendary". The carried armor had the list's COED (0.6). Worn outfit
+  armor has none.
+
 <a id="collision-nodes"></a>**Collision nodes keep their transform (fixed 2026-10-25, the pipe played).** In the
 East Central Sewers the player fell through a walkable pipe
 (`utlbaycorintalltoppuritypipe.nif`, 00169FD5). Its collision sits on a

@@ -575,13 +575,15 @@ class Npcs:
         return own + vendor_snam(self.builder, fnv)
 
     def _inventory(self, fnv: int, child_race: int = 0):
-        """The edit giving FNV NPC `fnv` (or its template) its worn items as an outfit, the rest as inventory; a
-        child (on FO4 `child_race`) wears only what draws on it (_child_worn)."""
+        """The edit giving FNV NPC `fnv` (or its template) its worn items as an outfit, the rest as inventory, a Use
+        All list as its entries (Items.given); a child (on FO4 `child_race`) wears only what draws on it
+        (_child_worn)."""
         rec, items = self.source(fnv, USE_INVENTORY) or {}, self.builder.items
         worn, carried = [], []
-        for i in range(int(rec.get('ItemCount', 0))):
-            item = int(rec[f'Item[{i}].FormID'], 16)
-            made, entry = items.item(item), (int(rec[f'Item[{i}].Count']), condition_of(int(rec['FormID'], 16), i))
+        given = [out for i in range(int(rec.get('ItemCount', 0))) for out in items.given(
+            int(rec[f'Item[{i}].FormID'], 16), int(rec[f'Item[{i}].Count']), condition_of(int(rec['FormID'], 16), i))]
+        for item, count, condition in given:
+            made, entry = items.item(item), (count, condition)
             if made is not None and items.wearable(item):
                 worn.append((item, made, entry))
             elif made is not None:

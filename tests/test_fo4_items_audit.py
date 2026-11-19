@@ -21,6 +21,7 @@ from fo4_import.nif import headgear as H
 from fo4_import.spike import equipment as E
 from fo4_import.spike import guns as G
 from fo4_import.spike import items as I
+from fo4_import.spike import npcs as N
 from fo4_import.spike import replacements as RP
 from fo4_import.spike.gun_choice import Choice
 from fo4_import.spike.weapon_mods import ZOOMS
@@ -95,6 +96,50 @@ def test_a_leveled_list_past_255_entries_lists_equal_parts():
     assert items.item(0x20) == 0x03000020
     counts = [sum(1 for tag, _ in subrecords(rec[24:]) if tag == b'LVLO') for rec in builder.written]
     assert counts == [135, 135, 2]
+
+
+def _leveled(fid: int, flags: int, chance_none: int, *entries: tuple) -> tuple:
+    """An index() LVLI entry of `entries` [(FormID, count)]."""
+    rec = {'FormID': f'{fid:08X}', 'EditorID': f'List{fid:X}', 'LVLF.Flags': str(flags),
+           'LVLD.ChanceNone': str(chance_none)}
+    for i, (form, count) in enumerate(entries):
+        rec.update({f'Entry[{i}].Level': '1', f'Entry[{i}].FormID': f'{form:08X}', f'Entry[{i}].Count': str(count)})
+    return 'LVLI', rec
+
+
+def test_a_use_all_list_gives_its_entries_and_a_random_or_chancy_list_itself(monkeypatch):
+    """FO3's security list (Use All: a nested Use All list of armor and baton, a helmet): its entries, counts
+    multiplied, an entry's own condition else the list entry's; a random list or one with chance none is itself.
+    See: docs/fork/fo4_pipeline.md#outfit-slots"""
+    monkeypatch.setattr(I, 'condition_of', lambda fnv, i: 0.6 if (fnv, i) == (0x21, 0) else None)
+    records = {0x10: ('ARMO', {}), 0x11: ('WEAP', {}), 0x12: ('ARMO', {}),
+               0x20: _leveled(0x20, I.USE_ALL, 0, (0x21, 1), (0x12, 1)),
+               0x21: _leveled(0x21, I.USE_ALL, 0, (0x10, 1), (0x11, 2)),
+               0x22: _leveled(0x22, 0, 0, (0x10, 1), (0x11, 1)), 0x23: _leveled(0x23, I.USE_ALL, 25, (0x10, 1))}
+    items = I.Items(_list_builder(), records, {})
+    assert items.given(0x20, 2, 0.3) == [(0x10, 2, 0.6), (0x11, 4, 0.3), (0x12, 2, 0.3)]
+    assert items.given(0x22, 1, None) == [(0x22, 1, None)] and items.given(0x23, 1, None) == [(0x23, 1, None)]
+    assert not items.wearable(0x21) and all(items.wearable(f) for f in (0x10, 0x12))
+
+
+def test_an_npc_wears_the_armor_of_a_use_all_list_and_carries_the_rest(monkeypatch):
+    """Officer Mack's inventory, one Use All list of armor and a baton: the armor is his outfit, the baton carried.
+    See: docs/fork/fo4_pipeline.md#outfit-slots"""
+    for module in (I, N):
+        monkeypatch.setattr(module, 'condition_of', lambda fnv, i: None)
+    taken = {}
+    monkeypatch.setattr(N, 'with_inventory', lambda outfit, carried, keep=False: taken.update(o=outfit, c=carried))
+    records = {0x10: ('ARMO', {'FormID': '00000010', 'BMDT.BipedFlags': '4'}), 0x11: ('WEAP', {'FormID': '00000011'}),
+               0x21: _leveled(0x21, I.USE_ALL, 0, (0x10, 1), (0x11, 1))}
+    builder = _list_builder(equipment=SimpleNamespace(fnv={}))
+    made = {sig: (lambda fid, rec: 0x03000000 | fid) for sig in ('ARMO', 'WEAP')}
+    builder.items = I.Items(builder, records, {}, made)
+    npcs = N.Npcs.__new__(N.Npcs)
+    npcs.builder, npcs._outfit = builder, lambda fnv, worn: worn
+    npcs.source = lambda fnv, flag: {'FormID': '00000001', 'ItemCount': '1', 'Item[0].FormID': '00000021',
+                                     'Item[0].Count': '1'}
+    npcs._inventory(1)
+    assert taken == {'o': [0x03000010], 'c': [(0x03000011, 1, None)]}
 
 
 def test_a_form_list_whose_every_entry_drops_is_not_made_but_an_authored_empty_one_is():
