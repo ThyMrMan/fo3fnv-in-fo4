@@ -1723,7 +1723,8 @@ own health: its race's starting health (RACE PRPS) and a per-level bonus.
 <a id="packages"></a>**AI packages (played 2026-10-12: NPCs sandbox, sit
 and sleep).** `spike/packages.py` copies a vanilla instance of the
 matching FO4 template per FNV type (`PLANS`): Travel (a seat: Sit),
-Sandbox, Wander (as Sandbox), Sleep, Eat, Guard (HoldPosition), Patrol,
+Sandbox, Wander (as Sandbox), Sleep, Eat, Guard ([Sandbox or
+Travel](#guard-goes-to-its-post)), Patrol,
 Follow (FollowNPC), UseItemAt a seat (Sit), Dialogue with the player
 (ForceGreet). The copy takes FNV's first input, schedule, conditions and
 shared PKDT flags, and drops its owner quest and scripts. A Dialogue package
@@ -1749,6 +1750,42 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
   Atomic Wrangler and Kings wall leans, two linked sleeps). Shared defaults
   (`DefaultTravelToLinkedPackage`) keep the Travel. The crucifix's own
   marker and pose: [crucifix](#crucifix).
+- <a id="guard-goes-to-its-post"></a>**A Guard goes to its post (built
+  2026-11-19, not played).** FO3's CG02 radroach (`CG02RadroachREF`, the
+  BB-gun range in `Vault101d`) stayed in the corner it is enabled in. Its
+  only package, `CG02RadroachGuard`, is a Guard at `CG02RadroachGuardMarker`
+  (radius 180), about 300 units out of the corner; Aggression 0, so it
+  never comes for the player. The GECK's Guard Package page: the actor
+  "will move to the Guard Location when the package starts", and with a
+  radius it wanders within it. Our copy was a HoldPosition, and FO4's
+  HoldPosition acts only in combat: the Skyrim CK wiki calls its procedure
+  "used exclusively as a Combat Interrupt Override Package" that does not
+  restrain movement out of combat, and all 128 of Fallout4.esm's
+  HoldPosition instances carry interrupt override Combat, none on an NPC's
+  own package list (70 on NPC combat override lists, 336 on alias ones,
+  7 alias packages). So every converted Guard stood where it was placed.
+  - *Now* (`packages.stay`): a Guard with a radius is a Sandbox there that
+    only wanders (`GUARD_NO_FLAGS`: FO4's eat, sleep, talk, idle-marker and
+    seat Allows off); with none, a Travel to it. Its combat override copy
+    for Continue During Combat ([below](#combat-override)) stays a
+    HoldPosition. An Ambush with radius 0 had the same HoldPosition and is
+    now a Travel; an Ambush with a radius was already a Sandbox.
+  - *Reach.* FO3 has 172 Guards (105 with a radius), FNV 175 (67).
+    Of the placed actors whose Guard names a reference, 108 of 136 in FO3
+    and 39 of 64 in FNV start outside its radius (93 and 32 by more than
+    256 units), so they walk to their posts now. Ambush with radius 0: 1
+    FO3, 10 FNV. No FormID moved: each copy keeps its id, only its
+    template changes.
+  - *The roach's corner is an island.* `Vault101d` has 7 navmeshes and no
+    edge links between them in FO3 either; the spawn, the guard marker and
+    the patrol markers all lie on the 13-triangle `00056A99`, so the
+    player's pathing (the story test's walk) cannot reach the roach in
+    either game. The player shoots it from the range.
+  - *Not converted.* A Guard's warning and attack (bit 28 clear: FO3 72,
+    FNV 61; FO4's Guard procedure, as in `TravelAndGuard`, does the same)
+    was not converted before and is not now. A Guard with no location
+    (FO3 6, FNV 20) takes it from its target in FNV; ours stands where it
+    starts, as before.
 - <a id="package-conditions"></a>**Package conditions see the dialogue
   forms (built 2026-11-09, not played).** NPC packages were checked against
   a smaller form map than dialogue lines: references, actors, quests and
@@ -1938,8 +1975,8 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
     (ECOR, a form list): in combat the first valid package there runs
     instead of combat AI. That fits a hold: the Skyrim CK wiki says a
     HoldPosition there keeps the actor fighting inside its radius, while
-    a Travel there stops the actor attacking. So an FNV Guard (HoldPosition)
-    with the flag (87 packages) gets a second copy with interrupt override
+    a Travel there stops the actor attacking. So an FNV Guard with the
+    flag (87 packages) gets a second, HoldPosition copy with interrupt override
     Combat (4, as all 14 packages on vanilla's 9 override lists) and
     without fragments, and its NPC gets an ECOR list of them
     (`Packages.combat_list`; ids hashed from the FNV package and NPC). The

@@ -1049,6 +1049,20 @@ def test_a_sandbox_copy_takes_each_allow_from_fnvs_no_flag():
     assert chet[2] == b'\0' and chet[5] == b'\1'
     assert packages._values({'PKDT.Type': '9', 'PKDT.TypeFlags': '1'}, 'Sandbox') == {}
     assert packages._values({'PKDT.Type': '12', 'PKDT.TypeFlags': '0'}, 'Travel') == {}
+    guard = packages._values({'PKDT.Type': '14', 'PKDT.TypeFlags': '0'}, 'Sandbox')
+    assert [slot for slot, allow in guard.items() if allow == b'\1'] == [7] and len(guard) == 7
+
+
+def test_a_guard_or_ambush_goes_to_its_location_out_of_combat():
+    """The CG02 radroach's Guard (radius 180) wanders at its marker as a Sandbox; a Guard or Ambush without a radius
+    travels there. None is a HoldPosition, which FO4 runs only in combat."""
+    packages = PK.Packages.__new__(PK.Packages)
+    roach = {'PKDT.Type': '14', 'PLDT.Type': '0', 'PLDT.Location': '0009DEC9', 'PLDT.Radius': '180'}
+    assert packages._plan(roach, {0x9DEC9: 0x55}, 0) == ('Sandbox', struct.pack('<iIi', 0, 0x55, 180))
+    assert packages._plan({**roach, 'PLDT.Radius': '0'}, {0x9DEC9: 0x55}, 0)[0] == 'Travel'
+    assert packages._plan({**roach, 'PKDT.Type': '9', 'PLDT.Radius': '0'}, {0x9DEC9: 0x55}, 0)[0] == 'Travel'
+    assert packages._plan({**roach, 'PKDT.Type': '9'}, {0x9DEC9: 0x55}, 0)[0] == 'Sandbox'
+    assert packages._plan(roach, {}, 0) == 'location not built'
 
 
 def test_a_follow_copy_stops_at_fnvs_follow_distance():
@@ -1076,25 +1090,27 @@ def test_fnvs_own_behavior_flags_become_fo4_interrupt_flags():
 
 
 def test_a_guard_held_through_combat_gets_a_combat_override_list():
-    """An FNV Guard flagged Continue During Combat gets a second HoldPosition copy with the Combat override, listed
+    """An FNV Guard flagged Continue During Combat gets a second, HoldPosition copy with the Combat override, listed
     in its NPC's ECOR form list; a Guard without the flag and a cowering flee (a HoldPosition) with it get none."""
     ids = {PK.COMBAT_SITE: 0x900, PK.COMBAT_LIST_SITE: 0x901}
     writer = SimpleNamespace(added=[], add_record=lambda sig, data: writer.added.append((sig, data)),
                              derive_formid=lambda site, key: ids[site])
     packages = PK.Packages.__new__(PK.Packages)
     packages.builder = SimpleNamespace(writer=writer, fnv_id=lambda fnv: int(fnv, 16), counts=Counter())
-    packages.vanilla = {'HoldPosition': pack_subrecord('EDID', b'V\0') + pack_subrecord('PKDT', bytes(12))}
+    packages.vanilla = {name: pack_subrecord('EDID', b'V\0') + pack_subrecord('PKDT', bytes(12))
+                        + pack_subrecord('PKCU', name.encode()) for name in ('HoldPosition', 'Travel')}
     packages.combat, packages.combat_lists, packages.greets, packages.topics = {}, {}, [], {}
     packages._fragments = lambda rec, form_map: b''
     rec = {'EditorID': 'Guard', 'PKDT.Type': '14', 'PKDT.Flags': str(PK.CONTINUE_DURING_COMBAT), 'PSDT.Month': '-1',
            'PSDT.DayOfWeek': '-1', 'PSDT.Date': '0', 'PSDT.Time': '-1', 'PSDT.Duration': '0'}
-    assert packages._write('00000010', rec, ('HoldPosition', b''), b'', {}) == 0x10
-    assert packages._write('00000011', {**rec, 'PKDT.Flags': '0'}, ('HoldPosition', b''), b'', {}) == 0x11
+    assert packages._write('00000010', rec, ('Travel', b''), b'', {}) == 0x10
+    assert packages._write('00000011', {**rec, 'PKDT.Flags': '0'}, ('Travel', b''), b'', {}) == 0x11
     assert packages._write('00000012', {**rec, 'PKDT.Type': '10'}, ('HoldPosition', b''), b'', {}) == 0x12
     npc = {'FormID': '00000020', 'EditorID': 'Trooper', 'AIPackageCount': '2', 'AIPackage[0]': '00000011',
            'AIPackage[1]': '00000010'}
     assert packages.combat_list(npc) == 0x901 and packages.combat_list({}) == 0
-    combat = dict(subrecords(writer.added[1][1][24:]))
+    guard, combat = (dict(subrecords(writer.added[i][1][24:])) for i in (0, 1))
+    assert guard[b'PKCU'] == b'Travel' and combat[b'PKCU'] == b'HoldPosition'
     assert combat[b'PKDT'][5] == PK.COMBAT_OVERRIDE and combat[b'EDID'] == b'FNV_GuardCombat\0'
     assert [s for s, _ in writer.added] == ['PACK', 'PACK', 'PACK', 'PACK', 'FLST']
     assert dict(subrecords(writer.added[4][1][24:]))[b'LNAM'] == struct.pack('<I', 0x900)

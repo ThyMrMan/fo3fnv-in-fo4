@@ -35,10 +35,10 @@ INSTANCES = {'Travel': 0x248982, 'Sit': 0x2471DB, 'Sandbox': 0x24674E, 'ForceGre
              'FleeTo': 0x204C1D, 'FleeFrom': 0x1D4388, 'UseWeapon': 0x19632E, 'EscortPlayer': 0x112EED}
 #: A copy's first input from FNV: its location, its target, its location as a Patrol start, or the template's.
 PLACE, TARGET, START, KEEP = 'place', 'target', 'start', 'keep'
-#: FNV PKDT type: (FO4 template, first input). Wander sandboxes; Guard holds its position; Patrol walks linked refs.
+#: FNV PKDT type: (FO4 template, first input). Wander sandboxes; Patrol walks linked refs; Guard and Ambush: stay().
 PLANS = {'1': ('FollowNPC', TARGET), '7': ('FollowNPC', TARGET), '3': ('Eat', PLACE), '4': ('Sleep', PLACE), '5': ('Sandbox', PLACE),
          '6': ('Travel', PLACE), '8': ('Sit', TARGET), '12': ('Sandbox', PLACE), '13': ('Patrol', START),
-         '14': ('HoldPosition', PLACE), '15': ('ForceGreet', PLACE)}
+         '15': ('ForceGreet', PLACE)}
 FNV_SLEEP, FNV_TRAVEL, FNV_DIALOGUE, FNV_FLEE, FNV_AMBUSH, FNV_GUARD = '4', '6', '15', '10', '9', '14'
 #: FNV PKDT type Escort: lead its target (PTDT) to its location; FO4 EscortPlayer's Target to Escort input.
 FNV_ESCORT, ESCORTED_INPUT = '2', 1
@@ -70,6 +70,8 @@ SANDBOX_TYPES = ('5', '12')
 #: FO4 Sandbox Allow inputs and the FNV type-specific No flag each negates (No Furniture covers both seats).
 ALLOWS = {'Allow Eating': 0x1, 'Allow Sleeping': 0x2, 'Allow Conversation': 0x4, 'Allow Idle Markers': 0x8,
           'Allow Sitting': 0x10, 'Allow Special Furniture': 0x10, 'Allow Wandering': 0x20}
+#: The No flags of a Guard's Sandbox copy: all but No Wandering, as an FNV Guard with a radius only wanders in it.
+GUARD_NO_FLAGS = 0x1F
 #: FNV PLDT location types near a reference and near the actor's linked reference, as the export writes them.
 NEAR_LOCATION, NEAR_LINKED = '0', '6'
 #: FNV FURN MNAM flag of sleep furniture.
@@ -232,8 +234,8 @@ class Packages:
 
     def _write(self, fnv: str, rec: dict, plan: tuple, conditions: bytes, form_map: dict) -> int:
         """Write FNV package `rec`'s copy by `plan` (_plan) with `conditions`; an FNV Guard kept through combat
-        (CONTINUE_DURING_COMBAT) also gets a combat override copy, without fragments; a ForceGreet is numbered and
-        parked (GreetOnce). The copy's FormID."""
+        (CONTINUE_DURING_COMBAT) also gets a HoldPosition combat override copy, without fragments; a ForceGreet is
+        numbered and parked (GreetOnce). The copy's FormID."""
         template, fid = plan[0], self.builder.fnv_id(fnv)
         number = self.once.number(fid) if template == 'ForceGreet' else 0
         values = {0: plan[2]} if len(plan) > 2 else self._values(rec, template)
@@ -246,7 +248,8 @@ class Packages:
         if rec.get('PKDT.Type') == FNV_GUARD and fnv_flags(rec) & CONTINUE_DURING_COMBAT:
             self.combat[fnv] = held = self.builder.writer.derive_formid(COMBAT_SITE, int(fnv, 16))
             self.builder.writer.add_record('PACK', pack_package(held, {**rec, 'EditorID': rec['EditorID'] + 'Combat'},
-                                                                *args, b'', values, inputs, COMBAT_OVERRIDE))
+                                                                self.vanilla['HoldPosition'], *args[1:], b'',
+                                                                override=COMBAT_OVERRIDE))
             self.builder.counts['PACK HoldPosition (combat override)'] += 1
         if number:
             self._park(fnv, rec, number, conditions)
@@ -309,12 +312,15 @@ class Packages:
         return {slot: struct.pack('<f', distance)} if distance else {}
 
     def _allows(self, rec: dict) -> dict:
-        """{value slot: Bool} of an FNV Sandbox or Wander `rec`'s copy: each FO4 Allow input from FNV's No flag.
+        """{value slot: Bool} of an FNV Sandbox or Wander `rec`'s copy: each FO4 Allow input from FNV's No flag;
+        a Guard's copy only wanders (GUARD_NO_FLAGS).
         See: docs/fork/fo4_pipeline.md#sandbox-allows
         """
-        if rec.get('PKDT.Type') not in SANDBOX_TYPES:
+        kind = rec.get('PKDT.Type')
+        if kind not in (*SANDBOX_TYPES, FNV_GUARD):
             return {}
-        flags, slots = int(rec.get('PKDT.TypeFlags', 0) or 0), self.slots['Sandbox']
+        flags = GUARD_NO_FLAGS if kind == FNV_GUARD else int(rec.get('PKDT.TypeFlags', 0) or 0)
+        slots = self.slots['Sandbox']
         return {slots[name]: bytes([not flags & bit]) for name, bit in ALLOWS.items() if name in slots}
 
     def _radii(self, rec: dict) -> dict:
@@ -376,9 +382,8 @@ class Packages:
         kind = rec.get('PKDT.Type')
         if kind == FNV_FLEE:
             return self._flee(rec, form_map)
-        if kind == FNV_AMBUSH:
-            template = 'HoldPosition' if not int(rec.get('PLDT.Radius', 0) or 0) else 'Sandbox'
-            return self._at(rec, kind, template, form_map)
+        if kind in (FNV_GUARD, FNV_AMBUSH):
+            return self._at(rec, kind, stay(rec), form_map)
         if kind == FNV_USE_WEAPON:
             return self._use_weapon(rec, form_map)
         if kind == FNV_ESCORT:
@@ -554,6 +559,13 @@ def talks_to_npc(rec: dict) -> bool:
 def cowers(rec: dict) -> bool:
     """True for a Flee Not Combat with no location or target (it cowers)."""
     return rec.get('PKDT.Type') == FNV_FLEE and 'PLDT.Type' not in rec and 'PTDT.Type' not in rec
+
+
+def stay(rec: dict) -> str:
+    """Guard or Ambush `rec`'s template: Sandbox within its radius, else Travel.
+    See: docs/fork/fo4_pipeline.md#guard-goes-to-its-post
+    """
+    return 'Sandbox' if int(rec.get('PLDT.Radius', 0) or 0) else 'Travel'
 
 
 def fnv_flags(rec: dict) -> int:
