@@ -759,6 +759,18 @@ def test_a_portal_names_its_rooms_by_fo4_id_and_a_room_keeps_its_bounds(monkeypa
     assert PL.placement(0x99, ids) == pack_subrecord('XRGD', b'r' * 28) and PL.placement(0x1, ids) == b''
 
 
+def test_a_room_keeps_its_linked_rooms_by_fo4_id_sorted_and_counted(monkeypatch):
+    """XRMR then XLRM after XPRM; the links renumbered and sorted, one not built dropped, XRMR's count matching."""
+    links = [(b'XLRM', struct.pack('<I', fid)) for fid in (0x1058, 0x1057, 0x1059)]
+    raw = {0x105B: [(b'XMBO', b'b' * 12), (b'XPRM', b'p' * 32), (b'XRMR', bytes([3, 0, 1, 0])), *links]}
+    monkeypatch.setattr(PL, 'fields', lambda: raw)
+    ids = {'00001057': 0x03000090, '00001058': 0x03000010}
+    assert PL.placement(0x105B, ids) == (pack_subrecord('XMBO', b'b' * 12) + pack_subrecord('XPRM', b'p' * 32)
+                                       + pack_subrecord('XRMR', bytes([2, 0, 1, 0]))
+                                       + pack_subrecord('XLRM', struct.pack('<I', 0x03000010))
+                                       + pack_subrecord('XLRM', struct.pack('<I', 0x03000090)))
+
+
 def test_a_trigger_box_keeps_its_primitive_but_no_room_bound(monkeypatch):
     """An activator's reference (a trigger box) is no room: no XMBO; a room marker's keeps it."""
     monkeypatch.setattr(PL, '_activators', lambda: frozenset({0xACAC}))

@@ -2551,7 +2551,8 @@ converted NPCs speak FNV's own barks instead ([barks](#barks), built
     - `items.PORTAL_MARKER` maps `0x20` to Fallout4.esm's PortalMarker
       (`0x20`);
     - `spike/placement.py` copies `XMBO`, `XPRM`, `XPOD` (rooms renumbered)
-      and `XRGD` from FalloutNV.esm itself.
+      and `XRGD` from the source plugin itself (FalloutNV.esm or
+      Fallout3.esm, `install.use_source`).
   - Vanilla has the same layout: 1,725 portals are `NAME XPRM XPOD DATA`;
     601 room markers are `NAME XMBO XPRM DATA`.
   - **Trigger boxes keep no XMBO (2026-10-31).** FNV's GECK writes `XMBO`
@@ -2580,6 +2581,32 @@ converted NPCs speak FNV's own barks instead ([barks](#barks), built
   (`placement.open_rooms`), so FO4 draws the whole cell: no room culling
   there, which the region's frame rate allows (118 cap at 24% GPU). The
   region leaves out 14. Recorded in [drift](fo4_drift.md#recorded).
+- <a id="linked-rooms"></a>**Linked rooms (FO3, 2026-11-19).** In the
+  converted Vault 101, the hall and the classroom showed flat grey past
+  their doorways. The rooms and portals were all there (Vault101d: 17
+  room markers and 9 portals, each `XPOD` naming two built rooms), but
+  FO3 also joins rooms with no portal between them: a room marker's
+  `XRMR` (link count) and `XLRM` (one per linked room). The copy dropped
+  both, so FO4 drew only the rooms a portal reached and left the linked
+  room undrawn.
+  - Fallout3.esm: 265 of 670 room markers have `XRMR`, with 320 `XLRM`
+    links in 44 cells. Every one has the count byte, then `00 00 00` or
+    `00 01 00`. FalloutNV.esm has none, so FNV builds don't change.
+  - Fallout4.esm has the same layout and order (`XMBO XPRM XRMR XLRM
+    DATA`) on 1,096 room markers (1,169 links), and both of FO3's byte
+    patterns are among them. FO4's second byte is a flags byte (`0x80`:
+    Has Lighting Template). FO3's is the high byte of a 16-bit count,
+    which is always 0.
+  - `placement._linked_rooms` copies them: each link goes through the
+    reference ids, links to rooms the build leaves out are dropped, the
+    rest are sorted (xEdit's sorted array), and the `XRMR` count is
+    rewritten to match.
+  - `open_rooms` already leaves out 132 of FO3's 670 room markers and 133
+    of its 577 portals, in cells with a portal to no room. That leaves 215
+    room markers gaining 260 links. Vault101d gains 6 links on 6 room
+    markers (one has `XRMR` alone), all to built rooms.
+  - Vault101a and Vault101b have no room markers or portals in
+    Fallout3.esm, so this doesn't touch them.
 - **A skeleton standing upright** (`Skeleton50sCasualMale` near Goodsprings):
   FNV lays a ragdolled object down with the reference's `XRGD` bone pose
   (bone id, 3 unused bytes, position, rotation: 28 bytes, as in FO4).
