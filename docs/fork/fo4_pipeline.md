@@ -3388,7 +3388,9 @@ against FNV's TERM:
   - **Where that comes from (exe, 1.11.240).** In the crosshair pick's
     target filter (0x996E30), a TERM (form type 0x37) is rejected unless
     -(the mesh's local Y axis · the flat direction from the terminal to the
-    player) is at least `fMinTerminalActivateDotProduct` (0.5).
+    player) is at least `fMinTerminalActivateDotProduct` (0.5). "The
+    terminal" is the reference's own position (REFR +0xD0, read at
+    0x9971B0), not its screen or bounds.
   - **Vanilla agrees.** All 777 vanilla TERM markers sit straight out
     along -Y.
   - **The failure.** Our terminals kept FNV's +X screens, so they showed
@@ -3397,12 +3399,39 @@ against FNV's TERM:
     the screen faces -Y. Elric bakes those transforms into the physics,
     as it does any node's. The marker then sits vanilla's way:
     (0, -55.2, -79.3 from the screen centre), heading 0.
-  - **Placement.** Each placed terminal's heading takes the turn back
-    (`Terminals.turn`), so it stands where FNV placed it. 216 of FNV's 219
-    terminal references turn only about Z; the 3 tilted ones are turned
-    about Z only and counted.
-  - **Not turned.** A mesh whose root itself carries collision would not
-    turn with its children, so it is left facing +X.
+  - <a id="terminal-origin"></a>**Over the origin (2026-11-19, not yet
+    played).** The turn alone fails a screen far from its mesh's origin:
+    the angle is measured from the origin, so a player in front of such a
+    screen can stand on the origin's +Y side. FO3's Overseer terminal
+    (`VOverseerTerminal01.nif`, `CG04OverseersTerminal`) has its screen
+    about 300 units out; turned, the user's spot sat at (31.6, 248.8) from
+    the origin, dot -0.99, so it never showed a prompt. The mesh's children
+    are now also shifted flat so the screen centre sits over the origin
+    (`_moved`), and every screen mesh's spot is (0, -55.2), dot 1.
+    - Affected before: FO3 `voverseerterminal01` (2 placed,
+      CG04OverseersTerminal) and `planetariumcontroldeskcontrols` (1 placed,
+      MQ02MuseumPlanetariumTerminal02, below); FNV `voverseerterminal01`
+      (1 placed, Vault03OverseersTerminal). Every other screen mesh passed
+      already (the shift is 5 to 83 units on them).
+    - **A root's own collision** would not turn with its children, so that
+      mesh was left facing +X (the planetarium desk: spot (813, -17), dot
+      0.02). The collision now moves to a new child node,
+      `TerminalCollision`, which turns with the rest. `elric.graft` now
+      finds a collision node added after the Havok input by the block
+      itself; it used the index from before `without_havok` renumbered.
+    - **OBND.** A terminal's OBND is boxed around its shapes where their
+      nodes put them (`placed_bounds`); `mesh_bounds` reads vertices
+      without node transforms, which kept the unturned box (the Overseer's
+      sat ~300 units from its geometry).
+  - **Placement.** Each placed terminal takes the mesh's move back through
+    `guns.turned` (`Terminals.move`), as a converted gun does, so every
+    point stands where FNV placed it; the 17 FO3 and 7 FNV tilted terminal
+    references are turned exactly, no longer about Z only.
+  - **Not covered: meshes with no screen.** `with_screen` finds no unlit
+    textured shape on FO3's `vaultruined\clutter\terminaldeskr01.nif`
+    (1 placed, LOBESJohnsonEmployeeTerminal) or `mainframe01off.nif`
+    (1 placed, MS03robcoMasterControlTerminal). They keep the plain mesh,
+    unturned, with no `Screen:0` and the marker at the origin.
 - **The screen.** FO4 draws the terminal menu onto the terminal's shape
   named `Screen:0`: the exe's terminal menu code looks the name up, and
   the vanilla terminal meshes checked (TerminalOn, TerminalWall01,

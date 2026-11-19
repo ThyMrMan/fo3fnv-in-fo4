@@ -634,19 +634,18 @@ def _base_type(builder: CellBuilder, fnv: int) -> str:
 
 
 def _placed_at(builder: CellBuilder, ref: dict) -> tuple:
-    """(position, rotation) of FNV reference `ref`; a terminal's heading takes back its mesh's turn (Terminals.turn;
-    a tilted one, counted, only about Z), a converted gun its mesh's (guns.turned).
+    """(position, rotation) of FNV reference `ref`; a terminal or converted gun takes back its mesh's move
+    (Terminals.move, Guns.turn) through guns.turned.
     See: docs/fork/fo4_spikes.md#placed-guns
     """
     pos, rot = place(ref)
     readables = getattr(builder, 'readables', None)
-    turn = readables.terminals.turn(ref) if readables else 0.0
-    builder.counts['terminal tilted, turned about Z only'] += bool(turn and (rot[0] or rot[1]))
+    move = readables.terminals.move(ref) if readables else None
     fnv, equipment = int(ref['NAME'], 16), getattr(builder, 'equipment', None)
-    if equipment is None or fnv not in equipment.weapon_ammo:
-        return pos, (rot[0], rot[1], rot[2] + turn)
-    builder.counts['placed guns turned as their mesh'] += 1
-    return turned(pos, rot, float(ref.get('XSCL.Scale', 1.0)), equipment.guns.turn(fnv))
+    if equipment is not None and fnv in equipment.weapon_ammo:
+        builder.counts['placed guns turned as their mesh'] += 1
+        move = equipment.guns.turn(fnv)
+    return (pos, rot) if move is None else turned(pos, rot, float(ref.get('XSCL.Scale', 1.0)), move)
 
 
 def _lock(builder: CellBuilder, ref: dict) -> bytes:
