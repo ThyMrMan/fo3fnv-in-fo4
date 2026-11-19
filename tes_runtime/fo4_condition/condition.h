@@ -56,6 +56,14 @@ void RegisterDamage(VirtualMachine *vm);
 // Whether the call instruction at `site` still calls `target`.
 bool CallsTarget(uintptr_t site, uintptr_t target);
 
+// ---- A scripted child fight (child_combat.cpp; docs/fork/fo4_pipeline.md#child-flee) ----
+
+// Let a child F3NV_Combat.KeepFighting marked skip FO4's child flee, through g_branchTrampoline (set up).
+bool HookChildCombat();
+
+// Register F3NV_Combat's native KeepFighting.
+void RegisterChildCombat(VirtualMachine *vm);
+
 // ---- FNV Hardcore (hardcore.cpp; docs/fork/fo4_hardcore.md#dll) ----
 
 // INI color `prefix`R/G/B:Interface (the player's HUD colors, e.g. iHUDColor) as 0xRRGGBB; white when not found.

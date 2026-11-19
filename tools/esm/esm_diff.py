@@ -25,7 +25,7 @@ RECORD_HEADER_SIZE = 24
 GROUP_HEADER_SIZE = 24
 
 
-def _iter_top_groups(mm):
+def iter_top_groups(mm):
     """Yield (label, start, end) for each top-level GRUP."""
     n = len(mm)
     # Skip TES4 header record
@@ -87,8 +87,8 @@ def main():
     mm_a = _open(args.file_a)
     mm_b = _open(args.file_b)
 
-    groups_a = {label: (s, e) for label, s, e in _iter_top_groups(mm_a)}
-    groups_b = {label: (s, e) for label, s, e in _iter_top_groups(mm_b)}
+    groups_a = {label: (s, e) for label, s, e in iter_top_groups(mm_a)}
+    groups_b = {label: (s, e) for label, s, e in iter_top_groups(mm_b)}
 
     labels = [l for l in groups_a if l in groups_b]
     only_a = [l for l in groups_a if l not in groups_b]

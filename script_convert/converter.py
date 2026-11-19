@@ -10,7 +10,8 @@ from script_convert.constants import (
     COMBAT_APPROACH_QUEST, FALL_DAMAGE_SPELL, KNOWN_GLOBALS, LAST_ACTIVATOR_VAR, LOOSE_OPS, UDF_RESULT_VAR, PAPYRUS_BOOL_FUNCTIONS, PLACED_REF_SIGS,
     PLAYER_ALIAS_EXTENDS, RETURN_TYPES, SELF_NAMES, _REF_TYPES,
     _canonical_global, digit_stripped_formid, _record_type_to_base_papyrus,
-    formid_property_name, papyrus_quoted, generated_script_stem, is_generated_script_type, safe_property_name,
+    formid_property_name, papyrus_quoted, generated_script_stem, is_generated_script_type, is_player,
+    safe_property_name,
     papyrus_script_name, resolve_property_formid,
 )
 from script_convert.command_rows import (
@@ -1537,12 +1538,7 @@ class ScriptConverter:
         # that starts MQ01, so MQ00 could never be completed either.
         name = _QUOTED_NAME_RE.sub(r'\1', name.strip())
         low = name.lower()
-        # A declared local otherwise wins over the built-in keywords, including
-        # `player`.  StartCelleAufzugTriggerZone01Script declares `Short Player`
-        # as its own trigger flag; mapping that to Game.GetPlayer() turned
-        # `Set Player to 1` into the un-assignable `Game.GetPlayer() = 1`.
-        # (The same precedence is applied further down for EditorIDs.)
-        _is_player_kw = low in ('player', 'playerref')
+        _is_player_kw = is_player(low)
         if ((low in self.sc.local_vars or low in self.sc.var_types)
                 and not (as_receiver and _is_player_kw)):
             return safe_property_name(name)
@@ -1754,14 +1750,11 @@ class ScriptConverter:
             return None
         amount = float(literal)
 
+        other = None if is_fallout4() else {f1.lower(): f2, f2.lower(): f1}.get('playerfaction')
+
         def _mirror(mode: int) -> str:
-            if f1.lower() == 'playerfaction':
-                return ('\n  TES4Polyfill.MirrorPlayerFactionRelation('
-                        f'{f2}, {mode})')
-            if f2.lower() == 'playerfaction':
-                return ('\n  TES4Polyfill.MirrorPlayerFactionRelation('
-                        f'{f1}, {mode})')
-            return ''
+            """The mirror line; none on FO4, where PlayerFaction is the player's."""
+            return f'\n  TES4Polyfill.MirrorPlayerFactionRelation({other}, {mode})' if other else ''
 
         if is_mod:
             # A relative nudge: treat any negative shift as souring the

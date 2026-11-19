@@ -359,6 +359,122 @@ on activation, and a scripted copy would duplicate every voiced greeting
 line. Its 8 `Say GREETING` calls remain empty, as do topics with no lines
 in FNV either (`vHDNCRBattleAdvance00`, `MegDocChurchMedicalChatter`).
 
+<a id="say-target"></a>**A scripted line's Target (2026-11-16, not yet played).**
+FO3/FNV's `SayTo <target> <topic>` let a line test the one it is said to
+(Run On Target): Fallout 3's birth has Dad's "It's a girl!" / "It's a boy!"
+and five more pairs on `GetIsSex` of the Target, one of them setting CG00
+stage 80. FO4's `Say(topic, None, False, akTarget)` passes `akTarget`, and
+the CK wiki says it is used for conditions, but in play neither line of
+any pair ever played: Dad went on to the next unsexed line, and after the
+gene projection none was left, so stage 80 never came and the birth stopped
+(Papyrus log 2026-11-16 11:27). No vanilla script passes `akTarget` to
+`Say`. Vanilla does run 172 dialogue conditions on a Linked Reference,
+each naming its keyword in parameter 3 (`0x54BA6`), so:
+
+- `FalloutHelpers.esl` holds the keyword `F3NV_SayTarget` (object id
+  `0xC02`, `FALLOUT4_HELPER_SAY_TARGET_KEYWORD`);
+- a Custom topic's line (`say_topics.SayTopics.build`, the topics scripts
+  say) runs its Target tests on Linked Reference with that keyword
+  (`say_topics._target_run_on`). Engine topics (HELLO, GOODBYE, the
+  barks) keep Target, which the engine fills, and scene lines keep their
+  Listener alias;
+- `TES4Polyfill.SayWhenFree` links the speaker to `akTarget` with that
+  keyword just before `Say`, and to None when there is no target.
+
+Measured on Fallout3.esm's converted scripts: 15 said topics (outside the
+engine's) have lines with Target tests, their callers passing the player,
+named references (Amata's `CG03ButchREF`, `CG03PaulHannonREF`,
+`CG03WallyMackREF`; Brotch's test-takers) or None. A quest alias per topic
+would need the topic's quest at every call, which FO4's `Topic` cannot
+give; the speaker is always at hand.
+
+<a id="says-settled"></a>**A line's end result waits for scripts still
+saying lines (2026-11-16, not yet played).** FO3/FNV's `Say` returned
+before any line could end, so the rest of a script's block always ran
+before a line it started ran its end result. `SayWhenFree` returns only
+once its line has begun (about 0.5-1 s), so a block of several Says runs
+for seconds. Fallout 3's birthday party stopped on it: CG02's intro has six
+guests say "Surprise!" and then clears its timer (`runTimer = 0`); Dad's
+line, under a second long, ended during the fourth Say, and its end result
+(`intro = 2`, `runTimer = 1`) was undone by that clear. Officer Gomez never
+spoke and the party never went on (Papyrus log 2026-11-16 13:31).
+
+`SayWhenFree` now counts itself while it runs (`F3NV_State.SayAsked`), and
+every converted line's end fragment opens with `TES4Polyfill.SaysSettled()`
+(`say_to_done.settled_says`), which waits while the count is above zero,
+10 s at most. The count ages out 10 s (game time) after the last ask, so one
+left high by a save made mid-call holds nothing.
+
+Counted per call, it still fell to zero between two calls of one block:
+the happy-birthday round (`intro == 3`) stopped the same way, Dad's line
+ending between Gomez's call returning and Stanley's being asked (0.47 s
+apart; Papyrus log 2026-11-16 15:01), so Palmer's speech and stage 6 never
+came. Now a converted function or event that calls `SayWhenFree` holds
+the count from its first ask to its end (`say_to_done.held_says`: a local
+`TES4_SaysHeld`, taken by `TES4Polyfill.HoldSays` before each ask, given
+back by `ReleaseSays` before each `Return` and at its end), as FO3/FNV ran
+the block to its end before any of its lines could end.
+
+A first build held from the block's opening instead (2026-11-16, played):
+every quest poll with a `Say` anywhere in it, asked or not, took the hold on
+every pass, so the count was almost never zero and the shared `F3NV_State`
+was called by hundreds of polls a second. The birth stopped after Dad's
+first line: its end fragment never got past `SaysSettled` (no stage 18).
+Taken only at an ask, a pass that says nothing never touches the count.
+
+<a id="say-to-packages"></a>**A SayTo package to the player walks up and
+says its topic (2026-11-16, walk-up scene not yet played).** A FO3/FNV Dialogue package
+(PKDT.Type 15) of PKDD.Type `SayTo` walks to its target and says the topic,
+with no dialogue menu; `Conversation` opens the menu. Both were built as a
+ForceGreet when aimed at the player, and a SayTo's ForceGreet never
+greeted: Dad's `CG02DadTowardsPlayerInDiner` (topic `CG02DadSpeech`, within
+120 units) never said "Enjoy your party!", whose end result sets CG02 stage
+12, so Amata never came over. Next it was built as a Travel near the player
+within PTDT.Count whose end fragment said the topic; in play its end
+fragment never ran (no trace of it after CG02 stage 10, though no package
+above it passes there).
+
+Now it is a **walk-up scene**, as vanilla walks an actor up and talks
+(`COMMacCreadyQuestBScene03`: a Package action running
+`DefaultApproachPlayerFast`, then a Dialogue action). The package stays in
+the actor's list with FO3/FNV's conditions and order, so FO4 picks it when
+FO3/FNV would. Its begin fragment (`package_events.walk_up`, added to the
+`PF_` script, a section of its own if it had none) calls
+`TES4Polyfill.WalkUp`, which starts the `TES4Walk_<package FormID>` scene with
+the actor as Speaker and the player as Listener. The scene's `Walk` phase runs
+a Travel to the player within PTDT.Count (`Packages._walk`, keyed
+`FNV PACK walk`), the next phases the topic as a chat
+(`Conversations.talk`): the first passing line, its Target tests on the
+player, no menu after. As the scene starts the actor's DialogueDone takes the
+package's GreetOnce number (`TES4WalkDone`), so the package parks on its
+HoldPosition copy, as FO3/FNV leave a SayTo that has talked done until
+another package takes over (`F3NV_DialogueDone` ignores the change to the
+scene's own package). Their numbers are negative (`GreetOnce.walk_number`),
+apart from the force greets', so adding walk-ups renumbers no force greet
+(a save's DialogueDone keeps meaning the same package). A parked SayTo never
+reaches its own OnEnd, so `WalkUp` returns once the scene has ended and the
+begin fragment then calls the package's OnEnd fragment, as FO3/FNV end a SayTo
+once its line is said (`MS12RoyPhillipsCheer` sends Roy to the lobby there).
+FO3 has 10 such packages (2 with fragments of their own), FNV 16 (1:
+`VVault21SarahStartTour`).
+
+A SayTo also has FO3/FNV's two places: its Location, where the actor waits,
+and its Trigger Location (PLD2), the area the player must enter before it
+walks up (6 of FO3's 10 and 3 of FNV's 16: Stanley waits at his spot and
+triggers within 1000, Grouse within 2000). The actor's own package is a
+HoldPosition at the wait location (`Packages._talk_to`; one with none holds
+where it stands), which never completes, so FO3's end script waits for the
+line. `WalkUp` waits, while that package stays current, until the player is
+in the trigger area (`TES4Polyfill.InWalkArea`, from the force greet's
+`Packages.trigger_area`: near a reference within its radius or its trigger
+box, in a cell, near the actor's wait place, near its linked reference); a
+SayTo without one walks up at once. The walk-up's quest is in the build's
+scope as the topic's was (`QuestScope._walked`): Arcade's location barks
+belong to a quest only that pulls in. Its lines are the topic's Hub lines of
+its quest, shared infos' copies included (`Conversations._walk`): Arcade's
+`ArcadeTestSite` and `ArcadeTheStrip` have no line of their own, only a
+SharedInfo.
+
 <a id="barks"></a>**Engine topics as FO4 barks (2026-10-31).** FNV's engine
 plays its reserved topics itself, from every running quest's lines: Combat
 (`Attack`, `Hit`, `Death`, `GuardTrespass`, …), Detection (`AlertIdle`,
@@ -669,6 +785,33 @@ Meshes: of the region's 1,630 FNV meshes, no block type is lost beyond
 the parked ones above and the damage stages and phantom already noted.
 Standalone transform and visibility controllers sit in weapon,
 clothing and skeleton meshes FNV animates only from actor animations.
+
+<a id="stage-items"></a>**Every passing stage item runs (2026-11-16, after
+play: FO3's party never reached "all presents").** FO3/FNV run each item
+of a stage whose conditions pass (GECK wiki, Quest Stages Tab). The FO4
+quest has one log entry per stage, and FO4 runs one entry's fragment
+(vanilla's paired `Item_00`/`Item_01` repeat their shared lines, e.g.
+`QF_DLC01MQ01` stage 2300), so only a stage's first item ran. CG02's
+stages 20, 21 and 23 each end in a second item, gated `GetStageDone CG02
+20, 21 and 23`, that sets stage 34 ("all presents given"); it never ran,
+and the quest waited for its failsafe timer. CG02 stage 5's three
+unconditioned items lost two. Census: 49 FO3 stages with several items
+(18 "unconditioned, then conditioned", 8 all conditioned, 6 several
+unconditioned ...), 9 FNV.
+- The stage's one entry binds its first item's fragment, at log index 0
+  (`quest.first_items`); before, a stage whose first item had no fragment
+  bound log index 1, which the record does not have.
+- That fragment ends by calling the stage's later items' functions, in FO3
+  order (`quest_fragments_falloutnv.stage_calls`).
+- A conditioned item runs its result script under its conditions, written
+  back as FO3 script (`if GetStageDone CG02 20 == 1 && ...`, OR groups in
+  parentheses, `item_guard`) for the converter: a quest's or reference's
+  script variable as `Owner.variable` (a reference reads its base's script,
+  names from `CrossRefGraph.script_vars`), a global as its name, Run On
+  Reference as `ref.`. A condition it cannot write (an actor value, Run On
+  Subject or Target, an unknown form) makes the guard `0`: the item does
+  not run. Journal text,
+  Complete Quest and objective lines are not guarded.
 
 <a id="quest-scope"></a>**Quests by reference (built 2026-10-14).** The
 build's quests were a hand list of 18; region scripts named 58 quests
@@ -1859,6 +2002,20 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
     (`Packages._at`), as 8 of Fallout4.esm's 217 force greets set it. Why
     her first greet opened nothing is not known: the trace shows no starter
     line beginning.
+- <a id="greet-in-trigger"></a>**Greet only once the player is in the
+  trigger (built 2026-11-16, not yet played).** Fallout4.esm's ForceGreet
+  template (00017BAB) greets three ways: the player detected inside the
+  Target Trigger Location (data 0x2), the same without detection, or the NPC
+  already within the Forcegreet Distance (data 0x5) of the player, with no
+  trigger test. FO3's Dad (`CG02DadToInsideTargetRange`: wait at
+  `CG02DadTargetRangeInsideMarker`, trigger the player within 150 of it)
+  stood beside the player after the BB gun, so the third branch greeted at
+  once (0.3 s after "C'mon!") and his parked copy then held him there; the
+  player stood about 835 units from the marker. FO3/FNV greet only once
+  the target is inside the trigger, so every converted ForceGreet now uses
+  `F3NV_ForceGreetInTrigger` (`greet_template`), a copy whose third branch
+  also tests the trigger. A package with no FO3/FNV trigger keeps one near
+  the player, always met, so it greets as before.
 - <a id="greet-hold"></a>**Held at their placed spot until the script's
   greet (built 2026-11-01, not yet played).** In FNV, Ringo stands at his
   editor spot facing the gas station door when the player walks in; on
@@ -1949,6 +2106,17 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
     the Goodsprings settlers' cowering flee (`GoodspringsFleePackage`, a
     HoldPosition with the Cowardly script) carries the flag too, and a
     combat copy without that script would have them fight.
+  - <a id="once-per-day"></a>*Once Per Day (0x400) on a quest-gated
+    package (2026-11-16, after play: FO3's Andy never cut the cake).* FO4
+    takes such a package for a moment and drops it: `CG02AndyCutCake`
+    (`GetStageDone CG02 15`) began at stage 15 and its OnChange fired 0.3 s
+    later with Andy back on his hold package, so its OnEnd (the cake's cut
+    animation) never ran. The Skyrim path found the same with Oblivion's
+    `CGRenoteOpenSecretDoor` (`tes5_import/packages/converter.py`): the
+    daily latch counts as spent for an actor loaded since the game began,
+    while the quest test already scopes when the package may run. A package
+    with any quest test (`QUEST_TESTS`, `quest_gated`) now drops the flag;
+    an ungated routine keeps it.
   - *In the region build.* 91 of 197 packages take FNV's behavior flags
     (42 Travel, 18 ForceGreet, 10 Sandbox, 8 HoldPosition ...); 4 Guards
     get combat copies, listed on Trudy and three settlers for the
@@ -2302,6 +2470,78 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
   Every DOOR base now carries `F3NV_DoorCloser` beside its own script: an
   NPC's OnOpen registers a distance event, and once the NPC is 200 units
   away the door closes if still open. Doors the player opens stay as left.
+- <a id="force-greet-menu-stage"></a>**A force greet's End stage on Fallout 4
+  (2026-11-16, after play; not yet played).** `force_greet_lines.in_menu_only`
+  wraps the End script of a force-greet line that sets the stage its own
+  package waits on, so a bark said before the talk opens does not end the
+  package. It tested Skyrim's menu name, `UI.IsMenuOpen("Dialogue Menu")`.
+  Fallout 4's menu is `DialogueMenu`, so the test was always false and the
+  End script never ran. In play, Butch's greeting (`00030A1E`, End
+  `setstage CG02 30`, "Butch scene done") played, but stage 30 never came.
+  CG02SCRIPT sets the intercom stage 35 only once 30 is done, so the quest
+  stopped at 34: no intercom, and the journal never moved past objective 10.
+  Amata's "Butch is such an idiot" (stage 32) has the same wrapper. On
+  Fallout 4 the test is now the speaker's own `IsInDialogueWithPlayer()`.
+  The `DialogueMenu` lingers 16–22 s after a talk ([dialogue gate](#dialogue-gate)),
+  and our talk scenes hold only the NPC, so neither of those marks this talk.
+- <a id="objective-targets"></a>**Objective targets keep their conditions
+  (2026-11-16, after play; not yet played).** An FO3/FNV objective target
+  carries conditions. CG02's "Enjoy the party and speak with the guests" has
+  three: Amata, Stanley and Old Lady Palmer, each shown while that guest's
+  present stage (21, 23, 20) is not done. FO4's QUST takes conditions after
+  each target's QSTA (xEdit `wbDefinitionsFO4`), but `quest.objectives`
+  wrote the QSTA alone, so every marker stayed up. Each target's
+  conditions are now converted (`say_topics.conditions_of`). A target
+  whose conditions cannot convert is written without them, as before.
+- <a id="visibility-tracks"></a>**Visibility tracks in mesh animations
+  (2026-11-16, after play; not yet played).** FO3's birthday cake
+  (`BirthdayCake01FX.NIF`, played by `CG02AndyCutCake`'s End script) swaps
+  the whole cake for the cut one in its `Forward` sequence. NiVisController
+  tracks hide `BirthdayCake02` at 5.2 s and show `Morph_UnExplode` (the cut
+  cake) at 5.2 s and the icing at 5.7 s. `animation._sequence` dropped every
+  non-transform track, so the cake never changed. Vanilla Fallout 4 uses
+  NiVisController in 259 of its 34,995 meshes (mines, weapons, effects; for
+  example `grenadebouquet_shorttriple.nif`). There, the controller sits on
+  its node with the sequence's start and stop and an idle
+  `NiBlendBoolInterpolator`. Each sequence block names it and carries a
+  keyed `NiBoolInterpolator`. A visibility track now converts the same way.
+  The node starts as the track's first key shows it. FO3's own controller
+  values are unset (2), so the rest state comes from the sequence: whole
+  cake shown, cut cake hidden. FO4 has no NiGeomMorpherController (0 of
+  34,995), so the cake's morph wobble stays dropped.
+  Andy's `CutCake` idle (`Creatures\MisterGutsy\IdleAnims`) is still left
+  out. Andy is on FO4's own Mister Gutsy rig (`encMrGutsy01Template`), and a
+  creature idle converts only into one of our own rigs.
+- <a id="child-flee"></a>**Fallout 4 makes every child flee a fight (found
+  2026-11-16, after play: FO3's Butch ran out of the diner into the hall
+  during the sweetroll fight; hook built 2026-11-16, not yet played).** In Fallout4.exe 1.11.221 the
+  combat tree's "Flee Link" (built under "!Low Combat Selector",
+  `0xf75244`) has condition `0xed9340`, which picks Flee when the actor's
+  virtual `+0x3f0` returns true, before any morale test. Papyrus
+  `Actor.IsChild` (native `0x1107680`) is a jump to that same virtual. The
+  tree's flee behaviors include "Flee Through Door". Skyrim does the same
+  (the Skyrim fork's R21, in its fallout_runtime doc, fixed by a
+  runtime hook), while Fallout3.exe never forces a child to flee: its
+  children fight or flee by their own Confidence. Affected: placed children
+  with Confidence above Cowardly, FO3 5 (CG02 Butch, Susie Mack, Christine
+  Kendall, Timmy Neusbaum, Betty; the other 55 are Cowardly and flee in FO3
+  too), FNV 4 (two Mojave dweller kids, Lily's two grandkids). Only Butch is
+  put into a fight by a script. `TES4Polyfill.WatchFight` traces each actor
+  a converted script sends into a fight (`fight` lines, once a second for
+  60 s) while tracing is on.
+  **The fix:** F3NV.dll (plugin version 4, `tes_runtime/fo4_condition/child_combat.cpp`)
+  redirects the one IsChild call inside the Flee Link condition. In 1.11.240
+  that condition is `0xed96d0`, the call is `FF 90 F0 03 00 00` at `0xed97ba`,
+  and the same condition also serves the second combat tree (fn `0xf941c0`).
+  An actor marked with `F3NV_Combat.KeepFighting` answers false there, so it
+  fights or flees on its own Confidence as in FO3/FNV. Every other actor and
+  every other IsChild call is unchanged. The FO4 `TES4Polyfill.ForceCombatNow`
+  marks a child after `StartCombat`, and `EndCombat` clears the mark, when
+  `F4SE.GetPluginVersion("F3NV") >= 4`. A mark lasts for the session only, so
+  a fight saved and reloaded mid-way is back to FO4's flee. Applying it
+  automatically in the polyfill covers any plugin's scripted child fight.
+  `F3NV.log` says `child combat flee hooked` at load, plus a `child combat:`
+  line per mark.
 - <a id="allies-join"></a>**Allies join a scripted fight on the player
   (proposed 2026-11-13, not built).** FNV puts an actor that starts combat in a
   combat group with its Allies and Friends, and each joins as its Assistance
@@ -3316,8 +3556,12 @@ e.g. DmndEntranceIntercom with Danny Sullivan's), said through a quest alias.
   written into that list already: FNV's intercom scripts end in a plain
   `Activate`, which converts to letting the activation through, so FO4
   would open the dialogue before OnActivate moved the base.
-- **Conditions** (`conditions.talking_through`). A Subject
-  `GetIsID(actor) == 1` becomes `GetIsID(actor) OR IsInList(list)`.
+- **Conditions** (`conditions.talking_through`). A Subject or Target
+  `GetIsID(actor) == 1` becomes `GetIsID(actor) OR IsInList(list)`, run on
+  the same side. Target-side (2026-11-16, after play: FO3's CG02 intercom
+  scene stalled) covers a line said *to* the talker: Dad's "Jonas?" tests
+  its target is Jonas, and the scene's listener is the intercom.
+  `IsActorTalkingThroughActivator` below reads only the Subject tests.
   `IsActorTalkingThroughActivator == v` (or `!= v`) becomes
   `GetIsID(actor) == 1 - v`: given the line passes, the speaker is the
   actor or its talker, so "through a talker" is "not the actor". Ramos's
@@ -3602,6 +3846,13 @@ that is an actor (form type 0x41), else on the player (`g_player`,
 0x32DD370). That is what the console's `sexchange` does, so the behavior is
 unchanged; `SetSex` still calls it only when the sex differs. The script
 compiler no longer reads Garden of Eden's sources.
+
+**Asked once (2026-11-16).** Fallout 3's birth asks the sex in its own
+message box (CG00 stage 20) and opens the race menu at stage 60, so the
+race menu's box asked a second time. `SetSex` on the player now sets
+`F3NV_State.SexChosen`; `F3NV_PlayerControls.ShowRaceMenu` skips its box
+while it is set and clears it, so the next race menu (a surgeon) asks again.
+New Vegas, whose race menu is the first to ask, is unchanged.
 
 ## <a id="record-compression"></a>Land and navmesh stored compressed (2026-11-04, not yet built)
 

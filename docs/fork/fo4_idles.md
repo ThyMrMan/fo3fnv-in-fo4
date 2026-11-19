@@ -239,8 +239,42 @@ on FNV's own FormID (a new record; nothing already built moves).
   `GNAM` the clip under `Actors\Character\Animations\<plugin>\` (FNV's path
   below `characters\_male\`), FNV's conditions (`conditions_of`, the
   dialogue's form map), `ANAM` FNV's parent and previous when they are
-  built (else 0, loose flag 0x01), FNV's replay delay. FNV's loop counts
-  other than "forever" play once.
+  built (else 0, loose flag 0x01), FNV's replay delay.
+- <a id="loop-counts"></a>**Loop counts (2026-11-16, not yet played).**
+  FNV plays a clip's start up to its `StartLoop` text key once, the
+  section to `EndLoop` loop-max times, then the rest. A human idle with a
+  counted loop (max over 1, not 255) is baked that way into one clip
+  (`human_clip.loop_section`, `repeated`; the whole clip without the keys)
+  and played once; a loose one also gets `IsIdlePlaying == 0`, so a later
+  line asking for it while it holds does not start it over.
+  - Dad's Bible verse (`CG01`): four lines on `LooseCrouchTalkA` (10 s,
+    kneeling by 1.83 s, `StartLoop` 1.83, `EndLoop` 10.0, loop count 10),
+    then `LooseCrouchTalkB`, which starts crouched and stands. Played once
+    per line, he stood up between lines. Looped by FO4's own
+    `dyn_ActivationLoop` for the counted seconds, he still stood: that event
+    repeats the whole clip, kneel-down included (played 2026-11-16). Baked,
+    the clip is 83.5 s (965 KB) and kneels once; `CrouchTalkB` on the last
+    line, unconditioned, replaces it and stands him up.
+- <a id="loop-release"></a>**Releasing a forever loop (2026-11-16, not yet
+  played).** An idle looping forever (255) plays on FO4's
+  `dyn_ActivationLoop`, which loops until something stops it; FO3/FNV end
+  it when another idle plays or the actor's package moves it on. In play
+  Dad's `LooseCrouchTalkToBaby` (`CG01` playpen lines `0001F3E0`/`F3DF`,
+  then two lines without an idle) stayed on while his next package walked
+  him out, so he stayed kneeling. A line whose speaker idle loops forever
+  (`Idles.loops_forever`) now also carries `F3NV_LoopIdle`: as it begins,
+  `TES4Polyfill.ReleaseLoopIdle` notes the speaker's package and, once that
+  changes, plays Fallout4.esm's `ActionIdleStop` (not while sitting).
+- <a id="idle-switch"></a>**Switching from a held idle (2026-11-16, not yet
+  played).** FO3/FNV start each line's speaker idle over whatever the last
+  line left playing; FO4 starts no dynamic idle over a running one. In play
+  Dad's baked `LooseCrouchTalkA` (83.5 s) was still running when the verse's
+  last line asked for `LooseCrouchTalkB`, which never started, so he stayed
+  kneeling. A line whose opening speaker idle is not held itself, in a topic
+  where another line's speaker idle is held (counted or forever,
+  `Idles.switch`), now plays that idle from `F3NV_SwitchIdle` instead of
+  its SNAM: as it begins, `TES4Polyfill.SwitchIdle` plays `ActionIdleStop`
+  and then the idle, retried for up to 2 s (traced `switchidle`).
 - **Left out:** an idle whose clip is missing (2 of Doc's) or is neither a
   human clip nor in an own rig's folder. A rig's idles play on that rig's
   graph with vanilla creatures' `dynamicAnim` events

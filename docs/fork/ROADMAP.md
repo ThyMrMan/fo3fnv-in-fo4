@@ -223,7 +223,7 @@ in full while the new build caches filled.
 | Conversion app | Converts your New Vegas install for Fallout 4 | Partial | Setup, Convert and Replacements screens are built, not tested end to end. DLC and mod folders convert from the app too ([DLC and mods](fo4_gui.md#addons)); the Finished screen checks the install, sets the output up in Mod Organizer and plays ([buttons](fo4_gui.md#mo2-setup)), and the F4SE plugin and faces are stages. Faces are our own FaceGen, as the chain's; Rebuild what changed runs the chain's build plan (replay, then the mods built on the target) ([rebuild](fo4_gui.md#rebuild)). None of this run from the app yet. | [phases](fo4_gui.md#phases) |
 | Installing | The README's steps for testers | Built, not played | Never followed end to end on a clean machine. | [install](../../README.md#install) |
 | Replacements | Swapping converted items or creatures for Fallout 4's or other mods' versions | Partial | The table and its screen work, empty by default. Named profiles and a Wabbajack modlist aren't built. | [replacements](fo4_replacements.md#direction) |
-| Fallout 3 | Converting Fallout 3 the same way | Partial | A scoped spike: Vault 101 and the opening (born in `CG00`) through the vault door, built into its own MO2 profile, not played; rebuilt 2026-11-12 with crime ignored during character creation (`IgnoreCrime`, `SetInCharGen`). 5 of its 4,118 scripts don't compile (three need `MirrorPlayerFactionRelation`; `MQ01Script`, `FFER05LootBoxSCRIPT`). The rest of the Capital Wasteland is not built. Tale of Two Wastelands judged, not built. The child player is planned: scale at age 1 (converted), a child race of our own at 10 and in Tranquility Lane, whose in-game check (`F3NV_ChildRaceTest.esl`) is built, not played. | [FO3 spike](fo4_fo3_plan.md), [child player](fo4_fo3_child_player.md) |
+| Fallout 3 | Converting Fallout 3 the same way | Partial | A scoped spike: Vault 101 and the opening (born in `CG00`) through the vault door, built into its own MO2 profile, not played; rebuilt 2026-11-12 with crime ignored during character creation (`IgnoreCrime`, `SetInCharGen`). 5 of its 4,118 scripts don't compile (three need `MirrorPlayerFactionRelation`; `MQ01Script`, `FFER05LootBoxSCRIPT`). The rest of the Capital Wasteland is not built. Tale of Two Wastelands judged, not built. The child player is planned: scale at age 1 (converted), a child race of our own at 10 and in Tranquility Lane, whose in-game check (`F3NV_ChildRaceTest.esl`) is built, not played. | [FO3 spike](fo4_fo3_plan.md), [child player](fo4_fo3_child_player.md), [scenes on FO4's engine](fo4_scene_driving_plan.md) |
 
 ## Known bugs a player will see
 
@@ -384,6 +384,7 @@ project. Their last status is in the [development log](dev_log.md#character).
 | [fo4_preflight.md](fo4_preflight.md) | The checks run on every build |
 | [fo4_gui.md](fo4_gui.md) | The conversion app |
 | [nvse_script_language.md](nvse_script_language.md) | NVSE's script language in converted scripts |
+| [fo4_script_compile.md](fo4_script_compile.md) | Converted scripts that failed to compile, and why each now does |
 | [fo4_hotfix.md](fo4_hotfix.md) | Script hotfixes between builds |
 | [kill_cams.md](kill_cams.md) | Kill cams and killmoves for converted weapons |
 | [spin_offs.md](spin_offs.md) | Releasing parts of F3NV.dll as mods anyone can use |

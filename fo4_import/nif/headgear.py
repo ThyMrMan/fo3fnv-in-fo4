@@ -240,16 +240,33 @@ def _skin(nif, index: int, head_node: int, fit: HeadFit, slot: int, placed: tupl
     nif.blocks[index] = ('BSSubIndexTriShape', pack_tri_shape(shape) + segments([(slot, len(shape['triangles']))]))
 
 
+def _shapes(nif, frame: 'np.ndarray | None') -> tuple:
+    """(the root's BSTriShape indices, their shape_arrays, moved by `frame` into the head's frame when skinned)."""
+    shapes = [i for i in nif.blocks[0][1]['children'] if nif.blocks[i][0] == 'BSTriShape']
+    arrays = [shape_arrays(nif.blocks[i][1]) for i in shapes]
+    if frame is not None:
+        arrays = [(pos @ frame[:3, :3] + frame[3, :3], uv, nrm @ frame[:3, :3], tris) for pos, uv, nrm, tris in arrays]
+    return shapes, arrays
+
+
+def placed(static_bytes: bytes, fit: HeadFit, frame: 'np.ndarray | None' = None) -> np.ndarray:
+    """A headgear NIF's vertices in FO4's frame, untipped (worn)."""
+    _, arrays = _shapes(without_havok(nif_file.read(static_bytes)), frame)
+    return fit.placed(np.vstack([a[0] for a in arrays]))
+
+
+def above_hair_line(points: np.ndarray) -> bool:
+    """Whether a hat's back brim stays above HAIR_LINE even tipped."""
+    return _brim(tipped(points)[0], -90) > HAIR_LINE
+
+
 def worn(static_bytes: bytes, fit: HeadFit, slots: tuple, frame: 'np.ndarray | None' = None) -> bytes:
     """A converted FNV headgear NIF (convert_static's, its collision dropped) as FO4's worn mesh in `slots`:
     moved by `frame` into the head's frame when skinned (head_frame), placed by `fit`, tipped to the hair line
     when it hides hair (slot 30), kept clear of FO4's head."""
     nif = without_havok(nif_file.read(static_bytes))
     root = nif.blocks[0][1]
-    shapes = [i for i in root['children'] if nif.blocks[i][0] == 'BSTriShape']
-    arrays = [shape_arrays(nif.blocks[i][1]) for i in shapes]
-    if frame is not None:
-        arrays = [(pos @ frame[:3, :3] + frame[3, :3], uv, nrm @ frame[:3, :3], tris) for pos, uv, nrm, tris in arrays]
+    shapes, arrays = _shapes(nif, frame)
     fnv_points = np.vstack([a[0] for a in arrays])
     points, turn = tipped(fit.placed(fnv_points)) if HAIR_SLOT in slots else (fit.placed(fnv_points), np.eye(3))
     points = np.split(fit.cleared(fnv_points, points), np.cumsum([len(a[0]) for a in arrays])[:-1])

@@ -28,10 +28,12 @@ from script_convert import anim_action_falloutnv as _anim, \
     udf_fallout4 as _udf4
 from script_convert.poll_motion import relative_sets
 from script_convert.poll_interval import MIN_INTERVAL, QUEST_DEFAULT, QUEST_DELAY_VAR, float_literal
-from script_convert.target import (HIT_REGISTRATION, arm_update, event_opener, is_fallout4,
-                                   is_hit_event, menu_close_guard, menu_registration, on_talking_activator,
-                                   run_update_now, sleep_registration, target_menu_name, variable_type)
+from script_convert.target import (HIT_REGISTRATION, REMOTE_DEATH, arm_update, death_registration, event_opener,
+                                   is_fallout4, is_hit_event, menu_close_guard, menu_registration,
+                                   on_talking_activator, remote_death, run_update_now, sleep_registration,
+                                   target_menu_name, variable_type)
 from script_convert.emit import script as _script
+from script_convert.say_to_done import held_says
 from script_convert.tes4 import nodes as N
 
 
@@ -57,8 +59,8 @@ def build(conv, name: str, source: str, extends: str, editor_id: str) -> str:
     body += door_relock(conv, tree, extends)
     body += lifecycle(conv, tree, extends)
     body = block_activation(conv, tree, extends, body)
-    body = _adds.own_reads(_trace.items(_trace.trigger(_trace.actor(fall_damage(conv, extends, body), extends),
-                                                       extends)))
+    body = held_says(_adds.own_reads(_trace.items(_trace.trigger(_trace.actor(fall_damage(conv, extends, body),
+                                                                                 extends), extends))))
     body += helpers(conv)
     body += chargen_latch(conv)
     body += stage_latches(conv)
@@ -609,7 +611,7 @@ def events(conv, tree, extends: str, skip_poll: bool = False) -> list:
         if opener == BLOCK_MAP['ontrigger'][0]:
             out += _one_trigger_at_a_time(*(_TRIGGER_FUNCTION if is_fallout4() else header), merged[header])
         else:
-            out += [event_opener(opener)] + _rearm_hit(opener) + merged[header] + [closer, '']
+            out += [_opener(opener, extends)] + _rearm_hit(opener) + merged[header] + [closer, '']
         # TES4's `begin OnTrigger` runs EVERY FRAME an object is inside the
         # volume.  Skyrim splits that: OnTriggerEnter is the entry frame and
         # OnTrigger the repeat, so a converted OnTrigger body alone never runs
@@ -657,6 +659,12 @@ def _trigger_repeat(merged: dict, order: list) -> list:
         f'  If {_TRIGGER_INSIDE} && {_TRIGGER_INSIDE}.Find(akActionRef) >= 0',
         f'    {_TRIGGER_INSIDE}.Remove({_TRIGGER_INSIDE}.Find(akActionRef))', '  EndIf']
     return [f'ObjectReference[] {_TRIGGER_INSIDE}', '']
+
+
+def _opener(opener: str, extends: str) -> str:
+    """The target's opener; a reference script's OnDeath is remote."""
+    text = event_opener(opener)
+    return text.replace(BLOCK_MAP['ondeath'][0], REMOTE_DEATH, 1) if remote_death(extends) else text
 
 
 def _rearm_hit(opener: str) -> list:
@@ -1165,12 +1173,13 @@ def lifecycle(conv, tree, extends: str) -> list:
                     and _menumode_kind(b) == 'menu' and menu_name(b)})
     declared = {b.btype.lower() for b in (tree.blocks if tree else ())}
     hits = is_fallout4() and bool(declared & {'onhit', 'onhitwith'})
-    if not (sc.has_gamemode or sc.has_scripteffectupdate or sleeps or menus or hits):
+    deaths = remote_death(extends) and 'ondeath' in declared
+    if not (sc.has_gamemode or sc.has_scripteffectupdate or sleeps or menus or hits or deaths):
         return []
     interval = QUEST_DELAY_VAR if _delayed_quest(extends) else conv._get_update_interval()
     polls = ([f'  {arm_update(interval)}']
              if (sc.has_gamemode or sc.has_scripteffectupdate) else [])
-    start = polls + ([f'  {HIT_REGISTRATION}'] if hits else [])
+    start = polls + ([f'  {HIT_REGISTRATION}'] if hits else []) + (death_registration() if deaths else [])
     if sleeps:
         start.append(f'  {sleep_registration(True)}')
     start += [f'  {menu_registration(m)}' for m in menus]

@@ -31,9 +31,13 @@ DIALOGUE_FILES = ('Interface/DialogueMenu.swf', 'Interface/Translations/Cleanroo
 PLUGIN_FILES = ('CleanroomUI.esl',)
 #: Its level-up menu's movie and the words of every CleanroomUI movie (F4SE reads them for CleanroomUI.esl).
 LEVEL_UP_FILES = ('Interface/CRUI_LevelUp.swf', 'Interface/Translations/CleanroomUI_*.txt')
-#: Its Papyrus scripts (papyrus/) our scripts use, shipped with the static scripts: level-up, arrays, DLL natives.
-SCRIPTS = ('CRUI_Array', 'CRUI_Framework', 'CRUI_LevelUp', 'CRUI_LevelUpHolder', 'CRUI_LevelUpNative',
-           'CRUI_LevelUpTable', 'CRUI_Condition', 'CRUI_ItemCard', 'CRUI_Pipboy', 'CRUI_PipboyAmmo', 'CRUI_Sex')
+#: Its HUD host (loaded into the HUD by CleanroomUI.dll), the HUD edit menu, and our MCM page that opens it.
+HUD_FILES = ('Interface/CRUI_Hud.swf', 'Interface/CRUI_HudEdit.swf', 'MCM/Config/CleanroomUI/*')
+#: Its Papyrus scripts our scripts and its MCM page use, shipped with the static scripts.
+SCRIPTS = ('CRUI_Array', 'CRUI_Framework', 'CRUI_Hud', 'CRUI_HudNative', 'CRUI_LevelUp', 'CRUI_LevelUpHolder',
+           'CRUI_LevelUpNative',
+           'CRUI_LevelUpTable', 'CRUI_Condition', 'CRUI_ItemCard', 'CRUI_Pipboy', 'CRUI_PipboyAmmo',
+           'CRUI_PipboyActions', 'CRUI_Sex')
 #: Its framework DLL (in DIST), which sends these F4SE external events: a Pip-Boy repair and an ammo choice confirmed.
 FRAMEWORK_DLL = 'CleanroomUI.dll'
 EVENTS = ('CRUI_ConditionRepair', 'CRUI_AmmoSwitch')
@@ -97,14 +101,14 @@ def scripts() -> dict:
 
 @functools.cache
 def build() -> 'Path | None':
-    """Cleanroom UI's plugin, movies and words built into BUILT by the pinned tree's `python -m crui` (once per run);
+    """Cleanroom UI's plugin, movies, words and MCM page built into BUILT by the pinned tree's `python -m crui` (once per run);
     BUILT, None without a checkout. What failed (no Flex SDK) is printed and left out."""
     root = source()
     if root is None:
         print('Cleanroom UI: no checkout (external/cleanroom_ui, CRUI_HOME, or beside this one)')
         return None
     env = {**os.environ, **({'CRUI_FLEX': str(FLEX)} if FLEX.is_dir() else {})}
-    steps = ['plugin', 'movies', 'translations']
+    steps = ['plugin', 'movies', 'translations', 'mcm']
     result = subprocess.run([sys.executable, '-m', 'crui', *steps, '--out', str(BUILT)], cwd=root, env=env,
                             capture_output=True, text=True, **POPEN_FLAGS)
     if result.returncode:

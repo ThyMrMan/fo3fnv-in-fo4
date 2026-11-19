@@ -15,6 +15,8 @@ See: docs/commentary/tes5_import_dialogue.md#force-greet-menu-stage
 import re
 import struct
 
+from script_convert.target import is_fallout4
+
 #: GetIsCurrentPackage, GetStage and GetStageDone (one numbering in TES4, FO3, FNV and TES5).
 _FUNC_CURRENT_PACKAGE, _FUNC_GET_STAGE, _FUNC_GET_STAGE_DONE = 161, 58, 59
 
@@ -69,5 +71,8 @@ def menu_only_infos(by_type: dict) -> set:
 
 
 def in_menu_only(lines: list) -> list:
-    """End fragment lines wrapped to run only while the dialogue menu is open."""
-    return ['  If UI.IsMenuOpen("Dialogue Menu")'] + ['  ' + line for line in lines] + ['  EndIf']
+    """End fragment lines wrapped to run only while the player talks.
+    See: docs/fork/fo4_pipeline.md#force-greet-menu-stage
+    """
+    test = 'akSpeakerRef.IsInDialogueWithPlayer()' if is_fallout4() else 'UI.IsMenuOpen("Dialogue Menu")'
+    return [f'  If {test}'] + ['  ' + line for line in lines] + ['  EndIf']

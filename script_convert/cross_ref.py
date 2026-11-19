@@ -6,7 +6,7 @@ import re
 
 from script_convert.constants import (
     PLACED_REF_SIGS, PLAYER_ALIAS_EXTENDS, SCHOOL_ENCHANT_SHADER,
-    papyrus_script_name
+    is_player, papyrus_script_name
 )
 from script_convert.target import variable_type
 from script_convert.symbols import command_return_type
@@ -80,12 +80,13 @@ def _new_scan_out() -> dict:
         'enchanted_books': set(),
         'voice_notes': set(),
         'trigger_blocks': {},
+        'script_vars': {},
     }
 
 
 #: Scan tables keyed by FormID.
 _FID_KEYED = ('formid_to_edid', 'script_formid_to_edid', 'script_formid_to_type', 'record_scri', 'record_base',
-              'record_type', 'record_model', 'cell_geom', 'pack_type', 'actor_packages', 'actor_speed')
+              'record_type', 'record_model', 'cell_geom', 'pack_type', 'actor_packages', 'actor_speed', 'script_vars')
 #: Lowest FormID a plugin can own; the ids below it are the engine's and never move.
 _FIRST_PLUGIN_ID = 0x800
 
@@ -268,9 +269,12 @@ def _int_field(rec: dict, key: str, base: int = 10):
 
 
 def _scan_scpt(rec: dict, formid: str, edid: str, out: dict) -> None:
-    """A script's EditorID, hosting type and authored trigger blocks."""
+    """A script's EditorID, hosting type, variables ({index: name}) and authored trigger blocks."""
     if edid:
         out['script_formid_to_edid'][formid] = edid
+    out['script_vars'][formid] = {int(rec[f'Variable[{i}].Index']): rec[f'Variable[{i}].Name']
+                                  for i in range(_int_field(rec, 'VariableCount', 0) or 0)
+                                  if rec.get(f'Variable[{i}].Name') and rec.get(f'Variable[{i}].Index', '').isdigit()}
     schr_type = _int_field(rec, 'SCHR.Type')
     if schr_type is not None:
         out['script_formid_to_type'][formid] = hosted_script_type(
@@ -394,6 +398,8 @@ class CrossRefGraph:
         self.script_formid_to_edid: dict[str, str] = {}
         self.script_formid_to_type: dict[str, int] = {}
         self.record_scri: dict[str, str] = {}  # record FormID -> SCRI FormID
+        #: Script FormID -> {variable index: name}.
+        self.script_vars: dict[str, dict] = {}
         self.record_type: dict[str, str] = {}  # record FormID -> record Signature
         # record FormID -> Model.MODL path as authored (backslashes, any case).
         # Lets the script converter ask the CONVERTED mesh what its physics are
@@ -533,6 +539,7 @@ class CrossRefGraph:
         self.enchanted_books.update(out['enchanted_books'])
         self.voice_notes.update(out['voice_notes'])
         self.trigger_blocks.update(out['trigger_blocks'])
+        self.script_vars.update(out['script_vars'])
         self.quest_edids.update(out['quest_edids'])
         self.npc_formids.update(out['npc_formids'])
         self.mgef_shaders.update(out['mgef_shaders'])
@@ -910,10 +917,9 @@ class CrossRefGraph:
         The player is a converter keyword (`Game.GetPlayer()`), never a bound
         property, so it never takes a script even where its base NPC_ has one.
         """
-        low = name.lower()
-        if low in ('player', 'playerref'):
+        if is_player(name):
             return ''
-        fid = self.edid_to_formid.get(low, '')
+        fid = self.edid_to_formid.get(name.lower(), '')
         scri_fid = self.record_scri.get(fid, '') or self.record_scri.get(self.record_base.get(fid, ''), '')
         return self.script_formid_to_edid.get(scri_fid, '') if scri_fid else ''
 
@@ -999,7 +1005,7 @@ class CrossRefGraph:
                 command and command_return_type(command.group(1)) in ('Int', 'Float')):
             return {'int'}
         name = value.strip('"')
-        if not _WORD_RE.match(name):
+        if not _WORD_RE.match(name) or is_player(name):
             return {'ref'}
         rtype = self.record_type.get(self.edid_to_formid.get(name.lower(), ''), '')
         if rtype == 'GLOB':

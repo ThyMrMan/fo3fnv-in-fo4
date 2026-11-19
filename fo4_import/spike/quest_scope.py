@@ -34,7 +34,7 @@ from fo4_import.spike.npcs import USE_FACTIONS, USE_INVENTORY, USE_TRAITS
 from fo4_import.spike.records import RUN_SUBJECT
 from fo4_import.spike.say_topics import CONVERSATION, GREETING, TOPIC_TYPE, raws
 from fo4_import.spike.script import FRAGMENT, PACKAGE, QUEST, declared_properties, prefix
-from script_convert.constants import papyrus_script_name
+from script_convert.constants import FALLOUT4_WALK_PREFIX, papyrus_script_name
 
 #: FNV records that hold others (_holds): actors, containers, leveled lists.
 HOLDERS = ('NPC_', 'CREA', 'CONT', 'LVLI', 'LVLN', 'LVLC')
@@ -76,7 +76,9 @@ class QuestScope:
                         for sig in LEVELED_ACTORS for r in export_records(export_dir, sig)}
         self.form_lists = {int(r['FormID'], 16): frozenset(int(v, 16) for k, v in r.items() if k.startswith('LNAM['))
                            for r in export_records(export_dir, 'FLST')}
-        self.topic_quests = topic_quests(export_records(export_dir, 'DIAL'))
+        dials = list(export_records(export_dir, 'DIAL'))
+        self.topic_quests = topic_quests(dials)
+        self.topic_names = {int(d['FormID'], 16): d.get('EditorID', '').lower() for d in dials}
 
     def _held(self, start: set) -> set:
         """What the records `start` hold, at any depth: inventories, leveled entries, inventory templates."""
@@ -218,11 +220,22 @@ class QuestScope:
             text = path.read_text(encoding='utf-8') if path and path.exists() else ''
             declared = declared_properties(text)
             named = {self.names[p.lower()] for _, p in declared if p.lower() in self.names}
-            named |= {q for kind, p in declared if kind == 'Topic' for q in self.topic_quests.get(p.lower(), ())}
+            topics = [p.lower() for kind, p in declared if kind == 'Topic'] + [self._walked(p) for _, p in declared]
+            named |= {q for topic in topics for q in self.topic_quests.get(topic, ())}
             started = {self.names[n.lower()] for m in STARTS.finditer(text) for n in m.groups()
                        if n and n.lower() in self.names}
             self.read[script] = (named, started)
         return self.read[script]
+
+
+    def _walked(self, prop: str) -> str:
+        """The topic (EditorID, lower) a `TES4Walk_<package>` scene property says: its SayTo package's; else ''.
+        See: docs/fork/fo4_pipeline.md#say-to-packages
+        """
+        if not prop.startswith(FALLOUT4_WALK_PREFIX):
+            return ''
+        pack = self.packs.get(int(prop[len(FALLOUT4_WALK_PREFIX):], 16), {})
+        return self.topic_names.get(int(pack.get('PKDD.Topic', '0') or '0', 16), '')
 
 
 def topic_quests(dials) -> dict:

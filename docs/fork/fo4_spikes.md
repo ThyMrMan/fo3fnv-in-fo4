@@ -3069,6 +3069,19 @@ The hockey mask, pre-war hat and reading glasses use FNV's meshes
     hat bit without the mask bit now adds 30: 35 converted hats (the
     caps, Ranger hats, berets, fedoras, head wraps, fire helmet). A hat
     with the mask bit (the hockey mask, White Glove masks) stays off 30.
+  - <a id="hat-above-hair"></a>*Hats that sit on the hair (2026-11-16, not
+    yet played).* FO3's party hats (`HatParty`, `HatPartyStanley`,
+    `KIDHatPartyChild`) carry the hair bit like the helmets, and FO3 draws
+    the hair's `Hat` shape under them. On 30 they hid FO4's hair top and the
+    whole birthday party was bald: the cone sits above the crown (front
+    brim 9.6 to 13.7, against 1.9 to 7.8 for every other FO3 hat) and
+    covers little of the hair. A hat on 30 now drops it
+    (`hair_mesh.sits_on_hair`) when its footprint (xy hull) holds under half
+    of vanilla's hair-top triangle centres (`hat_field`), or it cannot be
+    tipped to the hair line within 20°. FO3, per sex: party hats 0.34 to
+    0.42, the kid's 0.53 to 0.62 (and 20° leaves its back brim at 5.7 and
+    4.8), every other hat 0.78 or more (caps 0.79, combat helmet 0.91).
+    Only the three party hats change.
 - **Records:** an ARMA per item (`FNV_AA_<EditorID>`, hashed FormID)
   with those slots, the template addon's race, priorities and additional
   races, and male and female models (`<mesh>.nif`, `<mesh>_female.nif`).

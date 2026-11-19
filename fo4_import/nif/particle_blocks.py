@@ -72,6 +72,7 @@ SPECS = {
                                        ('visibility_interpolator', 'i')),
     'NiPSysModifierActiveCtlr': CONTROLLER + (('interpolator', 'i'), ('modifier_name', 'i')),
     'NiPSysUpdateCtlr': CONTROLLER,
+    'NiVisController': CONTROLLER + (('interpolator', 'i'),),
     'NiBoolInterpolator': (('value', 'B'), ('data', 'i')),
     'NiBoolTimelineInterpolator': (('value', 'B'), ('data', 'i')),
     'NiBlendBoolInterpolator': (('flags', 'B'), ('size', 'B'), ('threshold', 'f'), ('value', 'B')),

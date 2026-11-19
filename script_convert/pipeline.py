@@ -43,6 +43,7 @@ from script_convert import radio_lines, target, udf_fallout4
 from script_convert.message_menus import build_message_plan
 from script_convert.commands_falloutnv import (quest_objective_indices,
                                                set_quest_objectives)
+from script_convert.package_events import package_work
 from script_convert.package_fragments import package_fragment_name, package_psc
 from script_convert.patrol_scripts import patrol_psc, patrol_script_name
 from script_convert.terminal_plan import item_count, reachable_menus
@@ -59,8 +60,8 @@ from script_convert.force_greet_lines import in_menu_only, menu_only_infos
 from script_convert.goodbye_talk import END_TALK, ends_talk
 from script_convert.talked_to_pc import greeted
 from script_convert.weapon_hits import as_effect
-from script_convert.say_to_done import (fragment_calls, say_to_done_hooks,
-                                        say_to_done_topics)
+from script_convert.say_to_done import (fragment_calls, held_says, say_to_done_hooks,
+                                        say_to_done_topics, settled_says)
 from script_convert.scro_refs import (preload_scro_refs, resolve_scro_aliases,
                                       scro_list)
 from script_convert.symbols import property_declarations, IMPLICIT_NAMES
@@ -76,8 +77,7 @@ from tes5_import.dialogue.say_topics import build_force_flee_slots
 from tes5_import.dialogue.unlocks import build_unlock_plan
 from tes5_import.packages.patrol_falloutnv import (has_patrol_script, is_patrol_point,
                                                    load_patrol_points, patrol_scan_source)
-from tes5_import.packages.scripts_falloutnv import (package_sections, package_source,
-                                                    edids_by_formid)
+from tes5_import.packages.scripts_falloutnv import package_source, edids_by_formid
 from tes5_import.record_types.world_falloutnv import export_is_fallout
 
 
@@ -295,7 +295,7 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
     scpt_work = [r for r in by_type['SCPT'] if r.get('SCTX', '').strip()]
     info_work = [r for r in by_type['INFO'] if r.get('FormID')]
     qust_work = [r for r in by_type['QUST'] if r.get('EditorID', '')]
-    pack_work = [r for r in by_type.get('PACK', ()) if package_sections(r)]
+    pack_work = package_work(by_type)
     by_type['REFR'] = load_patrol_points(export_dir) if export_is_fallout(export_dir) else []
     patrol_work = [r for r in by_type['REFR'] if has_patrol_script(r)]
     term_work = terminal_work(export_dir)
@@ -802,7 +802,7 @@ def _info_begin_fragment(body_lines: list, seq_gate: str, length: float,
 
 def _info_end_fragment(body_lines: list, seq_gate: str,
                        service_kind, length: float, done_calls=(), first=()) -> list:
-    """Fragment_0 (OnEnd): the `first` calls, the TES4 result, LineEnded, then SayToDone.
+    """Fragment_0 (OnEnd): the `first` calls, settled_says, the TES4 result, LineEnded, then SayToDone.
 
     A poll waiting on this speaker must see the result's state writes before
     it can issue the next line. The body is gated only when it owns the
@@ -810,8 +810,9 @@ def _info_end_fragment(body_lines: list, seq_gate: str,
     already moved on and gating here would discard the whole body.
     See: docs/commentary/script_convert.md#sequenced-fragment-surgery
     See: docs/commentary/script_convert.md#saytodone
+    See: docs/fork/fo4_pipeline.md#says-settled
     """
-    out = ['Function Fragment_0(ObjectReference akSpeakerRef)', *first]
+    out = ['Function Fragment_0(ObjectReference akSpeakerRef)', *first, *settled_says()]
     body_lines = state_writes_before_setstage(body_lines)
     counter_step, rest_body = split_counter_step(body_lines, seq_gate)
     if seq_gate and body_lines and counter_step:
@@ -882,7 +883,7 @@ def _info_psc(rec: dict, xref: CrossRefGraph, reveals: list, service_kind: str,
         out_lines.extend(conv.get_cell_family_helpers())
     if target.is_fallout4() and radio_lines.is_radio(rec):
         out_lines = radio_lines.gated(out_lines)
-    return script_name, '\n'.join(_trace.items(_trace.info(out_lines, rec['FormID'], _trace.goodbye(rec))))
+    return script_name, '\n'.join(held_says(_trace.items(_trace.info(out_lines, rec['FormID'], _trace.goodbye(rec)))))
 
 
 def _info_length(formid: str) -> float:
@@ -934,14 +935,13 @@ def _info_batch(records: list, output_dir: str, xref: CrossRefGraph,
 
 
 def _pack_batch(records: list, output_dir: str, xref: CrossRefGraph, stats: dict):
-    """Write the PF_ fragment script of every package with a section to run.
+    """Write the PF_ fragment script of every (package, its section hooks) with a section to run.
 
     See: docs/commentary/script_convert.md#package-fragments
     """
-    for rec in records:
+    for rec, hooks in records:
         try:
-            write_psc(output_dir, package_fragment_name(rec['FormID']),
-                      package_psc(rec, xref))
+            write_psc(output_dir, package_fragment_name(rec['FormID']), package_psc(rec, xref, hooks))
             stats['pack_ok'] += 1
         except Exception as e:
             stats['pack_err'] += 1

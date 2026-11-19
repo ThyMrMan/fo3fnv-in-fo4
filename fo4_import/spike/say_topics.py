@@ -24,8 +24,9 @@ from fo4_import.base.writer import pack_topic
 from fo4_import.spike.barks import ENGINE_BARKS, named_barks, replies
 from fo4_import.spike.companion_barks import status_barks
 from fo4_import.spike import conditions as C
+from fo4_import.spike.conditions import raws
 from fo4_import.spike import records as R
-from fo4_import.helpers_plugin import actor_value_form
+from fo4_import.helpers_plugin import actor_value_form, form_id
 from fo4_import.spike.readiness import LINE, LINE_LEFT_OUT
 from fo4_import.spike.region_watch import REGION_KEY
 from fo4_import.spike.say_once import SayOnce
@@ -33,7 +34,7 @@ from fo4_import.spike.type_tests import FORM_KEY as TYPE_KEYWORDS, translated
 from fo4_import.spike.reputation import KARMA_KEY, SLOT_KEY as REPUTATION_KEY
 from tes5_import.record_types.reputation_falloutnv import KARMA_AV
 from fo4_import.pipeline.export_index import Layered, export_masters, export_records, master_records, own_records
-from script_convert.constants import papyrus_script_name
+from script_convert.constants import FALLOUT4_HELPER_SAY_TARGET_KEYWORD, papyrus_script_name
 from fo4_import.spike.script import prefix
 from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
 
@@ -49,6 +50,10 @@ ENGINE_TOPICS = {'000000D2': R.TOPIC_HELLO, '000000D4': R.TOPIC_GOODBYE, **ENGIN
 ORDER = 'PNAM.PrevInfo'
 #: FNV INFO DATA flag Say Once.
 SAY_ONCE = 0x04
+#: The script a line whose speaker idle loops forever carries: the loop stops when the speaker's package changes.
+LOOP_SCRIPT = 'F3NV_LoopIdle'
+#: The script a line carries whose speaker idle replaces a held one (Idles.switch), and its idle property.
+SWITCH_SCRIPT, SWITCH_IDLE = 'F3NV_SwitchIdle', 'Played'
 #: Keys of a split line's part (conversation.part): its number and the line's count of parts.
 PART, PARTS = '_part', '_parts'
 #: Key of a shared info's copy naming the topic that borrows it (conversation.shared_lines).
@@ -148,7 +153,7 @@ class SayTopics:
         self.silent, self.outside, self.links, self.checks = [], [], [], []
         self.dials = {r['FormID']: r for r in export_records(export_dir, 'DIAL')}
         quests = {q['FormID'].upper(): raws(q) for q in export_records(export_dir, 'QUST')}
-        self.infos, own, by_id = {}, dlc_lines(export_dir), {}
+        self.infos, own, by_id, self.by_topic = {}, dlc_lines(export_dir), {}, {}
         for rec in export_records(export_dir, 'INFO'):
             if own is not None and rec['FormID'].upper() not in own:
                 self.outside.append(rec)
@@ -156,11 +161,13 @@ class SayTopics:
             quest = rec.get('QSTI.Quest', '').upper()
             by_id[rec['FormID'].upper()] = line = with_quest(rec, quests.get(quest, []))
             self.infos.setdefault(quest, []).append(line)
+            self.by_topic.setdefault(rec['ParentDIAL'].upper(), []).append(rec)
         self.once.reserve(fid for fid, rec in by_id.items() if int(rec.get('DATA.Flags', 0) or 0) & SAY_ONCE)
         self.engine = {**ENGINE_TOPICS, **named_barks(self.dials)}
         self.replies = replies(self.dials, export_records(export_dir, 'INFO'), self.engine)
         self.script_vars = builder.script_vars
-        self.said = script_said(self.dials, free_said(builder.scripts.dir)) | status_barks(self.dials)
+        self.say_target = form_id(FALLOUT4_HELPER_SAY_TARGET_KEYWORD, builder.scripts.helper_index)
+        self.said =script_said(self.dials, free_said(builder.scripts.dir)) | status_barks(self.dials)
         self.borrowed = borrowed_lines(self.dials, self.said, by_id)
 
     def topics(self, quest: dict) -> list:
@@ -185,8 +192,9 @@ class SayTopics:
         custom = [fid for dial, fid in topic_ids.items() if dial not in self.engine]
         for dial, fid in topic_ids.items():
             lines = self._lines(quest, dial)
-            infos = [i for i in (self.info(rec, form_map, owner=quest_fid, place=f'{quest["FormID"]} topic {dial}')
-                                 for rec in lines) if i]
+            linked = None if dial in self.engine else self.say_target
+            infos = [i for i in (self.info(rec, form_map, owner=quest_fid, place=f'{quest["FormID"]} topic {dial}',
+                                           linked=linked) for rec in lines) if i]
             kind = self.engine.get(dial, R.TOPIC_CUSTOM)
             record = R.pack_dial(fid, f'FNV_{self.dials[dial]["EditorID"]}', quest_fid, kind, len(infos),
                                  0 if dial in self.engine else branch)
@@ -216,6 +224,19 @@ class SayTopics:
                                   end='Fragment_0' if last else None, scripts=marked)
         return object_scripts(marked) if marked else b''
 
+    def _idles(self, rec: dict, first: bool) -> tuple:
+        """([idle helper scripts], (speaker, listener) idles per response) of FNV line `rec` (part `first`): a
+        held idle (counted or forever loop, Idles.holds) is released (LOOP_SCRIPT); an idle replacing a held one
+        (Idles.switch) is played by SWITCH_SCRIPT, not by the line.
+        See: docs/fork/fo4_idles.md#idle-switch
+        """
+        idles, made = self.builder.idles, self.builder.idles.line(rec)
+        switch = idles.switch(rec, self.by_topic.get(rec['ParentDIAL'].upper(), [])) if first else 0
+        held = [(LOOP_SCRIPT, {}, {})] if first and idles.holds(rec) else []
+        if not switch:
+            return held, made
+        return held + [(SWITCH_SCRIPT, {SWITCH_IDLE: switch}, {})], ((0, made[0][1]),) + made[1:]
+
     def left_out(self, rec: dict, form_map: dict) -> bytes:
         """Count FNV line `rec` as left out, with the condition blocking it (blocker), for its quest; b''."""
         why = blocker(rec, form_map, self.script_vars)
@@ -226,16 +247,16 @@ class SayTopics:
 
     def info(self, rec: dict, form_map: dict, scene: tuple = (0, ''), flags: int = 0, extra: bytes = b'',
              target: 'int | None' = None, speaker: int = 0, owner: int = 0, place: str = '', helpers: tuple = (),
-             prompt: str = '', forced: 'int | None' = None) -> bytes:
+             prompt: str = '', forced: 'int | None' = None, linked: 'int | None' = None) -> bytes:
         """One FNV line as an FO4 INFO of quest `owner`; b'' when a condition cannot convert.
 
         `scene` (scene, phase) it starts, its speaker forced into alias `forced`; `flags` beside Say Once;
         `helpers` more scripts on its first part; `extra` CTDAs join its conditions, Target tests on alias
-        `target`; `speaker` its NPC; `place` names this copy for its FormID; `prompt` its menu prompt. A split
-        line's later parts have no conditions or Say Once; the part opening barter ends the scene.
+        `target` (else keyword `linked`'s linked reference); `speaker` its NPC; `place` names this copy;
+        `prompt` its menu prompt. A split line's later parts have no conditions or Say Once.
         """
         first, last = rec.get(PART, 1) == 1, rec.get(PART, 1) == rec.get(PARTS, 1)
-        conditions = conditions_of(rec, form_map, self.script_vars, target=target) if first else b''
+        conditions = conditions_of(rec, form_map, self.script_vars, target=target, linked=linked) if first else b''
         quest = rec.get('QSTI.Quest', '')
         if conditions is None:
             return self.left_out(rec, form_map)
@@ -244,7 +265,8 @@ class SayTopics:
         fid = self.builder.new_id(line, key=f'{line} at {place}' if place else None)
         once = first and int(rec.get('DATA.Flags', 0)) & SAY_ONCE
         marked = [self.once.script(rec['FormID'])] if once and owner else []
-        vmad = self._vmad(rec, first, last, marked + list(helpers) * first)
+        held, idles = self._idles(rec, first)
+        vmad = self._vmad(rec, first, last, marked + held + list(helpers) * first)
         lines = [rec[f'Response[{i}].ResponseText'] for i in range(int(rec.get('ResponseCount', 0) or 0))]
         flags |= R.INFO_SAY_ONCE if once else 0
         flags |= R.INFO_END_SCENE if opens_barter(rec, first, last) else 0
@@ -253,7 +275,7 @@ class SayTopics:
         self.builder.counts['INFO'] += 1
         return R.pack_info(fid, flags, tuple(lines) or (R.SILENT_LINE,), conditions + extra, scene=scene[0], phase=scene[1],
                            phase_index=scene[2] if len(scene) > 2 else 0, stages=(R.NO_STAGE, R.NO_STAGE),
-                           notes=f'FNV {rec["FormID"]}', vmad=vmad, idles=self.builder.idles.line(rec),
+                           notes=f'FNV {rec["FormID"]}', vmad=vmad, idles=idles,
                            speaker=speaker, prompt=prompt, forced_alias=forced)
 
 
@@ -413,11 +435,6 @@ def with_conditions(rec: dict, conds: list) -> dict:
     return {**out, **{f'Condition[{i}].Raw': raw for i, raw in enumerate(conds)}, 'ConditionCount': str(len(conds))}
 
 
-def raws(rec: dict) -> list:
-    """An FNV record's top-level conditions, raw hex, in order."""
-    return [rec[f'Condition[{i}].Raw'] for i in range(_count(rec))]
-
-
 def _closed(conds: list) -> list:
     """Raw conditions `conds`, the last one's OR-with-next flag cleared."""
     return conds[:-1] + [f'{int(conds[-1][:2], 16) & ~OR:02x}{conds[-1][2:]}'] if conds else []
@@ -428,29 +445,20 @@ def parsed(rec: dict) -> list:
     return [C.parse(raw) for raw in raws(rec)]
 
 
-def _count(rec: dict) -> int:
-    """How many Condition[i] an FNV record has."""
-    i = 0
-    while f'Condition[{i}].Raw' in rec:
-        i += 1
-    return i
-
-
 def conditions_under(rec: dict, prefix: str) -> dict:
     """`rec`'s conditions under `prefix` (`Item[2].`, `Button[1].`) as a record."""
     return {key[len(prefix):]: value for key, value in rec.items() if key.startswith(prefix + 'Condition[')}
 
 
 def conditions_of(rec: dict, form_map: dict, script_vars: dict, swap: bool = False,
-                  target: 'int | None' = None, item: bool = False) -> 'bytes | None':
+                  target: 'int | None' = None, item: bool = False, linked: 'int | None' = None) -> 'bytes | None':
     """An FNV record's conditions as FO4 CTDAs (and CIS1/CIS2s); None when one cannot convert.
 
-    Quest and script variables read the converted property `script_vars`
-    names ({quest or reference: (script, {index: name})}, `::<name>_var`).
+    Variables read the converted property `script_vars` names (`::<name>_var`).
     `swap` flips Subject and Target (a player line); Target tests run on
-    quest alias `target`. Tests of forms the build lacks are settled first
-    (conditions.without_absent); type tests are keyword tests, a weapon
-    subject when `item`.
+    quest alias `target`, else on the linked reference of keyword `linked`.
+    Tests of forms the build lacks are settled first (conditions.without_absent);
+    type tests are keyword tests, a weapon subject when `item`.
     """
     conds = _settled(rec, form_map, item)
     if conds is None:
@@ -462,9 +470,21 @@ def conditions_of(rec: dict, form_map: dict, script_vars: dict, swap: bool = Fal
             return None
         func, p1, p2, cis1, cis2 = fo4
         run_on, ref = (R.RUN_REFERENCE, form_map[cond['p1']]) if cis1 else C.run_on_of(cond, swap, form_map)
-        alias = target if run_on == R.RUN_TARGET and target is not None else -1
-        run_on, ref = (R.RUN_QUEST_ALIAS, 0) if alias >= 0 else (run_on, ref)
+        run_on, ref, param3 = _target_run_on(run_on, ref, target, linked)
         flag, value = C.fo4_value(cond, form_map)
-        out += R.pack_ctda(cond['op_flags'] & (COMPARE | OR) | flag, value, func, p1, p2, run_on, ref, alias)
+        out += R.pack_ctda(cond['op_flags'] & (COMPARE | OR) | flag, value, func, p1, p2, run_on, ref, param3)
         out += (R.pack_cis1(cis1) if cis1 else b'') + (R.pack_cis2(cis2) if cis2 else b'')
     return out
+
+
+def _target_run_on(run_on: int, ref: int, target: 'int | None', linked: 'int | None') -> tuple:
+    """(Run On, reference, parameter 3) of a test: a Target test on alias `target`, else on keyword `linked`.
+    See: docs/fork/fo4_pipeline.md#say-target
+    """
+    if run_on != R.RUN_TARGET:
+        return run_on, ref, -1
+    if target is not None:
+        return R.RUN_QUEST_ALIAS, 0, target
+    if linked is not None:
+        return R.RUN_LINKED_REF, 0, linked
+    return run_on, ref, -1

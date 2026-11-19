@@ -7,7 +7,7 @@ to its answer topic; a row of five names the skill check an answer INFO's
 prompt carries. Each FormID is a plugin name and an object id, so a row
 resolves under any load order or ESL. Each plugin writes its own file, named
 after it, and deletes its file in the folder of older builds; the masterless
-build also installs the movie and words and drops the XDI-era hub files an
+build also writes the DLL's INI, installs the movie and words and drops the XDI-era hub files an
 older setup put in the data folder.
 
 See: docs/fork/fo4_dialogue_menu_plan.md#converter
@@ -23,6 +23,9 @@ LINKS = Path('F4SE') / 'Plugins' / 'CleanroomDialogue'
 OLD_LINKS = Path('F4SE') / 'Plugins' / 'F3NV_Menus'
 #: The hub plugin and links tools.dialog.menu_rebuild made for XDI-built menus: deleted, as the build has its own.
 LEGACY = ('F3NV_MenuHub.esp', (OLD_LINKS / 'F3NV_MenuHub.txt').as_posix())
+#: CleanroomDialogue.dll's INI, written by the masterless build: the [Leave] row FO3/FNV's menus had, off by default.
+INI = Path('F4SE') / 'Plugins' / 'CleanroomDialogue.ini'
+INI_TEXT = '[Dialogue]\nbLeaveRow=1\n'
 HEADER = ('# option plugin, option INFO, answer plugin, answer DIAL | answer plugin, answer INFO, skill plugin, '
           'skill AVIF, needed (CleanroomDialogue.dll dialogue.cpp)')
 
@@ -73,6 +76,8 @@ def write(builder, data_dir: Path, plugin: str) -> None:
     counts['dialogue menu skill checks'] = len(say.checks) if say else 0
     counts['dialogue menu old links files removed'] = len(remove_legacy(data_dir, plugin))
     if not builder.built:
+        (Path(data_dir) / INI).parent.mkdir(parents=True, exist_ok=True)
+        (Path(data_dir) / INI).write_text(INI_TEXT, encoding='utf-8')
         installed = cleanroom.install(data_dir, cleanroom.DIALOGUE_FILES)
         counts['dialogue menu files installed (Cleanroom UI)'] = len(installed)
         counts['dialogue menu movie missing (no Cleanroom UI or Flex SDK)'] = int(

@@ -107,11 +107,12 @@ _DIAL_TYPES = ('Topic', 'Conversation', 'Combat', 'Persuasion', 'Detection',
 class FuncTable:
     """Condition function names and which params are FormIDs or actor values, for one game."""
 
-    def __init__(self, names: dict, form_slots: dict = None, av_slots: dict = None):
-        """Slots {func: {slot,...}} from xEdit; no form_slots: Oblivion heuristics."""
+    def __init__(self, names: dict, form_slots: dict = None, av_slots: dict = None, slots: dict = None):
+        """Slots {func: {slot,...}} from xEdit (`slots` every parameter's); no form_slots: Oblivion heuristics."""
         self.names = names
         self.form_slots = form_slots
         self.av_slots = av_slots or {}
+        self.slots = slots or {}
 
     def name(self, func: int) -> str:
         """The function's name, or Func<N>."""
@@ -145,7 +146,8 @@ def xedit_table(game: str) -> FuncTable:
                      {i: {s for s, t in params.items() if t in form_types}
                       for i, (_, params) in funcs.items()},
                      {i: {s for s, t in params.items() if t == ACTOR_VALUE_PARAM}
-                      for i, (_, params) in funcs.items()})
+                      for i, (_, params) in funcs.items()},
+                     {i: set(params) for i, (_, params) in funcs.items()})
 
 
 OBLIVION = FuncTable(FUNC_NAMES)

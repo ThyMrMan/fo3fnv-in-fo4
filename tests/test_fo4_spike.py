@@ -1085,7 +1085,7 @@ def test_a_guard_held_through_combat_gets_a_combat_override_list():
     packages.builder = SimpleNamespace(writer=writer, fnv_id=lambda fnv: int(fnv, 16), counts=Counter())
     packages.vanilla = {'HoldPosition': pack_subrecord('EDID', b'V\0') + pack_subrecord('PKDT', bytes(12))}
     packages.combat, packages.combat_lists, packages.greets, packages.topics = {}, {}, [], {}
-    packages._fragments = lambda rec, form_map: b''
+    packages._fragments = lambda rec, form_map, number=0: b''
     rec = {'EditorID': 'Guard', 'PKDT.Type': '14', 'PKDT.Flags': str(PK.CONTINUE_DURING_COMBAT), 'PSDT.Month': '-1',
            'PSDT.DayOfWeek': '-1', 'PSDT.Date': '0', 'PSDT.Time': '-1', 'PSDT.Duration': '0'}
     assert packages._write('00000010', rec, ('HoldPosition', b''), b'', {}) == 0x10
@@ -1104,7 +1104,7 @@ def test_a_dialogue_package_with_an_npc_travels_to_it_and_plays_the_topics_chat(
     """Captain Parker's arrest of Keith: a Travel near Keith within 128 units whose fragments play the
     TES4Chat_CaptainParkerArrest scene with Keith; an unbuilt target is left out."""
     packages = PK.Packages.__new__(PK.Packages)
-    packages.topic_names = {'0014D99A': 'CaptainParkerArrest'}
+    packages.topic_names, packages.hooks = {'0014D99A': 'CaptainParkerArrest'}, {}
     talks = {}
     scripts = SimpleNamespace(talk=lambda prop: talks.setdefault(prop, 0x77))
     packages.builder = SimpleNamespace(scripts=scripts, counts=Counter())
@@ -1417,7 +1417,9 @@ def test_converted_clip_leaves_its_track_names_blank(monkeypatch, tmp_path):
     monkeypatch.setattr(HC, 'clip_to_animation_data',
                         lambda *a: SimpleNamespace(num_tracks=2, bone_names=['Root', 'COM']))
     monkeypatch.setattr(HC, 'write_fo4_animation', lambda path, anim: written.append(anim.bone_names))
-    clips.write('x.kf', tmp_path / 'out' / 'x.hkx')
+    (tmp_path / 'out').mkdir()
+    (tmp_path / 'out' / 'x.hkx').write_bytes(b'')
+    clips._converted('x.kf', tmp_path / 'out' / 'x.hkx', (), 0)
     assert written == [['', '']]
 
 

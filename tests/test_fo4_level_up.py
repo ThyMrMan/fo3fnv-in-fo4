@@ -127,9 +127,9 @@ def test_the_scripts_declare_exactly_the_properties_the_build_writes():
     builder = _builder(_perk(0x01000001))
     source = CLEANROOM[f'{L.SCRIPT}.psc'].read_text(encoding='utf-8')
     assert _declared(source) == {*L.skill_table({}, []), 'Perks', 'Skills', 'Specials', 'Events', 'Tables'}
-    assert _declared(TABLE) == {*L.table_properties(builder, {}, []), 'Tables'}
+    assert _declared(TABLE) == {*L.table_properties(builder, {}, [])[0][1], 'Tables'}
     built = (Path(L.__file__).parent / 'character.py').read_text(encoding='utf-8')
-    assert "table = (TABLE_SCRIPT, {'Tables': tables}, table_properties(builder, avifs, special_forms + skill_forms))" in built
+    assert "(TABLE_SCRIPT, {'Tables': tables}, props))\n             for first, props in table_properties(" in built
     assert "'Events': objects['TES4CharacterEvents'],\n                                  'Tables': tables}" in built
 
 
@@ -140,8 +140,8 @@ def test_a_dlc_table_holds_only_its_own_perks_and_traits():
                        _perk(0x01000003, _condition(0, 1, 'HasPerk', 0x00000001), _condition(0, 1, 'HasPerk', 0x01000004),
                              FULL='Own'),
                        _perk(0x01000004, FULL='Second'), _perk(0x01000005, FULL='Trait', **{'DATA.Trait': '1'}))
-    table = L.table_properties(builder, {}, [])
-    assert table['PerkNames'] == ('string', 'Own\tSecond') and table['RankForms'] == ('objects', [0x90003, 0x90004])
+    [(first, table)] = L.table_properties(builder, {}, [])
+    assert first is None and table['PerkNames'] == ('string', 'Own\tSecond') and table['RankForms'] == ('objects', [0x90003, 0x90004])
     assert table['TraitNames'] == ('string', 'Trait') and table['TraitForms'] == ('objects', [0x90005])
     assert table['RequirementOwners'] == ('string', '0\t0') and table['RequirementTargets'] == ('string', '-1\t1')
     assert table['UnlistedPerks'] == ('objects', [0x90001])
@@ -155,10 +155,10 @@ def test_the_game_table_rides_the_rules_quest_and_a_dlc_writes_its_own(monkeypat
     builder = SimpleNamespace(writer=writer, export_dir=Path('x'), new_id=lambda owner, key=None: 0x01000800)
     monkeypatch.setattr(character, 'plugin_stem', lambda export_dir: 'OldWorldBlues')
     table = (L.TABLE_SCRIPT, {'Tables': 0x00000900}, {'RankForms': ('objects', []), 'TraitForms': ('objects', [0x90005])})
-    assert character._table(builder, 0x01000700, table) == [table] and not written
-    assert character._table(builder, 0x00000700, table) == [] and written == ['QUST']
+    assert character._table(builder, 0x01000700, [(None, table)]) == [table] and not written
+    assert character._table(builder, 0x00000700, [(None, table)]) == [] and written == ['QUST']
     empty = (L.TABLE_SCRIPT, {}, {'RankForms': ('objects', []), 'TraitForms': ('objects', [])})
-    assert character._table(builder, 0x00000700, empty) == [] and written == ['QUST']
+    assert character._table(builder, 0x00000700, [(None, empty)]) == [] and written == ['QUST']
 
 
 def test_an_older_builds_level_up_menu_ex_ini_is_deleted(tmp_path):

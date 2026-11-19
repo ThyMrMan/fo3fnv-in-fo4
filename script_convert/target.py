@@ -74,6 +74,22 @@ def event_opener(skyrim_opener: str) -> str:
         (line for opener, line in trace.items() if skyrim_opener.startswith(opener)), '')
 
 
+#: Fallout 4's remote OnDeath, which an ObjectReference script on an actor hears once registered.
+REMOTE_DEATH = 'Event Actor.OnDeath(Actor akSender, Actor akKiller)'
+
+
+def remote_death(extends: str) -> bool:
+    """Whether OnDeath is REMOTE_DEATH: a reference script on Fallout 4.
+    See: docs/fork/fo4_script_compile.md#ondeath-on-a-reference
+    """
+    return is_fallout4() and extends == 'ObjectReference'
+
+
+def death_registration() -> list:
+    """Lines registering REMOTE_DEATH on the script's own actor, if any."""
+    return [f'  If {self_as_actor()}', f'    RegisterForRemoteEvent({self_as_actor()}, "OnDeath")', '  EndIf']
+
+
 def is_hit_event(skyrim_opener: str) -> bool:
     """True for Skyrim's OnHit opener."""
     return skyrim_opener.startswith('Event OnHit(')

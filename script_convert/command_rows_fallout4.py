@@ -79,6 +79,7 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'showtraitmenu': _menu('traits', '0.0', flags='zero_arg'),
     'showracemenu': Cmd(f'{CONTROLS_PROPERTY}.ShowRaceMenu()', self_type=_CONTROLS, flags='zero_arg'),
     'sexchange': Cmd('TES4Polyfill.SetSex({ref}, "{s0}")', ACTOR, defaults={0: '-1'}, flags='actor_only zero_arg'),
+    'agerace': Cmd('TES4Polyfill.AgeRace({ref}, {i0})', ACTOR, flags='actor_only'),
     'showtraitselectmenu': _menu('traits', '0.0', flags='zero_arg'),
     'rewardkarma': Cmd('TES4Polyfill.ModKarma(TES4Karma, {f0})', self_type=('TES4Karma', 'GlobalVariable')),
     'unlockchallenge': Cmd('F3NV_Challenges.Unlock({p0})', types={0: 'GlobalVariable'}),

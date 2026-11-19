@@ -52,7 +52,8 @@ from fo4_import.spike.readiness import CHOICE_UNANSWERED
 from fo4_import.spike.script_packages import quest_id
 from fo4_import.spike.skill_tags import tag_check, tagged
 from fo4_import.spike.say_topics import GREETING, PART, PARTS, SHARED, conditions_of, parsed, raws
-from script_convert.constants import FALLOUT4_CHAT_PREFIX, FALLOUT4_TALK_PREFIX
+from fo4_import.spike.packages import ACTIVATE_DISTANCE, walk_package
+from script_convert.constants import FALLOUT4_CHAT_PREFIX, FALLOUT4_TALK_PREFIX, FALLOUT4_WALK_PREFIX
 from tes5_import.base.tes5_reader import subrecords
 
 #: FNV INFO DATA flags.
@@ -197,19 +198,46 @@ class Conversations:
         return bool(self.lines)
 
     def talk(self, prop: str, fid: int) -> bool:
-        """Build scene `fid` that `prop` (`TES4Talk_<topic>`, `TES4Chat_<topic>`) starts, if the topic has lines in
-        this quest; the GREETING talk is the greeting scene (greeting()), a chat one between two NPCs."""
-        chat = prop.startswith(FALLOUT4_CHAT_PREFIX)
-        topic = prop[len(FALLOUT4_CHAT_PREFIX if chat else FALLOUT4_TALK_PREFIX):].lower()
+        """Build scene `fid` that `prop` (`TES4Talk_<topic>`, `TES4Chat_<topic>`, `TES4Walk_<package>`) starts, if
+        the topic has lines in this quest; the GREETING talk is the greeting scene (greeting()), a chat one between
+        two NPCs, a walk-up a chat with the player after its walk (_walk)."""
+        walk = self._walk(prop) if prop.startswith(FALLOUT4_WALK_PREFIX) else ()
+        chat = bool(walk) or prop.startswith(FALLOUT4_CHAT_PREFIX)
+        topic = walk[0] if walk else prop[len(FALLOUT4_CHAT_PREFIX if chat else FALLOUT4_TALK_PREFIX):].lower()
         if topic == 'greeting' and not chat:
             infos = self._greetings()
+        elif walk:
+            infos = [key for _, key in self.hub.by_topic.get(walk[2], ())
+                     if self.hub.lines[key].get('QSTI.Quest', '').upper() == self.quest['FormID'].upper()]
         else:
             infos = [i for i, r in self.lines.items() if self.say.dials[r['ParentDIAL']]['EditorID'].lower() == topic]
-        step = ('chat', SPEAKER_ALIAS, ('line', tuple(infos))) if chat else ('line', tuple(infos))
+        step = ('chat', SPEAKER_ALIAS, ('line', tuple(infos)), *walk[1:2]) if chat else ('line', tuple(infos))
         if infos:
-            self.labels[step] = f'{"chat" if chat else "talk"} {topic}'
+            self.labels[step] = prop.lower() if walk else f'{"chat" if chat else "talk"} {topic}'
             self.scene(step, fid)
         return bool(infos)
+
+    def _walk(self, prop: str) -> tuple:
+        """(topic EditorID, walk Travel, topic FormID) of a `TES4Walk_<FNV package>` scene: the SayTo package's
+        topic, whose Hub lines of this quest it says (its shared infos' copies too), and the Travel to the player
+        its Walk phase runs (walk_package).
+        See: docs/fork/fo4_pipeline.md#say-to-packages
+        """
+        fnv, packages = prop[len(FALLOUT4_WALK_PREFIX):].upper(), self.say.builder.packages
+        rec = packages.packs[fnv]
+        dial, reach = rec['PKDD.Topic'].upper(), int(rec.get('PTDT.Count', 0) or 0) or ACTIVATE_DISTANCE
+        return packages.topic_names[dial].lower(), (walk_package(self.say.builder.writer, fnv), reach), dial
+
+    @staticmethod
+    def _walk_phase(step: tuple) -> tuple:
+        """([phase], [action], {phase: end}) a walk-up `step` (_walk) opens its scene with: its speaker walks until
+        within the SayTo's distance of the player (vanilla's approach phases end on GetDistance).
+        See: docs/fork/fo4_pipeline.md#say-to-packages
+        """
+        if len(step) < 4:
+            return [], [], {}
+        package, reach = step[3]
+        return ['Walk'], [R.pack_package_action(1, SPEAKER_ALIAS, package)], {'Walk': R.near_player(SPEAKER_ALIAS, reach)}
 
     def _greetings(self) -> list:
         """The Hub's GREETING lines, highest quest priority first, then in Hub order."""
@@ -236,7 +264,7 @@ class Conversations:
             return self._placed(step)[step]
         fid, first = fid or self._owned('SCEN', step), step
         owner = 'Shared' if shared else self.quest['EditorID']
-        edid, phases, actions = f'FNV_{owner}_Scene{len(self._placed(step))}', [], []
+        edid, (phases, actions, ends) = f'FNV_{owner}_Scene{len(self._placed(step))}', self._walk_phase(step)
         locked, outer, self.building = False, self.building, fid
         self.hub.scene_quests[fid] = self.fid
         while step is not None and step not in self._placed(step):
@@ -251,7 +279,8 @@ class Conversations:
         self.building = outer
         listener = LISTENER_ALIAS if first[0] == 'chat' else None
         self.scenes.append(R.pack_scen(fid, edid, self.fid, SPEAKER_ALIAS, actions, 0, tuple(phases),
-                                       (R.SCENE_NO_EXIT if locked else 0) | flags, listener, scene_vmad(len(phases))))
+                                       (R.SCENE_NO_EXIT if locked else 0) | flags, listener, scene_vmad(len(phases)),
+                                       ends))
         return self._placed(first)[first]
 
     def _starts_own(self, step: tuple) -> bool:

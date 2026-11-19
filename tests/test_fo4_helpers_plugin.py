@@ -12,12 +12,15 @@ from fo4_import import cleanroom
 from fo4_import import helpers_plugin as H
 from fo4_import import helpers_races as HR
 from script_convert import target
-from script_convert.constants import (CLEANROOM_HOLDER, CLEANROOM_PLUGIN, FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_GLOBALS, FALLOUT4_HELPER_MESSAGES,
+from script_convert.constants import (CLEANROOM_HOLDER, CLEANROOM_PLUGIN, FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_CHILD_PIPBOY,
+                                      FALLOUT4_HELPER_CHILD_RACE, FALLOUT4_HELPER_GLOBALS, FALLOUT4_HELPER_MESSAGES,
                                       FALLOUT4_HELPER_QUESTS, FALLOUT4_HELPER_ROBOT_FRENZY, FALLOUT4_HELPER_CREATURE_KEYWORD,
-                                      FALLOUT4_TRACE_PLUGIN)
+                                      FALLOUT4_HELPER_SAY_TARGET_KEYWORD, FALLOUT4_TRACE_PLUGIN)
 from script_convert.helpers_fallout4 import av_function
 from tes5_import.base.tes5_reader import subrecords, walk
 
+#: Fallout4.esm's addons drawing on HumanChildRace, each overridden to draw on the player's child race too.
+CHILD_ADDONS = 16
 
 
 def test_ids_are_unique_and_fit_a_light_plugin():
@@ -38,9 +41,11 @@ def test_plugin_is_a_light_master_with_every_record(tmp_path):
     assert (b'QUST', FALLOUT4_HELPER_QUESTS['F3NV_PlayerControls']) in got
     assert (b'GLOB', FALLOUT4_HELPER_GLOBALS['TES4ControlsDisabled']) in got
     assert (b'MESG', FALLOUT4_HELPER_MESSAGES['TES4ChooseSexMessage'][0]) in got
+    assert (b'KYWD', FALLOUT4_HELPER_SAY_TARGET_KEYWORD) in got
+    assert {(b'RACE', FALLOUT4_HELPER_CHILD_RACE), (b'ARMA', FALLOUT4_HELPER_CHILD_PIPBOY), (b'ARMO', 0x21B3B)} <= got
     own = {(sig, fid) for sig, fid in got if fid >= 0x800 and sig != b'SPEL'}
     assert len(own) == (len(FALLOUT4_HELPER_AVS) + len(FALLOUT4_HELPER_QUESTS) + len(FALLOUT4_HELPER_GLOBALS)
-                        + len(FALLOUT4_HELPER_MESSAGES) + 2)
+                        + len(FALLOUT4_HELPER_MESSAGES) + 6 + CHILD_ADDONS)
     assert sum(sig == b'SPEL' for sig, _ in got) == len(HR.GATED_ABILITIES)
 
 

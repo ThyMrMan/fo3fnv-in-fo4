@@ -94,8 +94,12 @@ def force_combat_factions(builder) -> dict:
     """
     ids = {edid: builder.writer.derive_formid(COMBAT_SITE, edid) for edid in FORCE_COMBAT_EDIDS}
     for edid, other in zip(FORCE_COMBAT_EDIDS, reversed(FORCE_COMBAT_EDIDS)):
-        body = pack_subrecord('EDID', edid.encode() + b'\0')
-        body += pack_subrecord('XNAM', struct.pack('<IiI', ids[other], 0, ENEMY))
-        body += pack_subrecord('DATA', struct.pack('<I', HIDDEN)) + pack_subrecord('CRVA', CRIME_VALUES[False])
-        builder.writer.add_record('FACT', pack_fo4_record('FACT', ids[edid], 0, body + pack_subrecord('VENV', VENDOR_VALUES)))
+        builder.writer.add_record('FACT', hidden_faction(ids[edid], edid, struct.pack('<IiI', ids[other], 0, ENEMY)))
     return ids
+
+
+def hidden_faction(fid: int, edid: str, relation: bytes = b'') -> bytes:
+    """A hidden, crimeless FACT `fid` with XNAM `relation` (b'': none)."""
+    body = pack_subrecord('EDID', edid.encode() + b'\0') + (pack_subrecord('XNAM', relation) if relation else b'')
+    body += pack_subrecord('DATA', struct.pack('<I', HIDDEN)) + pack_subrecord('CRVA', CRIME_VALUES[False])
+    return pack_fo4_record('FACT', fid, 0, body + pack_subrecord('VENV', VENDOR_VALUES))

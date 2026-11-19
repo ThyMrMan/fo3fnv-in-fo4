@@ -145,10 +145,27 @@ def texel_map(fo4: tuple, fnv_mesh: tuple, shape: tuple, frame: np.ndarray = Non
     fnv_surface = mean_surface(mean, triangles)
     s, r, t = align(points if frame is None else frame, mean, fnv_surface)
     rows, cols, where = texel_points(points, uv, tris, shape[0])
-    _, idx = point_tree(fnv_surface[0]).query(s * where @ r.T + t)
-    _, owner, bary = fnv_surface
-    fnv_uv = (bary[idx][:, :, None] * fnv_uvs[triangles[owner[idx]]]).sum(1)
+    placed = s * where @ r.T + t
+    _, idx = point_tree(fnv_surface[0]).query(placed)
+    owner = triangles[fnv_surface[1][idx]]
+    bary = projected(placed, mean[owner])
+    fnv_uv = (bary[:, :, None] * fnv_uvs[owner]).sum(1)
     return rows, cols, fnv_uv, padding(rows, cols, shape)
+
+
+def projected(points: np.ndarray, corners: np.ndarray) -> np.ndarray:
+    """Barycentric weights [n, 3] of each of `points` projected onto its triangle `corners` [n, 3, 3], clamped
+    inside it, so neighbouring texels sample the FNV texture continuously.
+    See: docs/fork/fo4_facegen_plan.md#texel-projection
+    """
+    a, ab, ac = corners[:, 0], corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]
+    ap = points - a
+    d00, d01, d11 = (ab * ab).sum(1), (ab * ac).sum(1), (ac * ac).sum(1)
+    d20, d21 = (ap * ab).sum(1), (ap * ac).sum(1)
+    det = np.where(np.abs(d00 * d11 - d01 * d01) < 1e-12, 1.0, d00 * d11 - d01 * d01)
+    v, w = (d11 * d20 - d01 * d21) / det, (d00 * d21 - d01 * d20) / det
+    bary = np.clip(np.stack([1 - v - w, v, w], 1), 0, None)
+    return bary / bary.sum(1, keepdims=True)
 
 
 def island_padding(rows: np.ndarray, cols: np.ndarray, shape: tuple) -> tuple:

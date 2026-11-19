@@ -16,6 +16,7 @@ from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import records as R
 from fo4_import.spike.conditions import AUTHORED
 from fo4_import.spike.readiness import TARGET_NOT_BUILT
+from fo4_import.spike.say_topics import conditions_of, conditions_under
 from fo4_import.spike.script import QUEST, prefix, stage_fragments
 from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
 from tes5_import.base.objectives_falloutnv import objective_global_name
@@ -39,22 +40,29 @@ def _numbered(rec: dict, prefix: str) -> list:
     return out
 
 
-def objectives(rec: dict, ref_ids: dict, first: int = 0) -> tuple:
-    """(objectives [(index, text, [alias ids])], aliases [(id, name, reference)]) of FNV quest `rec`.
+def objectives(rec: dict, ref_ids: dict, first: int = 0, conditions=lambda prefix: b'') -> tuple:
+    """(objectives [(index, text, [(alias id, CTDAs)])], aliases [(id, name, reference)]) of FNV quest `rec`.
 
     `ref_ids` is {FNV FormID (hex): FO4 reference}; a target not converted is
     dropped. A target's alias id is `first` plus its place among the quest's
     distinct authored targets, built or not, so building more moves none.
+    `conditions(prefix)` packs the target's conditions under `prefix`.
     See: docs/fork/fo4_tool_audit.md#formids
+    See: docs/fork/fo4_pipeline.md#objective-targets
     """
     keys = [key for i in _numbered(rec, 'Objective') for key in _numbered_keys(rec, f'Objective[{i}].Target', 'FormID')]
     place = {fnv: first + n for n, fnv in enumerate(dict.fromkeys(rec[key].upper() for key in keys))}
     out = []
     for i in _numbered(rec, 'Objective'):
-        fnvs = [rec[key].upper() for key in _numbered_keys(rec, f'Objective[{i}].Target', 'FormID')]
-        out.append((int(rec[f'Objective[{i}].Index']), rec.get(f'Objective[{i}].Text', ''),
-                    [place[fnv] for fnv in fnvs if fnv in ref_ids]))
+        targets = [(place[rec[key].upper()], conditions(key[:-len('FormID')]))
+                   for key in _numbered_keys(rec, f'Objective[{i}].Target', 'FormID') if rec[key].upper() in ref_ids]
+        out.append((int(rec[f'Objective[{i}].Index']), rec.get(f'Objective[{i}].Text', ''), targets))
     return out, [(alias, f'Target{fnv}', ref_ids[fnv]) for fnv, alias in place.items() if fnv in ref_ids]
+
+
+def _target_conditions(rec: dict, prefix: str, builder) -> bytes:
+    """Target `prefix`'s conditions as CTDAs; none when one cannot convert."""
+    return conditions_of(conditions_under(rec, prefix), builder.forms, builder.script_vars) or b''
 
 
 def missing_targets(rec: dict, ref_ids: dict) -> list:
@@ -119,6 +127,16 @@ def quest_var_globals(builder, export_dir, recs: list) -> dict:
     return out
 
 
+def first_items(fragments: list) -> list:
+    """Each stage's first fragment of `fragments` [(stage, item, function)], on its one log entry (0).
+    See: docs/fork/fo4_pipeline.md#stage-items
+    """
+    firsts = {}
+    for stage, _item, function in fragments:
+        firsts.setdefault(stage, (stage, 0, function))
+    return list(firsts.values())
+
+
 def quest_record(fid: int, rec: dict, scripts, ref_ids: dict, speaker: bool = False, start: bool = False,
                  more: tuple = (), attach: tuple = ()) -> bytes:
     """The FO4 QUST of FNV quest `rec`; `scripts` an attach.ObjectScripts, `ref_ids` as for objectives().
@@ -133,14 +151,14 @@ def quest_record(fid: int, rec: dict, scripts, ref_ids: dict, speaker: bool = Fa
     fragments_script = f'{prefix(QUEST)}{rec["EditorID"]}'
     fragments = []
     if scripts.dir and (scripts.dir / f'{fragments_script}.psc').exists():
-        fragments = stage_fragments((scripts.dir / f'{fragments_script}.psc').read_text(encoding='utf-8'))
+        fragments = first_items(stage_fragments((scripts.dir / f'{fragments_script}.psc').read_text(encoding='utf-8')))
         scripts.used.append(fragments_script)
     quest_script = scripts.name(int(rec['SCRI'], 16)) if 'SCRI' in rec else None
     attached = ([(quest_script, scripts.properties(quest_script), {})] if quest_script else []) + list(attach)
     scripts.used += [quest_script] if quest_script else []
     props = scripts.properties(fragments_script) if fragments else {}
     vmad = quest_fragments(fragments_script if fragments else '', fragments, props, scripts=attached)
-    goals, aliases = objectives(rec, ref_ids, int(speaker))
+    goals, aliases = objectives(rec, ref_ids, int(speaker), lambda at: _target_conditions(rec, at, scripts.builder))
     for target in missing_targets(rec, ref_ids):
         scripts.builder.readiness.add(TARGET_NOT_BUILT, rec['FormID'], target)
     aliases = [(SPEAKER_ALIAS, 'Speaker', None)] * speaker + aliases + [(LISTENER_ALIAS, 'Listener', None)] * speaker

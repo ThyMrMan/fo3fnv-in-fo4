@@ -34,7 +34,7 @@ void *g_tasks = nullptr;
 using MaxHealthFn = UInt32 (*)(TESForm *, TESObjectREFR *);
 RelocAddr<MaxHealthFn> MaxHealth(0x316940);
 RelocAddr<uintptr_t> SPAWN_HEALTH_CALL(0x271611);
-// The spawn-health call, damage.cpp's four calls and two stubs, hardcore.cpp's call.
+// The spawn-health call, damage.cpp's four calls and two stubs, hardcore.cpp's call, child_combat.cpp's call.
 const size_t TRAMPOLINE_SIZE = 256;
 
 UInt32 SpawnMaxHealth(TESForm *form, TESObjectREFR *ref) {
@@ -77,6 +77,7 @@ bool Register(VirtualMachine *vm) {
     RegisterTalk(vm, g_tasks);
     RegisterDamage(vm);
     RegisterHardcore(vm);
+    RegisterChildCombat(vm);
     _MESSAGE("registered F3NV's natives");
     return true;
 }
@@ -87,7 +88,7 @@ extern "C" {
 
 __declspec(dllexport) F4SEPluginVersionData F4SEPlugin_Version = {
     F4SEPluginVersionData::kVersion,
-    3,
+    4,
     "F3NV",
     "fo3fnv-in-fo4",
     0,
@@ -111,7 +112,7 @@ __declspec(dllexport) bool F4SEPlugin_Load(const F4SEInterface *f4se) {
     auto *messaging = static_cast<F4SEMessagingInterface *>(f4se->QueryInterface(kInterface_Messaging));
     bool trampoline = HookSpawnHealth(f4se);
     _MESSAGE("weapon starting condition %s", trampoline ? "hooked" : "not hooked");
-    if (trampoline) HookDamage(), HookAmmoWeight();
+    if (trampoline) HookDamage(), HookAmmoWeight(), HookChildCombat();
     auto *scaleform = static_cast<F4SEScaleformInterface *>(f4se->QueryInterface(kInterface_Scaleform));
     if (!scaleform || !scaleform->Register("F3NV", RegisterMovieNatives)) _MESSAGE("no movie natives");
     NoCombatSprint();

@@ -8,6 +8,7 @@ import collections
 import struct
 from pathlib import Path
 
+from fo4_import import cleanroom
 from fo4_import import dialogue_menu as menu_links
 from fo4_import import level_up as level_up_menu, pipboy_overlay
 from fo4_import.base import translations
@@ -276,9 +277,11 @@ def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helpe
     if builder.built:
         builder.scripts.used += [list_adds.SCRIPT]
     else:
-        builder.counts['Pip-Boy movie installed'] = pipboy_overlay.install(data_dir)
+        builder.counts['Pip-Boy movies installed'] = pipboy_overlay.install(data_dir)
         builder.counts['level-up menu files installed (Cleanroom UI)'] = level_up_menu.install(data_dir)
         builder.counts['menu translation files installed'] = translations.install(data_dir)
+        builder.counts['HUD host files installed (Cleanroom UI)'] = len(cleanroom.install(data_dir,
+                                                                                            cleanroom.HUD_FILES))
 
 
 @timed('closing records')

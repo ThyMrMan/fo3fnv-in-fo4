@@ -19,13 +19,18 @@ Message Property ChooseSex Auto
 {Male or Female, asked before the appearance edit: FO4's remake menu cannot change sex, FO3/FNV's race menu could.}
 
 Function ShowRaceMenu()
-  {FO3/FNV ShowRaceMenu: the sex (ChooseSex, set through TES4Polyfill.SetSex), then FO4's full appearance edit
+  {FO3/FNV ShowRaceMenu: the sex (ChooseSex, set through TES4Polyfill.SetSex; skipped once a script set it, as FO3's
+  birth does before its race menu), then FO4's full appearance edit
   as the vault exit elevator opens it (chargen skeleton, the face data precached for the sex just set as MQ101
   precaches it, cleared when the menu closes as MQ101PlayerScript clears it, neutral face, third person, the player turned to the
   camera, LooksMenu mode 1). The menu needs third person, so a camera switch this layer disabled is enabled
   until the menu closes; then first person again. A held player stands for it and sits again after.}
-  If ChooseSex
+  F3NV_State remembered = TES4Polyfill.SourceState()
+  If ChooseSex && !(remembered && remembered.SexChosen)
     TES4Polyfill.SetSex(Game.GetPlayer(), ChooseSex.Show() as String)
+  EndIf
+  If remembered
+    remembered.SexChosen = false
   EndIf
   CamSwitchLifted = Layer && !Layer.IsCamSwitchEnabled()
   If CamSwitchLifted

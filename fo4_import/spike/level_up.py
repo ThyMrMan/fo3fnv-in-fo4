@@ -26,6 +26,8 @@ EQUAL, NOT_EQUAL = 0, 1
 FNV_AVIF_BASE = 0x490
 #: Between the entries of a table the menu reads as one string (no entry holds one).
 SEP = '\t'
+#: Bytes a saved Papyrus string must stay under: FO4 loads each into a buffer this size, so a longer one crashes.
+SAVE_STRING = 4096
 #: The tag and trait menus' picks come back as one Papyrus Int, a bit per entry.
 MASK_BITS = 31
 
@@ -149,20 +151,47 @@ def skill_table(avs: dict, skills: list) -> dict:
     return texts('Skill', [avs.get(index[s], {}) for s in skills], skills)
 
 
-def table_properties(builder, avs: dict, values: list) -> dict:
-    """CRUI_LevelUpTable's value properties for the build's own listed perks and traits (a DLC's, not its masters'):
-    their tables and the perks' requirement rows. The trait menu answers with a bit per trait, so a trait past
-    MASK_BITS is counted.
-    See: docs/fork/fo4_level_up_plan.md#tables
+def table_properties(builder, avs: dict, values: list) -> list:
+    """[(first listed perk's source FormID or None, CRUI_LevelUpTable's value properties)] for the build's own listed
+    perks and traits (a DLC's, not its masters'), split so each table's every text fits a saved string: a run of the
+    listed perks with the rows they own, the first also with the traits and the rows no listed perk owns. A trait past
+    MASK_BITS, or a text that still does not fit, is counted.
+    See: docs/fork/fo4_level_up_plan.md#save-strings
     """
     perks = builder.perks
     offered, traits = (_own(builder, records) for records in (perks.offered(), perks.trait_records()))
-    listed = [perks.ids[int(r['FormID'], 16)][0] for r in offered]
     if len(traits) > MASK_BITS:
         builder.counts['level-up menu traits past its mask'] += len(traits) - MASK_BITS
     table = rows(builder, labels(perks, avs), _own(builder, perks.records))
-    return {**properties(table, values, listed), **perk_table(perks, offered), **texts('Trait', traits),
-            'TraitForms': ('objects', [perks.ids[int(r['FormID'], 16)][0] for r in traits])}
+    trait_part = {**texts('Trait', traits),
+                  'TraitForms': ('objects', [perks.ids[int(r['FormID'], 16)][0] for r in traits])}
+    shared = (table, values, {perks.ids[int(r['FormID'], 16)][0] for r in offered})
+    runs, run = [], []
+    for rec in offered:
+        if run and not fits(_part(perks, shared, run + [rec], None if runs else trait_part)):
+            runs.append(run)
+            run = []
+        run.append(rec)
+    runs.append(run)
+    parts = [(run[0]['FormID'] if i else None, _part(perks, shared, run, None if i else trait_part))
+             for i, run in enumerate(runs)]
+    builder.counts['level-up table text past a saved string'] += sum(not fits(p) for _, p in parts)
+    return parts
+
+
+def _part(perks, shared: tuple, run: list, traits: 'dict | None') -> dict:
+    """One table's properties: listed perks `run` and the rows of `shared` = (rows, values, every table's listed
+    first ranks) they own; given `traits` (the first table), those and the rows no listed perk owns."""
+    table, values, listed = shared
+    mine = [perks.ids[int(r['FormID'], 16)][0] for r in run]
+    kept = [row for row in table if row[0] in mine or (traits is not None and row[0] not in listed)]
+    none = {**texts('Trait', []), 'TraitForms': ('objects', [])}
+    return {**properties(kept, values, mine), **perk_table(perks, run), **(none if traits is None else traits)}
+
+
+def fits(props: dict) -> bool:
+    """Whether every string of `props` is under SAVE_STRING bytes as UTF-8."""
+    return all(len(value.encode('utf-8')) < SAVE_STRING for kind, value in props.values() if kind == 'string')
 
 
 def _own(builder, records) -> list:

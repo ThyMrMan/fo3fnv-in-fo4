@@ -12,7 +12,7 @@ See: docs/commentary/script_convert.md#scro-table-outranks-script-text
 import re
 
 from script_convert.command_rows import KNOWN_COMMANDS
-from script_convert.constants import safe_property_name
+from script_convert.constants import is_player, safe_property_name
 from script_convert.cross_ref import CrossRefGraph
 from script_convert.resolve_name import papyrus_type_for
 
@@ -89,7 +89,7 @@ def resolve_scro_aliases(body: str, scros: list, xref: CrossRefGraph) -> dict:
     unresolved = []
     for tok in dict.fromkeys(tokens):
         low = tok.lower()
-        if low in ('player', 'playerref'):
+        if is_player(low):
             continue
         if xref.edid_to_formid.get(low):
             continue

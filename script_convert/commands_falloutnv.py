@@ -13,7 +13,7 @@ See: docs/commentary/script_convert.md#getfactionrelation-has-two-receivers
 
 from fo4_import.base.bink import movie_key
 from fo4_import.spike.type_tests import BIPED_SLOT_PREFIX, CREATURE_TYPES, WEAPON_SLOT, creature_keyword, equipped_slot
-from script_convert.constants import (FALLOUT4_POSE_PREFIX, fallout4_screen_property, fallout4_swap_property,
+from script_convert.constants import (FALLOUT4_POSE_PREFIX, is_player,fallout4_screen_property, fallout4_swap_property,
                                       papyrus_script_name, safe_property_name, typed_already)
 from script_convert.anim_action_falloutnv import anim_action
 from script_convert.anim_playing_falloutnv import anim_playing
@@ -417,7 +417,7 @@ def player_package(ctx, call):
     the seat that package becomes, or leaves it empty. Declines for other receivers and targets.
     See: docs/fork/fo4_spikes.md#spike-2-vcg01
     """
-    if not is_fallout4() or (call.ref or '').lower() not in ('player', 'playerref'):
+    if not is_fallout4() or not is_player(call.ref):
         return None
     ctx.sc.property_refs[CONTROLS_PROPERTY] = CONTROLS_SCRIPT
     if call.name == 'removescriptpackage' or not len(call):

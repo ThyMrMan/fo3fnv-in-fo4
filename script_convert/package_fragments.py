@@ -2,13 +2,16 @@
 
 Which sections exist is `tes5_import.packages.scripts_falloutnv`, the contract
 the importer's VMAD reads too; this writes the `PF_` script those name, and
-hands the importer the properties it declares.
+hands the importer the properties it declares. On Fallout 4 a section also runs
+the actor scripts' package blocks that name the package (`package_events`).
 
 See: docs/commentary/script_convert.md#package-fragments
 """
 
 from script_convert.constants import script_prefix
 from script_convert.converter import ScriptConverter
+from script_convert.package_events import day_done, walk_up
+from script_convert.say_to_done import fragment_calls, held_says
 from script_convert.scro_refs import add_scro_ref, resolve_scro_aliases, scro_list
 from script_convert.symbols import property_declarations
 from script_convert.target import is_fallout4
@@ -21,15 +24,25 @@ def package_fragment_name(formid: str) -> str:
     return f'{script_prefix("_PF__")}{formid.upper()}'
 
 
-def _convert_package(rec: dict, xref) -> tuple:
-    """(converter, fragment function lines) for one package's sections.
+def _walk_up(rec: dict, section: str, conv, sections: list) -> list:
+    """An FO4 OnBegin's walk_up lines (running the OnEnd of `sections`), then an OnEnd's day_done lines, their
+    properties declared."""
+    end = next((f'Fragment_{i}' for i, (name, _flag) in enumerate(sections) if name == 'OnEnd'), None)
+    props, lines = walk_up(rec, end) if section == 'OnBegin' and is_fallout4() else ({}, [])
+    day_props, day_lines = day_done(rec, section)
+    conv.sc.property_refs.update({**props, **day_props})
+    return lines + day_lines
+
+
+def _convert_package(rec: dict, xref, hooks: dict) -> tuple:
+    """(converter, fragment function lines) for one package's sections; `hooks` {section: [(script, function)]}.
 
     Each body converts as a TopicInfo fragment, whose implicit subject is
     `akSpeakerRef`; here that is the actor running the package.
     """
     conv = ScriptConverter(xref)
-    bodies = []
-    for i, (section, _flag) in enumerate(package_sections(rec)):
+    bodies, sections = [], package_sections(rec, hooks)
+    for i, (section, _flag) in enumerate(sections):
         source = section_source(rec, section, xref.formid_to_edid)
         refs = scro_list(rec, f'{section}.')
         if section == 'OnEnd' and folds_change(rec):
@@ -39,22 +52,24 @@ def _convert_package(rec: dict, xref) -> tuple:
         conv.set_scro_aliases(resolve_scro_aliases(source, refs, xref))
         guard = _end_guard(section, i)
         bodies += [f'Function Fragment_{i}(Actor akActor)', *guard[:-1], '  ObjectReference akSpeakerRef = akActor']
-        bodies += conv.convert_fragment(source, 'TopicInfo') + guard[-1:] + ['EndFunction', '']
+        bodies += conv.convert_fragment(source, 'TopicInfo') + fragment_calls(hooks.get(section, ()), 'akActor')
+        bodies += _walk_up(rec, section, conv, sections) + guard[-1:] + ['EndFunction', '']
     return conv, bodies
 
 
-def package_psc(rec: dict, xref) -> str:
-    """The Papyrus of one package's fragment script, one Fragment_N per section."""
-    conv, bodies = _convert_package(rec, xref)
+def package_psc(rec: dict, xref, hooks=None) -> str:
+    """The Papyrus of one package's fragment script, one Fragment_N per section (`hooks` as _convert_package)."""
+    hooks = hooks or {}
+    conv, bodies = _convert_package(rec, xref, hooks)
     head = [f'ScriptName {package_fragment_name(rec["FormID"])} extends Package Hidden', '']
     props = property_declarations(dict(conv.sc.property_refs), set())
-    bodies = items(package(bodies, package_fragment_name(rec['FormID'])))
-    return '\n'.join(head + props + _end_arrays(rec) + [''] + bodies + conv.get_cell_family_helpers())
+    bodies = held_says(items(package(bodies, package_fragment_name(rec['FormID']))))
+    return '\n'.join(head + props + _end_arrays(rec, hooks) + [''] + bodies + conv.get_cell_family_helpers())
 
 
 def package_property_refs(rec: dict, xref) -> dict:
     """{property: Papyrus type} the package's fragment script declares."""
-    return dict(_convert_package(rec, xref)[0].sc.property_refs)
+    return dict(_convert_package(rec, xref, {})[0].sc.property_refs)
 
 
 def _end_call(i: int) -> str:
@@ -70,7 +85,7 @@ def _end_guard(section: str, i: int) -> list:
             '  EndIf', f'  If {_end_call(i)}', '    Return', '  EndIf', f'  {_end_call(i)}']
 
 
-def _end_arrays(rec: dict) -> list:
+def _end_arrays(rec: dict, hooks: dict) -> list:
     """The script variables of the package's guarded fragments."""
-    return [line for i, (section, _flag) in enumerate(package_sections(rec)) if _end_guard(section, i)
+    return [line for i, (section, _flag) in enumerate(package_sections(rec, hooks)) if _end_guard(section, i)
             for line in (f'Actor[] TES4Ended_{i}', f'Float[] TES4EndedAt_{i}')]

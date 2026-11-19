@@ -144,6 +144,14 @@ Bool Function ForceCombatNow(Actor akAttacker, Actor akTarget, Faction akAttacke
     StandDown(akAttacker)
   EndIf
   akAttacker.StartCombat(akTarget)
+  If akAttacker.IsChild() && F4SE.GetPluginVersion("F3NV") >= 4
+    F3NV_Combat.KeepFighting(akAttacker, True)
+  EndIf
+  If Tracing()
+    Var[] watched = new Var[1]
+    watched[0] = akAttacker
+    Utility.CallGlobalFunctionNoWait("TES4Polyfill", "WatchFight", watched)
+  EndIf
   If akTarget == player
     Var[] args = new Var[2]
     args[0] = akAttacker
@@ -151,6 +159,17 @@ Bool Function ForceCombatNow(Actor akAttacker, Actor akTarget, Faction akAttacke
     Utility.CallGlobalFunctionNoWait("TES4Polyfill", "RallyAllies", args)
   EndIf
   Return True
+EndFunction
+
+; fallout4: new
+Function WatchFight(Actor akActor) Global
+  {Tracing only: an actor a converted script sent into a fight, each second for 60 s: package, combat state (0 none, 1 combat, 2 searching) and target, IsChild (FO4's combat tree makes a child flee), cell and position. See docs/fork/fo4_pipeline.md#child-flee}
+  Int second = 0
+  While second < 60 && akActor && !akActor.IsDead()
+    TraceWrite("fight", TraceName(akActor) + "|" + second + " s|" + akActor.GetCurrentPackage() + "|state " + akActor.GetCombatState() + "|target " + akActor.GetCombatTarget() + "|child " + akActor.IsChild() + "|" + akActor.GetParentCell() + "|" + (akActor.GetPositionX() as Int) + "," + (akActor.GetPositionY() as Int) + "," + (akActor.GetPositionZ() as Int))
+    Utility.Wait(1.0)
+    second += 1
+  EndWhile
 EndFunction
 
 ; fallout4: new
@@ -195,9 +214,12 @@ EndFunction
 
 ; fallout4: replaces EndCombat d99861d03328f154627388185c6ee598b4e39cea
 Function EndCombat(Actor akActor, Faction akAttackers) Global
-  {The shared EndCombat; the player-hating membership it clears is _PlayerEnemyFaction.}
+  {The shared EndCombat; the player-hating membership it clears is _PlayerEnemyFaction, and a child's fight mark (F3NV_Combat) is cleared.}
   If akActor == None
     Return
+  EndIf
+  If akActor.IsChild() && F4SE.GetPluginVersion("F3NV") >= 4
+    F3NV_Combat.KeepFighting(akActor, False)
   EndIf
   If akAttackers != None
     akActor.RemoveFromFaction(akAttackers)
@@ -231,7 +253,56 @@ EndFunction
 ; fallout4: new
 Function SayWhenFree(ObjectReference akSpeaker, Topic akTopic, ObjectReference akTarget) Global
   {FO3/FNV Say/SayTo: says once the speaker's current line is over, waiting at most 3 s. FO4 drops a line said while one plays (a SayTo in a line's end result), FNV queued it.
-  FNV's Say began its line, begin result included, before returning; FO4's returns at once and queues every Say asked for until the line begins. So the speaker is claimed (SayLine's Variable07/08) until LineBegan marks the line begun (Variable09, 2 s at most) and its begin result has had a moment to run: a second ask meanwhile (a trigger's OnTrigger loop polling what that result settles) is the same ask and is dropped, where it would play the topic's next line.}
+  FO4's Say leaves a line's Target tests unanswered, so the converted lines test the speaker's F3NV_SayTarget linked reference (FalloutHelpers.esl 0xC02), set here to akTarget (docs/fork/fo4_pipeline.md#say-target).
+  FNV's Say began its line, begin result included, before returning; FO4's returns at once and queues every Say asked for until the line begins. So the speaker is claimed (SayLine's Variable07/08) until LineBegan marks the line begun (Variable09, 2 s at most) and its begin result has had a moment to run: a second ask meanwhile (a trigger's OnTrigger loop polling what that result settles) is the same ask and is dropped, where it would play the topic's next line.
+  The call is counted while it runs (F3NV_State.SayAsked) for SaysSettled.}
+  F3NV_State remembered = SourceState()
+  If remembered
+    remembered.SayAsked(1)
+  EndIf
+  _AskSay(akSpeaker, akTopic, akTarget)
+  If remembered
+    remembered.SayAsked(-1)
+  EndIf
+EndFunction
+
+; fallout4: new
+Bool Function HoldSays(Bool abHeld) Global
+  {Before a converted block's ask for a line: the block holds the count SaysSettled waits on from its first ask (abHeld False) until ReleaseSays, as FO3/FNV ran the block to its end before any line it asked for could end. True. See docs/fork/fo4_pipeline.md#says-settled}
+  If !abHeld
+    F3NV_State remembered = SourceState()
+    If remembered
+      remembered.SayAsked(1)
+    EndIf
+  EndIf
+  Return True
+EndFunction
+
+; fallout4: new
+Function ReleaseSays(Bool abHeld) Global
+  {As a converted block returns: its hold (HoldSays) given back when abHeld.}
+  If abHeld
+    F3NV_State remembered = SourceState()
+    If remembered
+      remembered.SayAsked(-1)
+    EndIf
+  EndIf
+EndFunction
+
+; fallout4: new
+Function SaysSettled() Global
+  {A line's end result first waits (10 s at most) while a script is still inside SayWhenFree: FO3/FNV's Say returned before any line could end, so a script saying several lines set its own state before their results ran (CG02's party intro clears its timer after six Says; Dad's short line restarts it). See docs/fork/fo4_pipeline.md#says-settled}
+  F3NV_State remembered = SourceState()
+  Float waited = 0.0
+  While remembered && remembered.SaysPending(_GameDays(10.0)) && waited < 10.0
+    Utility.Wait(0.05)
+    waited += 0.05
+  EndWhile
+EndFunction
+
+; fallout4: new
+Function _AskSay(ObjectReference akSpeaker, Topic akTopic, ObjectReference akTarget) Global
+  {SayWhenFree's ask, uncounted.}
   Actor a = akSpeaker as Actor
   ActorValue claim = AV("Variable07")
   ActorValue deadline = AV("Variable08")
@@ -262,6 +333,7 @@ Function SayWhenFree(ObjectReference akSpeaker, Topic akTopic, ObjectReference a
     a.SetValue(begun, 0.0)
   EndIf
   TraceSay(akSpeaker, akTopic, "asked")
+  akSpeaker.SetLinkedRef(akTarget, Game.GetFormFromFile(0xC02, "FalloutHelpers.esl") as Keyword)
   akSpeaker.Say(akTopic, None, False, akTarget)
   If a
     waited = 0.0
@@ -844,6 +916,10 @@ Function SetSex(ObjectReference akActor, String asSex) Global
   If !a
     Return
   EndIf
+  F3NV_State remembered = SourceState()
+  If remembered && a == Game.GetPlayer()
+    remembered.SexChosen = true
+  EndIf
   Int target = -1
   If asSex == "male" || asSex == "0"
     target = 0
@@ -852,6 +928,33 @@ Function SetSex(ObjectReference akActor, String asSex) Global
   EndIf
   If target < 0 || a.GetLeveledActorBase().GetSex() != target
     CRUI_Sex.ChangeSex(a)
+  EndIf
+EndFunction
+
+; fallout4: new
+Function AgeRace(ObjectReference akActor, Int aiSteps) Global
+  {FO3 AgeRace: the actor one race younger (aiSteps < 0) or older (> 0) along Fallout 4's one pair, HumanRace and FalloutHelpers.esl's F3NV_PlayerChildRace (0xD00); any other race stays. Fallout 4 leaves a race's height off the player, so the player also takes the child race's (HumanChildRace DATA, 0.825) by SetScale, and 1 back. See docs/fork/fo4_fo3_child_player.md#child-height}
+  Actor a = akActor as Actor
+  Race human = Game.GetFormFromFile(0x13746, "Fallout4.esm") as Race
+  Race child = Game.GetFormFromFile(0xD00, "FalloutHelpers.esl") as Race
+  If !a || !child
+    Return
+  EndIf
+  Race now = a.GetRace()
+  Bool player = a == Game.GetPlayer()
+  If aiSteps < 0 && now == human
+    a.SetRace(child)
+    If player
+      a.SetScale(0.825)
+    EndIf
+  ElseIf aiSteps > 0 && now == child
+    a.SetRace(human)
+    If player
+      a.SetScale(1.0)
+    EndIf
+  EndIf
+  If Tracing()
+    TraceWrite("agerace", TraceName(a) + "|" + aiSteps + "|" + now + "|" + a.GetRace())
   EndIf
 EndFunction
 
@@ -1014,6 +1117,114 @@ Function StartConversation(Scene akScene, ObjectReference akSpeaker, ObjectRefer
   EndIf
 EndFunction
 
+
+; fallout4: new
+Function PackageDone(Actor akActor, Faction akDone) Global
+  {An FO3/FNV quest-gated Once Per Day package, as it completes: the actor joins the package's own hidden faction akDone, which the package's condition excludes, so the actor moves on to its next package as FO3/FNV skip a finished Once Per Day package. See docs/fork/fo4_pipeline.md#once-per-day}
+  If !akActor || !akDone
+    Return
+  EndIf
+  akActor.AddToFaction(akDone)
+  If Tracing()
+    TraceWrite("packagedone", TraceName(akActor) + "|" + akDone)
+  EndIf
+  akActor.EvaluatePackage()
+EndFunction
+
+
+; fallout4: new
+Bool Function WalkUp(Actor akActor, Package akPackage, Scene akWalk, Int aiDone, Int aiPlace, Form akTrigger, Float afReach) Global
+  {An FO3/FNV SayTo Dialogue package to the player, as it begins: once the player is in its Trigger Location (InWalkArea; aiPlace -1: none, at once), while it is still the actor's package, its walk-up scene plays (the actor walks to the player, then says the package's topic to them), and the actor's DialogueDone mark parks the package (GreetOnce), as FO3/FNV leave a SayTo that has talked done until another package takes over. Returns once the scene has ended, True when it played (the package's end fragment runs then); False when it did not. See docs/fork/fo4_pipeline.md#say-to-packages}
+  If !akActor || !akWalk || akWalk.IsPlaying()
+    Return False
+  EndIf
+  While !InWalkArea(akActor, aiPlace, akTrigger, afReach)
+    If akActor.GetCurrentPackage() != akPackage || akActor.IsDead()
+      If Tracing()
+        TraceWrite("walkup", TraceName(akActor) + "|" + akWalk + "|left before the player came in reach")
+      EndIf
+      Return False
+    EndIf
+    Utility.Wait(1.0)
+  EndWhile
+  StartConversation(akWalk, akActor, Game.GetPlayer())
+  Float waited = 0.0
+  While !akWalk.IsPlaying() && waited < 1.0
+    Utility.Wait(0.1)
+    waited += 0.1
+  EndWhile
+  Bool played = akWalk.IsPlaying()
+  If played
+    akActor.SetValue(AV("dialoguedone"), aiDone as Float)
+  EndIf
+  If Tracing()
+    TraceWrite("walkup", TraceName(akActor) + "|" + akWalk + "|" + aiDone + "|started " + played)
+  EndIf
+  waited = 0.0
+  While akWalk.IsPlaying() && waited < 600.0
+    Utility.Wait(0.5)
+    waited += 0.5
+  EndWhile
+  If Tracing()
+    TraceWrite("walkup", TraceName(akActor) + "|" + akWalk + "|ended after " + waited + " s")
+  EndIf
+  Return played
+EndFunction
+
+; fallout4: new
+Function ReleaseLoopIdle(Actor akActor) Global
+  {An FO3/FNV speaker idle that outlasts its line, looping forever or counted (F3NV_LoopIdle, as its line begins): once akActor's AI package changes (within an hour), its idle stops (Fallout4.esm ActionIdleStop 0x18BA8), as FO3/FNV end a forever-looping idle when the package moves the actor on; not while it sits. See docs/fork/fo4_idles.md#loop-release}
+  If !akActor
+    Return
+  EndIf
+  Package held = akActor.GetCurrentPackage()
+  Float waited = 0.0
+  While akActor.GetCurrentPackage() == held && !akActor.IsDead() && waited < 3600.0
+    Utility.Wait(1.0)
+    waited += 1.0
+  EndWhile
+  If akActor.GetSitState() == 0 && !akActor.IsDead()
+    akActor.PlayIdleAction(Game.GetFormFromFile(0x18BA8, "Fallout4.esm") as Action)
+  EndIf
+  If Tracing()
+    TraceWrite("loopidle", TraceName(akActor) + "|released after " + waited + " s|" + held + " -> " + akActor.GetCurrentPackage())
+  EndIf
+EndFunction
+
+; fallout4: new
+Function SwitchIdle(Actor akActor, Idle akIdle) Global
+  {An FO3/FNV line's speaker idle played over the idle an earlier line left running (F3NV_SwitchIdle, as its line begins): akActor's idle stops (Fallout4.esm ActionIdleStop 0x18BA8) and akIdle plays, retried every 0.1 s for up to 2 s while the stop settles; not while it sits. See docs/fork/fo4_idles.md#idle-switch}
+  If !akActor || !akIdle || akActor.GetSitState() != 0 || akActor.IsDead()
+    Return
+  EndIf
+  akActor.PlayIdleAction(Game.GetFormFromFile(0x18BA8, "Fallout4.esm") as Action)
+  Int tries = 0
+  While !akActor.PlayIdle(akIdle) && tries < 20
+    Utility.Wait(0.1)
+    tries += 1
+  EndWhile
+  If Tracing()
+    TraceWrite("switchidle", TraceName(akActor) + "|" + akIdle + "|" + tries + " retries")
+  EndIf
+EndFunction
+
+; fallout4: new
+Bool Function InWalkArea(Actor akActor, Int aiPlace, Form akTrigger, Float afReach) Global
+  {Whether the player is in an FO3/FNV Dialogue package's Trigger Location (PLD2 type aiPlace): 0 within afReach of reference akTrigger, 1 in cell akTrigger, 2 or 3 (near its current or editor location, where it waits) within afReach of the actor, 6 within afReach of its linked reference; -1 (none) always. See docs/fork/fo4_pipeline.md#say-to-packages}
+  Actor player = Game.GetPlayer()
+  If aiPlace == 0
+    ObjectReference center = akTrigger as ObjectReference
+    Return center && player.GetDistance(center) <= afReach
+  ElseIf aiPlace == 1
+    Return player.GetParentCell() == akTrigger as Cell
+  ElseIf aiPlace == 2 || aiPlace == 3
+    Return player.GetDistance(akActor) <= afReach
+  ElseIf aiPlace == 6
+    ObjectReference linked = akActor.GetLinkedRef()
+    Return linked && player.GetDistance(linked) <= afReach
+  EndIf
+  Return True
+EndFunction
 
 ; fallout4: new
 Function TalkerActivate(Scene akGreeting, ObjectReference akTalker, ObjectReference akActionRef) Global

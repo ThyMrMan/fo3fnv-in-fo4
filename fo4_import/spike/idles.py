@@ -65,6 +65,8 @@ AMBIENT_ROOT, ACTION_IDLE = 'GeneralIdles', 0x00013002
 WEAPON_OUT = 'IsWeaponOut'
 #: GetSitting == 0, first on a standing idle's conditions (as vanilla's CreateABotTalkRoot): a sitter never stands.
 STANDING = R.pack_ctda(0, 0.0, C.FO4.index('GetSitting'))
+#: IsIdlePlaying == 0, on a loose idle whose clip holds FNV's counted loops: a later line does not restart it.
+HELD = R.pack_ctda(0, 0.0, C.FO4.index('IsIdlePlaying'))
 #: How often an idle FNV actor retries its idle tree (fAIIdleWaitTime, FalloutNV.exe default), in seconds.
 FNV_IDLE_WAIT = 1.0
 #: FNV's random test and its "less than" comparison (CTDA op bits).
@@ -123,6 +125,27 @@ class Idles:
         named = [[rec.get(f'Response[{i}].{key}') for key in LINE_IDLE_KEYS]
                  for i in range(int(rec.get('ResponseCount', 0) or 0))]
         return tuple(tuple(self.idle(int(v, 16)) or 0 if v else 0 for v in pair) for pair in named)
+
+    def holds(self, rec: dict) -> bool:
+        """Whether FNV line `rec`'s speaker plays an idle that _holds."""
+        return any(self._holds(fid) for fid in speaker_idles(rec))
+
+    def _holds(self, fnv: int) -> bool:
+        """Whether FNV idle `fnv` is built and outlasts its line."""
+        rec = self.records.get(fnv, {})
+        return bool((loops_of(rec) == FOREVER or counted_loops(rec)) and self.idle(fnv))
+
+    def switch(self, rec: dict, topic: list) -> int:
+        """The FO4 idle FNV line `rec`'s speaker opens with, which FNV plays over a held idle (_holds) another
+        line of `topic` starts and FO4 will not start over one; 0 when none.
+        See: docs/fork/fo4_idles.md#idle-switch
+        """
+        opening = rec.get(f'Response[0].{LINE_IDLE_KEYS[0]}')
+        fnv = int(opening, 16) if opening else 0
+        if not fnv or self._holds(fnv):
+            return 0
+        held = any(other != fnv and self._holds(other) for line in topic for other in speaker_idles(line))
+        return (self.idle(fnv) or 0) if held else 0
 
     def ambient_records(self) -> list:
         """FNV's ambient idle tree's records, root first, if this plugin owns it."""
@@ -204,7 +227,9 @@ class Idles:
             standing = fnv == self.root or not links[0] and played[0] == ROOT_GRAPH and played[1]
             conditions = (STANDING if standing else b'') + (conditions or b'')
             rec = {**rec, 'DATA.ReplayDelay': str(self.delays[fnv])} if fnv in self.delays else rec
-            self.builder.writer.add_record('IDLE', pack_idle(fid, rec, conditions, played, links))
+            held = HELD if counted_loops(rec) and not links[0] and played[2] == HUMAN_EVENTS else b''
+            self.builder.counts['idle held through its FNV loops'] += bool(held)
+            self.builder.writer.add_record('IDLE', pack_idle(fid, rec, held + conditions, played, links))
             kind = ' (ambient tree)' if fnv in self.tree else ' (seated, scripted)' if played[0] == FURNITURE_GRAPH \
                 else ' (own rig)' if played[2] == RIG_EVENTS else ''
             self.builder.counts['IDLE' + kind] += 1
@@ -230,7 +255,7 @@ class Idles:
         clip = Path(FO4_CLIPS, self.plugin, rec['Model.MODL'][len(FNV_HUMAN):]).with_suffix('.hkx')
         self.props = self.props or IdleProps(self.builder, self.export_dir, self.clips)
         props = self.props.get(int(rec['FormID'], 16))
-        self.clips.write(rec['Model.MODL'], data_dir / 'Meshes' / clip, props)
+        self.clips.write(rec['Model.MODL'], data_dir / 'Meshes' / clip, props, counted_loops(rec))
         self.builder.counts['idle clip with a prop'] += bool(props)
         return clip
 
@@ -284,10 +309,27 @@ def rig_of(model: str):
     return next((rig for folder, rig in rigs().items() if low.startswith(folder + '\\')), None)
 
 
+def loops_of(rec: dict) -> tuple:
+    """FNV idle `rec`'s (min, max) loop counts."""
+    return int(rec.get('DATA.LoopMin', 0) or 0), int(rec.get('DATA.LoopMax', 0) or 0)
+
+
+def speaker_idles(rec: dict) -> list:
+    """FNV idles (FormIDs) the speaker of FNV line `rec` plays, in response order."""
+    return [int(rec[k], 16) for i in range(int(rec.get('ResponseCount', 0) or 0))
+            if rec.get(k := f'Response[{i}].{LINE_IDLE_KEYS[0]}')]
+
+
+def counted_loops(rec: dict) -> int:
+    """FNV idle `rec`'s loop max when counted (over 1, not forever); else 0."""
+    loops = loops_of(rec)
+    return loops[1] if loops != FOREVER and loops[1] > 1 else 0
+
+
 def pack_idle(fid: int, rec: dict, conditions: bytes, clip: tuple, links: tuple) -> bytes:
     """FO4 IDLE `fid` of FNV idle `rec` playing `clip` (behavior graph, clip path, (once, looped) events; a group
     node's clip empty: no event, no clip) under `links` (FO4 parent, previous)."""
-    loops = (int(rec.get('DATA.LoopMin', 0) or 0), int(rec.get('DATA.LoopMax', 0) or 0))
+    loops = loops_of(rec)
     data = struct.pack('<BBBBH', *(loops if loops == FOREVER else (0, 0)), 0 if links[0] else LOOSE, 0,
                        int(rec.get('DATA.ReplayDelay', 0) or 0))
     subs = pack_string_subrecord('EDID', rec['EditorID']) + conditions
