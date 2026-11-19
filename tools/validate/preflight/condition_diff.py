@@ -76,7 +76,7 @@ _MOVED_KEY = re.compile(r"^'(?:ACHR|ACRE|REFR) ([0-9A-Fa-f]{8})\b")
 OR_NEXT, USE_GLOBAL = 0x01, 0x04
 
 #: Comparison operators by the top three bits of the condition type.
-_OPS = {0x00: lambda a, b: a == b, 0x20: lambda a, b: a != b, 0x40: lambda a, b: a > b,
+OPS = {0x00: lambda a, b: a == b, 0x20: lambda a, b: a != b, 0x40: lambda a, b: a > b,
         0x60: lambda a, b: a >= b, 0x80: lambda a, b: a < b, 0xA0: lambda a, b: a <= b}
 
 #: Run-on values (both games): subject, target, reference; others are not paired.
@@ -296,7 +296,7 @@ def evaluate(side: list, state: dict) -> bool:
     """Whether one side's conditions pass in `state`: an AND of OR chains."""
     chains, chain = [], []
     for term, op, rhs, or_next in side:
-        chain.append(term == TRUE or _OPS.get(op, _OPS[0])(_value(term, state), _value(rhs, state)))
+        chain.append(term == TRUE or OPS.get(op, OPS[0])(_value(term, state), _value(rhs, state)))
         if not or_next:
             chains.append(any(chain))
             chain = []

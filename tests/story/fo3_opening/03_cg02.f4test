@@ -1,0 +1,124 @@
+# Fallout 3's opening on Fallout 4, part 3: CG02, Growing Up Fast (the tenth birthday party).
+# CG01 stage 100 starts CG02; Dad's and the Overseer's speeches run to 12, then Amata greets the player (her
+# package from stage 12) and the player talks to the other guests. Each beat is the player's: talk (activate the
+# guest, wait for the dialogue menu), choose a line (docs/fork/fo4_opening_progression_plan.md#cases-fo3).
+# Source refs (Fallout3.esm): Dad 0300EF, the Overseer 0300F1, Amata 0300F2, Butch 0300F3, Mrs. Palmer 0309A8,
+# Stanley 031649, Beatrice 0309AD, Jonas 0300E8. Butch force greets for the sweetroll once Mrs. Palmer gives it.
+
+case cg02_speeches
+ready 240
+until 240 GetStage FNV_CG02 >= 12                     # Dad's speech, the Overseer's, the Pip-Boy (10): 12
+end
+
+case cg02_amata
+walk {Fallout3.esm:0300F2} 100                        # her greet's trigger: the player within 140 of her spot
+menu 120 DialogueMenu                                 # her greeting 000319BD: "Happy birthday! We really surprised you..."
+choose 60 Great party, Amata!                         # CG02AmataPresentA2
+choose 60 I really have no idea                       # CG02AmataPresentB1: the Grognak book (21)
+until 60 GetStageDone FNV_CG02 21 == 1
+closed 60 DialogueMenu
+end
+
+case cg02_mrs_palmer
+walk {Fallout3.esm:0309A8} 64                         # up to her: from 150 the Overseer stands in the way and takes E
+talk 60 {Fallout3.esm:0309A8}                         # talk to her (again while she finishes a bark)
+choose 60 Yes, ma'am.                                 # CG02OldLadyPalmerA1: the sweetroll (20)
+until 60 GetStageDone FNV_CG02 20 == 1
+closed 60 DialogueMenu
+end
+
+case cg02_butch
+menu 120 DialogueMenu                                 # his force greet once the player has the sweetroll
+choose 60 You can have it. I don't even like sweetrolls.  # CG02ButchA3: ButchHasSweetroll, the sweetroll taken
+until 60 player.GetItemCount FNV_CG02Sweetroll == 0
+closed 60 DialogueMenu
+end
+
+case cg02_amata_after_butch
+menu 120 DialogueMenu                                 # her second force greet (000319BC): "What happened with Butch?" (32)
+choose 60 I don't want to talk about it.              # CG02AmataA6
+until 60 GetStageDone FNV_CG02 32 == 1
+closed 60 DialogueMenu
+end
+
+case cg02_stanley
+walk {Fallout3.esm:031649} 100                        # around the party table: E reaches about 150 (the path stops 256-356 out)
+talk 60 {Fallout3.esm:031649}
+choose 60 It's really cool. Did you fix it up for me?  # CG02StanleyA1
+choose 60 Thanks, Stanley.                            # CG02StanleyB1: the cap (23)
+until 60 GetStageDone FNV_CG02 23 == 1
+closed 60 DialogueMenu
+until 30 GetStageDone FNV_CG02 34 == 1                # all three presents: 34
+end
+
+case cg02_intercom
+until 300 GetStageDone FNV_CG02 38 == 1               # Dad to the intercom (35, 36): "I'll send him right down" (38)
+end
+
+case cg02_dad_surprise
+menu 120 DialogueMenu                                 # Dad's greeting 000319B7, two responses: "...Jonas is waiting for you"
+until 60 GetStageDone FNV_CG02 40 == 1                # its result, after both parts
+closed 60 DialogueMenu
+end
+
+case cg02_beatrice
+menu 120 DialogueMenu                                 # stage 40 enables her; her force greet (GetStage CG02 >= 40, 1500 units) meets the player on the way to Jonas
+choose 60 Yeah, my Dad and Amata threw me a great party || Why are you talking to me like I'm five? || Yes. Can I have my present now?
+choose 60 Thank you. I will treasure it always.          # CG02BeatriceB1: her poem (22)
+until 60 GetStageDone FNV_CG02 22 == 1
+closed 60 DialogueMenu
+end
+
+case cg02_jonas
+walk 180 {Fallout3.esm:075335} 400                    # down to the Reactor Level (3,000 units: 60 s reached 408), into Jonas's greet trigger (500)
+menu 120 DialogueMenu                                 # CG02JonasGreetPlayer: "What are you doing down here...?"
+choose 60 Oh... But Dad told me it was okay           # CG02JonasA3
+until 60 GetStageDone FNV_CG02 42 == 1                # his answer is a goodbye, but Dad's greet follows 0.5 s after it: the menu stays up
+end
+
+case cg02_bb_gun
+menu 120 DialogueMenu                                 # CG02DadGreetPlayerAtTargetRange (42)
+choose 60 I don't like surprises.                     # CG02DadTopic2: "Since when?..." (44)
+until 60 GetStageDone FNV_CG02 44 == 1
+choose 60 What do I get to kill?                      # CG02DadChoice2
+closed 60 DialogueMenu
+end
+
+case cg02_targets
+until 120 {Fallout3.esm:0300EF}.GetDistance {Fallout3.esm:0304DC} < 200    # follow Dad in: his range line needs him at his mark (open: fo4_opening_progression_plan.md#greet-before-mark)
+walk 90 {Fallout3.esm:0304DC} 64                     # CG02DadTargetRangeInsideMarker, through the range door (unlocked at 44); the targets hang on the wall, off the navmesh
+menu 60 DialogueMenu                                  # Dad greets the player in the range
+choose 60 Thanks, Dad.
+until 30 GetStageDone FNV_CG02 50 == 1                # "Shoot all three targets"
+closed 60 DialogueMenu
+check walk 60 {Fallout3.esm:09DEC9} 300               # nearer the targets (plates 57 wide; from 900 units hip fire missed all 6); set aside with the shots (male run: blocked at once, Dad beside the player)
+check shoot 2 {Fallout3.esm:0304EB}                   # CG02TargetSCRIPT counts every hit on any target: 3 is 55
+check shoot 2 {Fallout3.esm:07674B}
+check shoot 2 {Fallout3.esm:076746}
+check until 30 GetStageDone FNV_CG02 55 == 1          # set aside: the targets take no hit from the case's shots yet
+unless GetStageDone FNV_CG02 55 == 1 | run setstage FNV_CG02 55
+until 30 GetStageDone FNV_CG02 55 == 1
+end
+
+case cg02_radroach
+until 60 GetStageDone FNV_CG02 60 == 1                # 55 enables the radroach and Dad speaks: "Kill the radroach" (60)
+check walk 60 {Fallout3.esm:0306CD} 150               # it waits (Aggression 0, as in FO3); the path stops 280 units off
+check shoot 8 {Fallout3.esm:0306CD}                   # CG02RadroachREF; set aside with the targets: no BB hit it
+unless {Fallout3.esm:0306CD}.GetDead == 1 | run {Fallout3.esm:0306CD}.kill player
+until 30 GetStageDone FNV_CG02 70 == 1
+end
+
+case cg02_dad_after_radroach
+menu 120 DialogueMenu                                 # CG02DadGreetPlayerAboutRadroach: "Good work! ... Let's get a picture together."
+heard 60 Dad 01F9C6                                   # a goodbye; its end result sets 80
+until 60 GetStageDone FNV_CG02 80 == 1
+closed 60 DialogueMenu
+end
+
+case cg02_photo
+walk 120 {Fallout3.esm:0C6DE2}                        # the empty one of the two CG02PlayerPictureTriggers (Dad stands in 060C81): PlayerReady once Dad and Jonas are in place
+look {Fallout3.esm:0300E8}                            # facing Jonas, within 45 degrees
+until 120 GetStageDone FNV_CG02 90 == 1               # the three ready: 90
+until 120 GetStageDone FNV_CG02 95 == 1               # Jonas's CG02JonasWaitForPicture done: 95
+until 60 GetStageDone FNV_CG02 100 == 1               # CG02SCRIPT's timer: 98, then 100, which starts CG03
+end

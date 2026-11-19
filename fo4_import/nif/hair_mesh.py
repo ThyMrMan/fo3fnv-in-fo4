@@ -17,11 +17,13 @@ import struct
 from functools import cache
 
 import numpy as np
-from scipy.spatial import cKDTree
+from scipy.spatial import Delaunay, cKDTree
 
+from fo4_import.base.ba2 import Archives
+from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.nif import file as nif_file
 from fo4_import.nif.blocks import NONE, Reader, pack_tri_shape, read_tri_shape
-from fo4_import.nif.headgear import segments, shape_arrays
+from fo4_import.nif.headgear import above_hair_line, segments, shape_arrays
 
 #: Vanilla hair meshes, and names marking ones that are no head hair (FaceBones copies, hairlines, beards).
 HAIR_FOLDER = 'meshes\\actors\\character\\characterassets\\hair\\'
@@ -78,6 +80,22 @@ def in_top(field: tuple, centres: np.ndarray) -> np.ndarray:
     tree, top = field
     _, near = tree.query(centres, k=FIELD_NEIGHBOURS)
     return top[near].mean(1) > 0.5
+
+
+@cache
+def fallout4_hat_field() -> tuple:
+    """hat_field() of Fallout 4's own archives."""
+    return hat_field(Archives(FALLOUT4_DIR / 'Data'))
+
+
+def sits_on_hair(points: np.ndarray, field: tuple) -> bool:
+    """Whether a hat at FO4-frame `points` leaves the hair top showing: its footprint holds under half of `field`'s
+    hair top, or it cannot be tipped to the hair line (headgear.above_hair_line).
+    See: docs/fork/fo4_spikes.md#hat-above-hair
+    """
+    tree, top = field
+    inside = Delaunay(points[:, :2]).find_simplex(tree.data[top][:, :2]) >= 0
+    return bool(inside.mean() < 0.5) or above_hair_line(points)
 
 
 def _voted(shape: dict, field: tuple) -> list:

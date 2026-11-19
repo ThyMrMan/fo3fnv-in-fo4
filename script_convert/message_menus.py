@@ -112,6 +112,25 @@ def sites_for_source(script_edid: str, source: str, authored: dict = None) -> li
     return sites
 
 
+#: `set <var> to GetButtonPressed`.
+_BUTTON_VAR = re.compile(r'(?im)^[ \t]*set[ \t]+(\w+)[ \t]+to[ \t]+getbuttonpressed\b')
+#: `[else]if <var> == <n>` with `player.SexChange <sex>` as the branch's first statement.
+_SEX_BRANCH = re.compile(r'(?im)^[ \t]*(?:else)?if[ \t(]+(\w+)[ \t]*==[ \t]*(\d+)[ \t)]*(?:;[^\n]*)?\r?\n'
+                         r'[ \t]*player\.sexchange[ \t]+(male|female)\b')
+
+
+def sex_buttons(source: str) -> tuple:
+    """(male button, female button) of a box picking the player's sex: the GetButtonPressed variable's
+    branches set the player's sex (FO3's CG00SCRIPT); else ().
+
+    See: docs/fork/fo4_pipeline.md#character-creation
+    """
+    pressed = {m.group(1).lower() for m in _BUTTON_VAR.finditer(source or '')}
+    picks = {m.group(3).lower(): int(m.group(2)) for m in _SEX_BRANCH.finditer(source or '')
+             if m.group(1).lower() in pressed}
+    return (picks['male'], picks['female']) if len(picks) == 2 else ()
+
+
 def authored_site(plan: dict, script_edid: str, mesg_edid: str) -> str:
     """The planned authored MESG EDID `script_edid` shows via ShowMessage, or ''."""
     for name, text, _buttons in plan.get((script_edid or '').lower(), ()):

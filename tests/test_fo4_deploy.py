@@ -187,7 +187,7 @@ def test_packed_scripts_ship_in_the_archive_and_a_hotfix_still_wins_until_a_late
     build, mod = _folders(tmp_path)
     write_general({'Scripts/A.pex': build / 'Scripts' / 'A.pex'}, build / 'FalloutNV - Main.ba2')
     (build / 'Scripts' / 'A.pex').unlink()
-    hotfix = mod.with_name(D.HOTFIX_MOD.name)
+    hotfix = mod.with_name(D.HOTFIX_MODS['fnv'])
     started = time.mktime(time.strptime(STARTED, '%Y-%m-%d %H:%M:%S'))
     fix = tmp_path / 'A.pex'
     fix.write_text('fix')

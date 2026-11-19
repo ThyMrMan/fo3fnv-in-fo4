@@ -98,10 +98,11 @@ def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: 
                                   'Specials': objects['SpecialStats'], 'Events': objects['TES4CharacterEvents'],
                                   'Tables': tables}, skill_table(avifs, skills))
     quest = builder.new_id('QUST FNV_CharacterRules')
-    table = (TABLE_SCRIPT, {'Tables': tables}, table_properties(builder, avifs, special_forms + skill_forms))
+    parts = [(first, (TABLE_SCRIPT, {'Tables': tables}, props))
+             for first, props in table_properties(builder, avifs, special_forms + skill_forms)]
     builder.writer.add_record('QUST', pack_script_quest(quest, 'FNV_CharacterRules', quest_fragments(
         '', [], scripts=[(RULES_SCRIPT, objects, values), level_up, (LEGACY_SCRIPT, {}, {}),
-                         *_table(builder, quest, table)])))
+                         *_table(builder, quest, parts)])))
     builder.scripts.used.extend((RULES_SCRIPT, LEVEL_UP_SCRIPT, LEGACY_SCRIPT, TABLE_SCRIPT))
     builder.writer.add_record('GMST', pack_gmst(SPECIAL_POINTS_ID, SPECIAL_POINTS_SETTING, SPECIAL_POINTS))
     if not builder.built:
@@ -110,18 +111,21 @@ def build(builder, export_dir: Path, data_dir: Path, plugin: str, helper_index: 
     tab_quest(builder, 'SKILLS', skill_list)
 
 
-def _table(builder, rules: int, table: tuple) -> list:
-    """`table` (script, objects, values) as a script of the rules quest `rules` in the game build; a DLC's (`rules` a
-    master's) on a start-game quest of its own, written when it lists a perk or trait.
-    See: docs/fork/fo4_level_up_plan.md#tables
+def _table(builder, rules: int, parts: list) -> list:
+    """`parts` [(first listed perk's source FormID or None, (script, objects, values))]: the first as a script of the
+    rules quest `rules` in the game build; the others (a DLC's all, `rules` a master's) each on a start-game quest of
+    its own, written when it lists a perk or trait.
+    See: docs/fork/fo4_level_up_plan.md#save-strings
     """
-    if rules >> 24 == builder.writer.own_index:
-        return [table]
-    if table[2]['RankForms'][1] or table[2]['TraitForms'][1]:
-        edid = f'FNV_LevelUpTable_{plugin_stem(builder.export_dir)}'
-        builder.writer.add_record('QUST', pack_script_quest(builder.new_id(TABLE_KEY, key=TABLE_KEY), edid,
-                                                            quest_fragments('', [], scripts=[table])))
-    return []
+    on_rules = rules >> 24 == builder.writer.own_index
+    stem = plugin_stem(builder.export_dir)
+    for first, table in parts[on_rules:]:
+        if table[2]['RankForms'][1] or table[2]['TraitForms'][1]:
+            key = f'{TABLE_KEY} {first}' if first else TABLE_KEY
+            edid = f'FNV_LevelUpTable_{stem}' + (f'_{first}' if first else '')
+            builder.writer.add_record('QUST', pack_script_quest(builder.new_id(key, key=key), edid,
+                                                                quest_fragments('', [], scripts=[table])))
+    return [parts[0][1]] if on_rules else []
 
 
 def stage_properties(perks) -> dict:

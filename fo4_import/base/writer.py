@@ -13,6 +13,7 @@ See: docs/fork/research/fo4_target.md#formats
 import struct
 
 from fo4_import.base.record_compression import compress_group
+from fo4_import.base.text_encoding import encode_group
 from tes5_import.base.writer import (
     PluginWriter, pack_group, pack_record, pack_string_subrecord, pack_subrecord,
 )
@@ -124,10 +125,10 @@ class FO4PluginWriter(PluginWriter):
                                self.author, self.description, flags, overridden)
 
     def _finish_groups(self, group_blobs: list) -> list:
-        """The top-level groups with land and navmesh stored compressed.
-        See: docs/fork/fo4_pipeline.md#record-compression
+        """The groups with display text UTF-8, land and navmesh compressed.
+        See: docs/fork/fo4_pipeline.md#text-encoding
         """
-        return [compress_group(blob) for blob in group_blobs]
+        return [compress_group(encode_group(blob)) for blob in group_blobs]
 
     def raw_groups(self):
         """Yield every pre-built GRUP (add_raw_group: worldspaces, cells, topics)."""

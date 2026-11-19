@@ -5,6 +5,7 @@ See: docs/fork/fo4_spikes.md#spike-4-gun-clips
 
 import collections
 import functools
+import os
 import struct
 from types import SimpleNamespace
 
@@ -17,8 +18,8 @@ from external.pynifly_hkx.anim_fo4 import TrackData
 from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.havok.gun_clips import (CLIP_SITE, FNV_GRIP_FINGER, GUN_CLIPS_VERSION, IK_LEFT, ROLE_WEAPON, VIEWS,
                                         Converted, Gun, GunClips, annotations, bolt_start, carried_target, crc,
-                                        file_id, fnv_stem, handle_frame, is_kept, keep, kept, left_reach, left_targets,
-                                        neutral_clip, on_screen, owned, placeholder, with_folder)
+                                        file_id, fnv_stem, handle_frame, is_kept, keep, left_reach, left_targets,
+                                        neutral_clip, on_screen, owned, placed, placeholder, with_folder)
 from fo4_import.havok import kf_cache as KC
 from fo4_import.havok.gun_clip_pool import warm
 from fo4_import.pipeline import mesh_cache as MC
@@ -239,20 +240,40 @@ def test_a_master_holding_none_of_a_guns_files_leaves_its_key(tmp_path):
 
 def test_a_kept_gun_holds_placeholders_and_one_copy_of_each_file(tmp_path, monkeypatch):
     """keep() stores each written file once by its bytes; the entry's own-keyword placeholders take any plugin's
-    FormIDs (owned); a file gone from the cache makes the entry a miss."""
+    FormIDs (owned); placed() writes the files, needing no cached copy of one already in place; a file gone from
+    both makes the entry a miss."""
     monkeypatch.setattr(WC, 'CACHE', tmp_path / 'work')
     entry = {'target': [7, placeholder(5)], 'actor': [], 'paths': [], 'flags': bytes(4)}
-    made = Converted({5: placeholder(5)}, None, {})
+    made, data = Converted({5: placeholder(5)}, None, {}), tmp_path / 'data'
     keep(('a',), (made, [entry], {'x/a.hkx': b'clip', 'x/b.hkx': b'clip'}))
     keep(('b',), (made, [], {'y/a.hkx': b'clip'}))
     assert len(list((tmp_path / 'work' / 'gun_clip_files').rglob('*.ran'))) == 1 and is_kept(('a',))
-    found = kept(('a',))
-    assert found[2] == {'x/a.hkx': b'clip', 'x/b.hkx': b'clip'}
+    found = placed(('a',), data)
+    assert [(data / rel).read_bytes() for rel in ('x/a.hkx', 'x/b.hkx')] == [b'clip', b'clip']
     assert owned(found[1][0], {5: 0x0300ABCD})['target'] == [7, 0x0300ABCD]
     for blob in (tmp_path / 'work' / 'gun_clip_files').rglob('*'):
         if blob.is_file():
             blob.unlink()
-    assert kept(('a',)) is None and not is_kept(('a',))
+    assert placed(('a',), data) is not None and is_kept(('a',))
+    (data / 'x' / 'b.hkx').write_bytes(b'changed')
+    assert placed(('a',), data) is None
+
+
+def test_placed_trusts_a_matching_stamp_and_hashes_a_moved_file(tmp_path, monkeypatch):
+    """A clip file whose size and time match its stamp is taken as holding its digest (not read) and touched, its
+    stamp updated; once its time moves, its bytes decide."""
+    monkeypatch.setattr(WC, 'CACHE', tmp_path / 'work')
+    data, stamps, target = tmp_path / 'data', {}, tmp_path / 'data' / 'x' / 'a.hkx'
+    keep(('a',), (None, [], {'x/a.hkx': b'clip'}))
+    assert placed(('a',), data, stamps) is not None and list(stamps) == [str(target)]
+    when = target.stat().st_mtime_ns - 10 ** 9
+    target.write_bytes(b'CLIP')
+    os.utime(target, ns=(when, when))
+    stamps[str(target)][1] = when
+    assert placed(('a',), data, stamps) is not None and target.read_bytes() == b'CLIP'
+    assert stamps[str(target)][1] == target.stat().st_mtime_ns != when
+    os.utime(target, ns=(when, when))
+    assert placed(('a',), data, stamps) is not None and target.read_bytes() == b'clip'
 
 
 def test_the_pool_starts_only_for_guns_not_kept(tmp_path, monkeypatch):

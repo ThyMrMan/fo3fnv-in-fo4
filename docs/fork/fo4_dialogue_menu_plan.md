@@ -572,6 +572,10 @@ should be 2–3× faster, plus less to write, voice and pack.
   line's check ([links-file](#links-file)); the masterless build also
   installs the menu movie when FFDec and the game's Interface archive are
   there.
+- **`CleanroomDialogue.ini`** (since Cleanroom UI `94d2c36`, 2026-11-16):
+  the DLL's own `[Leave]` row, shown on a menu with no options of ours, is
+  off unless `[Dialogue] bLeaveRow=1`. The masterless build writes that INI
+  to `F4SE/Plugins/`, so the row stays as it was before the pin moved.
 - **Keys** (authored data only): answer DIAL `DIAL answer <FNV topic>`,
   answer INFO `INFO <line> <part> at answer`, menu topics
   `DIAL <step> options|answers`, option `INFO option <step> <FNV topic>`,

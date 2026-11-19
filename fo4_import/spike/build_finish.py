@@ -8,6 +8,7 @@ import collections
 import struct
 from pathlib import Path
 
+from fo4_import import cleanroom
 from fo4_import import dialogue_menu as menu_links
 from fo4_import import level_up as level_up_menu, pipboy_overlay
 from fo4_import.base import translations
@@ -18,16 +19,17 @@ from fo4_import.base.dangling_scripts import clear_dangling
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.master_overrides import drop_unchanged
 from fo4_import.base.source import plugin_stem
-from fo4_import.base.ba2 import Archives
+from fo4_import.base.ba2 import GAME_ARCHIVES, Archives
 from fo4_import.base.build_files import moved_in
-from fo4_import.havok import anim_text, gun_anim_text
+from fo4_import.havok import anim_text, anim_text_skip, gun_anim_text
 from fo4_import.nif import weapon
-from fo4_import.pipeline import elric_cache, master_copies, mesh_cache, object_lod, stale_files
+from fo4_import.pipeline import elric_cache, master_copies, mesh_cache, object_lod, replay_manifest, stale_files
 from fo4_import.pipeline.build_inputs import MASTERS, master_scripts
 from fo4_import.pipeline.light_choice import finish_flag
+from fo4_import.pipeline.ran_code import ARCHIVES, MESHES, SCRIPTS
 from fo4_import.pipeline.stage_timer import timed
 from fo4_import.spike import (ammo_casings, ammo_switch, companion_barks, facegen, level_up_icons, list_adds,
-                               script_overrides, skeleton, voice)
+                               script_overrides, script_view, skeleton, voice)
 from fo4_import.spike.combat_feel import write_settings
 from fo4_import.spike.imagespace import LUT_FOLDER
 from fo4_import.spike.karma_page import write_karma_page
@@ -82,7 +84,7 @@ def _sounds(builder, export_dir: Path, data_dir: Path, plugin: str) -> None:
     builder.counts['sound files'] = voice.convert(todo, LIP_GENERATOR)
 
 
-@timed('main archive')
+@timed('main archive', ARCHIVES)
 def _main_archive(builder, data_dir: Path, plugin: str) -> None:
     """The Main and voices BA2s (pack_main), after every writer and the stale prune.
     See: docs/fork/fo4_pipeline.md#main-archive
@@ -113,32 +115,48 @@ def _write_plugin(builder, out: Path, data_dir: Path) -> None:
 @timed('animation data')
 def _anim_text(builder, records: list, data_dir: Path, plugin: Path) -> None:
     """Every AnimTextData file the written races (in packed `records`, with the body part data) need, in place of
-    the Creation Kit: gun entries playing only vanilla clips copied from vanilla, own-rig creature projects' and
-    entries' (read from `data_dir` only), other entries' offsets with their template's other files, and the sync
-    data; then stale files pruned, the persistent list merged and the Creation Kit stage's old lists beside the
-    plugin removed; counted.
+    the Creation Kit (_made), or the last run's files touched when nothing it read changed (anim_text_skip); then
+    stale files pruned, the persistent list merged and the Creation Kit stage's old lists beside the plugin
+    removed; counted.
     See: docs/fork/research/anim_text_data.md#ours
+    See: docs/fork/research/anim_text_data.md#skip
     """
     races = [r for r in records if r[:4] == b'RACE']
-    vanilla, masters = gun_anim_text.load_vanilla(FALLOUT4_DIR / 'Data'), master_copies.master_dirs(builder)
-    known, copies = anim_text.known(vanilla), gun_anim_text.copied_entries(races, data_dir, vanilla)
-    made = anim_text.creatures(races, anim_text.reader(data_dir), known,
+    vanilla, dirs = gun_anim_text.load_vanilla(FALLOUT4_DIR / 'Data'), [data_dir, *master_copies.master_dirs(builder)]
+    copies = gun_anim_text.copied_entries(races, data_dir, vanilla)
+    stamps = vanilla.stamp, anim_text_skip.archive_stamps(FALLOUT4_DIR / 'Data', GAME_ARCHIVES)
+    key = anim_text_skip.inputs(plugin, records, stamps, dirs, copies)
+    run = anim_text_skip.kept(key, dirs, data_dir)
+    builder.counts['animation data runs skipped (nothing read changed)'] = int(run is not None)
+    if run is None:
+        run = anim_text_skip.live(key, data_dir, lambda logs: _made(logs, records, dirs, plugin, vanilla, copies))
+    written = [data_dir / rel for rel in run['files']]
+    builder.counts['animation data files written'] = len(written)
+    builder.counts['stale animation data files removed'] = anim_text.prune(data_dir, written)
+    builder.counts['ids added to the persistent subgraph list'] = gun_anim_text.merge_persistent(
+        data_dir, {**copies, **run['templates']}, vanilla, dirs[1:])
+    for suffix in ANIM_INFO_LISTS:
+        moved_in(plugin.with_name(plugin.name + suffix)).unlink(missing_ok=True)
+        plugin.with_name(plugin.name + suffix).unlink(missing_ok=True)
+
+
+def _made(logs: list, records: list, dirs: list, plugin: Path, vanilla, copies: dict) -> tuple:
+    """([written paths], {entry: template}) in the plugin's data folder (dirs[0]; its masters' follow): gun
+    entries playing only vanilla clips (`copies`) copied from vanilla, own-rig creature projects' and entries'
+    (read from the data folder only), other entries' offsets with their template's other files, and the sync data;
+    each reader's reads logged in `logs` (anim_text_skip.live)."""
+    races, data_dir, known = [r for r in records if r[:4] == b'RACE'], dirs[0], anim_text.known(vanilla)
+    made = anim_text.creatures(races, anim_text_skip.logged_reader(logs, data_dir), known,
                                anim_text.body_parts([r for r in records if r[:4] == b'BPTD']))
     own = {entry: v for entry, v in anim_text.own_clips(races, vanilla, copies).items()
            if f'AnimationOffsets\\{entry}.txt' not in made}
     templates = {entry: template for entry, (_, template) in own.items() if template is not None}
-    read = anim_text.reader(data_dir, *masters, Archives(FALLOUT4_DIR / 'Data'))
+    read = anim_text_skip.logged_reader(logs, *dirs, Archives(FALLOUT4_DIR / 'Data', GAME_ARCHIVES))
     files = {**made, **anim_text.entry_files(own, read, known), **anim_text.sync_data(plugin.name)}
     anim_text.save(known)
     written = (gun_anim_text.write(data_dir, copies, vanilla) + anim_text.write(data_dir, files)
                + gun_anim_text.write(data_dir, templates, vanilla, TEMPLATE_KINDS))
-    builder.counts['animation data files written'] = len(written)
-    builder.counts['stale animation data files removed'] = anim_text.prune(data_dir, written)
-    builder.counts['ids added to the persistent subgraph list'] = gun_anim_text.merge_persistent(
-        data_dir, {**copies, **templates}, vanilla, masters)
-    for suffix in ANIM_INFO_LISTS:
-        moved_in(plugin.with_name(plugin.name + suffix)).unlink(missing_ok=True)
-        plugin.with_name(plugin.name + suffix).unlink(missing_ok=True)
+    return written, templates
 
 
 def _finished(builder, data_dir: Path) -> tuple:
@@ -149,21 +167,29 @@ def _finished(builder, data_dir: Path) -> tuple:
     return paths, [p for p in paths if p not in later]
 
 
-@timed('collision')
+@timed('collision', MESHES)
 def _collision(builder, data_dir: Path) -> None:
     """Elric's collision for every written mesh but those a master ships finished alike (master_copies.theirs),
     then the weapon meshes dressed; counted."""
     paths, alone = _finished(builder, data_dir)
-    failed = elric_cache.finish(paths, master_copies.theirs(builder, alone))
+    builder.finished_alike = master_copies.theirs(builder, alone)
+    failed = finish_meshes(data_dir, paths, builder.finished_alike, sorted(builder.weapons))
     builder.counts['meshes without collision (Elric failed)'] = len(failed)
     builder.counts["meshes left to the master's archive (finished alike)"] = len(elric_cache.LEFT)
     builder.counts['mesh vertices with a UV clamped to the half-float range'] = sum(mesh_cache.CLAMPED.values())
-    for model in sorted(builder.weapons):
-        weapon.dress_file(data_dir / 'Meshes' / model)
     builder.counts['weapon meshes'] = len(builder.weapons)
 
 
-@timed('object LOD')
+def finish_meshes(data_dir: Path, paths: list, theirs: dict, weapons: list) -> list:
+    """elric_cache.finish() of `paths` (`theirs`: a master's finished-alike marks), then `weapons` (models under
+    Meshes) dressed; the paths left without collision."""
+    failed = elric_cache.finish(paths, theirs)
+    for model in weapons:
+        weapon.dress_file(data_dir / 'Meshes' / model)
+    return failed
+
+
+@timed('object LOD', MESHES)
 def _object_lod(builder, export_dir: Path, data_dir: Path) -> None:
     """Built worldspaces' object LOD (after Elric, before the texture BA2)."""
     builder.counts.update(object_lod.bake_all(export_dir, data_dir, builder.object_lod.worlds))
@@ -178,30 +204,55 @@ def _assets(builder, export_dir: Path, data_dir: Path, out: Path) -> None:
     level_up_icons.stage(builder, export_dir, data_dir)
 
 
-@timed('FaceGen and texture archive')
+@timed('FaceGen and texture archive', ARCHIVES)
 def _faces(builder, data_dir: Path, out: Path) -> None:
-    """After the plugin is written: drop FaceGen naming no NPC_ or drawing parts it no longer has
-    (facegen.outdated; the game draws those NPCs from the record), then pack the texture BA2; counted."""
-    stale = facegen.outdated(out, data_dir, master_copies.master_dirs(builder))
+    """After the plugin is written: faces_and_textures() for its NPC_ records; counted."""
+    npcs = [struct.unpack_from('<I', rec, 12)[0] for rec in builder.writer.top_records() if rec[:4] == b'NPC_']
+    builder.counts.update(faces_and_textures(data_dir, out, master_copies.master_dirs(builder), npcs))
+
+
+def faces_and_textures(data_dir: Path, out: Path, masters: list, npcs: list, prune: bool = True) -> dict:
+    """Drop FaceGen naming none of `npcs` (the plugin's NPC_ FormIDs) or drawing parts it no longer has
+    (facegen.outdated against `masters`' folders; the game draws those NPCs from the record), then pack the
+    texture BA2 (`prune`: pack_textures', off for a run that staged no texture); the counts."""
+    stale = facegen.outdated(out, data_dir, masters)
     for path in stale:
         path.unlink()
-    builder.counts['FaceGeom NIFs older than their NPC head parts removed (run the faces stage)'] = len(stale)
-    npcs = [struct.unpack_from('<I', rec, 12)[0] for rec in builder.writer.top_records() if rec[:4] == b'NPC_']
-    builder.counts['stale FaceGen files removed'] = facegen.prune(out.name, data_dir, npcs)
-    builder.counts['textures packed'] = pack_textures(data_dir, out.name, (LUT_FOLDER, CLASSIC_FOLDER))
+    return {'FaceGeom NIFs older than their NPC head parts removed (run the faces stage)': len(stale),
+            'stale FaceGen files removed': facegen.prune(out.name, data_dir, npcs),
+            'textures packed': pack_textures(data_dir, out.name, (LUT_FOLDER, CLASSIC_FOLDER), prune)}
 
 
-@timed('script compile')
+@timed('script compile', SCRIPTS)
 def _compile(builder, data_dir: Path, scripts_dir) -> None:
-    """Compile the build's scripts (none without `scripts_dir`); the masters' scripts they name logged
-    (build_inputs.master_scripts)."""
-    if builder.scripts.used and scripts_dir is not None:
-        masters = tuple(Path(scripts_dir).parent / p.name for p in builder.built)
-        print(compile_into(scripts_dir, data_dir, builder.scripts.used, masters,
-                           tuple(Path(p).parent for p in builder.built)))
-        own = [Path(scripts_dir) / f'{name}.psc' for name in builder.scripts.used]
-        for path in master_scripts(own, masters) if masters else ():
-            MASTERS.script(path)
+    """compile_scripts() of the build's scripts (none without `scripts_dir`), then the script views
+    (script_view.digests of its own and its masters' converted scripts) for a scripts replay."""
+    builder.script_views = {}
+    if scripts_dir is not None:
+        built = [str(p) for p in builder.built]
+        compile_scripts(Path(scripts_dir), data_dir, builder.scripts.used, built)
+        builder.script_views = script_view.digests(script_folders(Path(scripts_dir).resolve(), built))
+
+
+def script_folders(scripts_dir: Path, built: list) -> list:
+    """`scripts_dir`, then the converted scripts of each built master in `built` (beside it, named for it)."""
+    return [scripts_dir, *(scripts_dir.parent / Path(p).name for p in built)]
+
+
+def compile_scripts(scripts_dir: Path, data_dir: Path, used: list, built: list) -> None:
+    """Compile `used` (converted scripts in `scripts_dir`) into `data_dir`'s Scripts against the built masters
+    `built`; the masters' scripts they name logged (build_inputs.master_scripts)."""
+    if not used:
+        return
+    masters = tuple(script_folders(scripts_dir, built)[1:])
+    print(compile_into(scripts_dir, data_dir, used, masters, tuple(Path(p).parent for p in built)))
+    for path in master_scripts([scripts_dir / f'{name}.psc' for name in used], masters) if masters else ():
+        MASTERS.script(path)
+
+
+def compiled_names(names, data_dir: Path) -> dict:
+    """{name: whether it compiled into `data_dir`'s Scripts} of script `names`, sorted."""
+    return {name: (data_dir / 'Scripts' / f'{name}.pex').exists() for name in sorted(set(names))}
 
 
 @timed('closing records')
@@ -226,9 +277,11 @@ def _closing_records(builder, export_dir: Path, data_dir: Path, out: Path, helpe
     if builder.built:
         builder.scripts.used += [list_adds.SCRIPT]
     else:
-        builder.counts['Pip-Boy movie installed'] = pipboy_overlay.install(data_dir)
+        builder.counts['Pip-Boy movies installed'] = pipboy_overlay.install(data_dir)
         builder.counts['level-up menu files installed (Cleanroom UI)'] = level_up_menu.install(data_dir)
         builder.counts['menu translation files installed'] = translations.install(data_dir)
+        builder.counts['HUD host files installed (Cleanroom UI)'] = len(cleanroom.install(data_dir,
+                                                                                            cleanroom.HUD_FILES))
 
 
 @timed('closing records')
@@ -242,6 +295,20 @@ def _lists(builder, data_dir: Path) -> None:
     builder.furniture_poses.write(data_dir)
     builder.combat.write()
     write_settings(builder, builder.combat.settings)
+
+
+def _scripts_manifest(builder, export_dir: Path, data_dir: Path, scripts_dir) -> 'dict | None':
+    """What a scripts replay takes from the build: the export, the converted scripts' folder, the scripts
+    compiled, the built masters, the views and whether each changed master script compiled; None without scripts.
+    See: docs/fork/fo4_plugin_layout.md#scripts-replay
+    """
+    if scripts_dir is None:
+        return None
+    planned = [entry[3] for entry in getattr(builder, 'script_overrides', {}).values()]
+    return {'export': str(Path(export_dir).resolve()), 'dir': str(Path(scripts_dir).resolve()),
+            'used': list(builder.scripts.used),
+            'built': [str(p) for p in builder.built], 'views': builder.script_views,
+            'overrides': compiled_names(planned, data_dir)}
 
 
 @timed('ledger and cleanup')
@@ -261,8 +328,13 @@ def finish(builder, export_dir: Path, data_dir: Path, out: Path, scripts_dir, he
                                                                                     master_copies.master_dirs(builder))
     made = stale_files.made(data_dir, plugin_stem(export_dir), builder.started, bool(builder.built))
     builder.counts['stale meshes, materials and clips removed'] = len(stale_files.prune(out, data_dir, made))
+    finished = _finished(builder, data_dir)[1]
     builder.counts['finished meshes recorded for dependent builds'] = master_copies.write_meshes(
-        out, data_dir, _finished(builder, data_dir)[1], elric_cache.MARKS)
+        out, data_dir, finished, elric_cache.MARKS)
+    replay_manifest.write(out, {'pre_elric': elric_cache.INPUTS, 'theirs': builder.finished_alike,
+                                'weapons': sorted(builder.weapons), 'lod_worlds': builder.object_lod.worlds,
+                                'finished': [str(p) for p in finished], 'export': str(export_dir),
+                                'scripts': _scripts_manifest(builder, export_dir, data_dir, scripts_dir)})
     _main_archive(builder, data_dir, out.name)
     builder.counts['cache entries pruned (unused 14 days)'] = elric_cache.prune_caches(days=14)
     print(f'readiness entries: {builder.readiness.write(out.name)}')

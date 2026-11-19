@@ -23,7 +23,7 @@ from tes5_import.base.writer import pack_subrecord
 
 PLUGIN, MASTERS = 'F3NV_ChildRaceTest.esl', ['Fallout4.esm']
 RACE, TINTED = 'F3NV_PlayerChildRace', 'F3NV_PlayerChildRaceTints'
-NAMES = {RACE: 'Player Child (no tints)', TINTED: 'Player Child (tints)'}
+NAMES = {RACE: 'Child', TINTED: 'Player Child (tints)'}
 SKIN, PIPBOY_AA, SUIT = 'F3NV_SkinChildNaked', 'F3NV_PipboyChildAA', 'F3NV_ChildRaceTestVaultSuit'
 #: Fallout4.esm EditorID -> its copy's EditorID (ARMA and ARMO the races wear or carry).
 COPIES = {'NakedChildTorso': 'F3NV_NakedChildTorso', 'NakedChildHands': 'F3NV_NakedChildHands',
@@ -64,16 +64,17 @@ def sections(subs: list) -> list:
     return out
 
 
-def child_race(child: list, human: list, edid: str, tints: bool) -> list:
-    """HumanChildRace's subrecords as `edid` wearing SKIN: its tints kept when `tints`, else dropped and HumanRace's
-    face morph regions added to each sex's head data."""
+def child_race(child: list, human: list, edid: str, tints: bool, skin: 'int | None' = None) -> list:
+    """HumanChildRace's subrecords as `edid` wearing `skin` (None: this plugin's SKIN): its tints kept when `tints`,
+    else dropped and HumanRace's face morph regions added to each sex's head data."""
     parts = sections(child)
     if not tints:
         theirs = sections(human)
         for sex in (1, 2):
             parts[sex] = [s for s in parts[sex] if s[0] not in TINTS] + [s for s in theirs[sex] if s[0] in REGIONS]
         parts[0] = [s for s in parts[0] if s[0] != b'TINL']
-    subs = [(tag, struct.pack('<I', own(SKIN)) if tag == b'WNAM' else data) for tag, data in sum(parts, [])]
+    worn = struct.pack('<I', own(SKIN) if skin is None else skin)
+    subs = [(tag, worn if tag == b'WNAM' else data) for tag, data in sum(parts, [])]
     return [(t, NAMES[edid].encode() + b'\0' if t == b'FULL' else d) for t, d in renamed(subs, edid)]
 
 
@@ -127,13 +128,13 @@ def records(fo4: bytes) -> list:
         if ours not in made:
             made[ours] = (addon(sub(theirs), ours, races) if src[theirs][0] == 'ARMA'
                           else armor(sub(theirs), ours, addons))
-    out = [(src[t][0], pack_fo4_record(src[t][0], own(e), src[t][2], _pack(made[e])))
+    out = [(src[t][0], pack_fo4_record(src[t][0], own(e), src[t][2], pack(made[e])))
            for t, e in [(CHILD_RACE, RACE), (CHILD_RACE, TINTED)] + list(COPIES.items())]
     sig, fid, flags, subs = src[PIPBOY]
-    return out + [(sig, pack_fo4_record(sig, fid, flags, _pack(renamed(pipboy(subs, own(PIPBOY_AA)), PIPBOY))))]
+    return out + [(sig, pack_fo4_record(sig, fid, flags, pack(renamed(pipboy(subs, own(PIPBOY_AA)), PIPBOY))))]
 
 
-def _pack(subs: list) -> bytes:
+def pack(subs: list) -> bytes:
     """Subrecords as bytes."""
     return b''.join(pack_subrecord(tag.decode(), data) for tag, data in subs)
 

@@ -3,6 +3,7 @@
 See: docs/fork/fo4_spikes.md#spike-1b
 """
 
+import collections
 import math
 import pickle
 import struct
@@ -111,6 +112,29 @@ def test_menu_scene_ends_when_the_speaker_is_out_of_dialogue_range():
     op, value, func, p1, _, run_on, _, alias = struct.unpack('<B3xfH2xIIIIi', ctda)
     assert (op, value, func, p1, run_on, alias) == (R.OP_GREATER, R.DIALOGUE_DISTANCE, R.FUNC_GET_DISTANCE,
                                                     R.PLAYER, R.RUN_QUEST_ALIAS, 0)
+
+
+def test_an_npc_chat_scene_runs_however_far_the_player_is():
+    """An NPC-only scene (a listener) has no walked-off test.
+    See: docs/fork/fo4_pipeline.md#npc-chat-distance
+    """
+    scene = R.pack_scen(0x01000800, 'Chat', 0x01000801, 0, [], 0, ('Phase0',), listener=1000)
+    assert b'CTDA' not in scene
+
+
+def test_a_chat_listener_is_required_only_where_it_speaks():
+    """Butch's turn (the Listener says the line) needs him; Amata's turn, where he only listens, does not.
+    See: docs/fork/fo4_pipeline.md#chat-listener-required
+    """
+    def listener_flags(speaker: int) -> int:
+        """The LNAM of the Listener actor in a one-line chat scene said by `speaker`."""
+        action = R.pack_dialogue_action(1, speaker, 0x01000802, listener=1000 if speaker == 0 else 0)
+        scene = R.pack_scen(0x01000800, 'Chat', 0x01000801, 0, [action], 0, ('Phase0',), listener=1000)
+        at = scene.index(struct.pack('<4sHi', b'ALID', 4, 1000))
+        return struct.unpack_from('<I', scene, scene.index(b'LNAM', at) + 6)[0]
+
+    assert listener_flags(1000) & R.ACTOR_OPTIONAL == 0
+    assert listener_flags(0) & R.ACTOR_OPTIONAL
 
 
 def test_voice_job_names_the_fuz_by_plugin_voice_type_and_info(tmp_path):
@@ -360,6 +384,17 @@ def test_an_fnv_sound_becomes_a_descriptor_of_its_kind(tmp_path):
     assert b'LOOP' in added[0] and b'ONCE' not in added[0]
     assert b'data\\Sound\\FX\\FNV\\fx\\amb\\hum\\hum_01.wav' in added[0] and b'hum_02.wav' in added[0]
     assert b'notes' not in added[0] and [job[1].suffix for job in sounds.jobs] == ['.xwm', '.xwm']
+
+
+def test_a_sound_named_wav_plays_the_ogg_shipped_in_its_place(tmp_path):
+    """FNV's music stingers name a .wav and ship an .ogg; the engine takes the .ogg, and so do we."""
+    folder = tmp_path / 'sound' / 'fx' / 'mus'
+    folder.mkdir(parents=True)
+    (folder / 'mus_death.ogg').write_bytes(b'x')
+    sounds = object.__new__(SO.Sounds)
+    sounds.export_dir = tmp_path
+    assert sounds._files({'FNAM.Filename': 'fx\\mus\\mus_death.wav'}) == ['fx/mus/mus_death.ogg']
+    assert sounds._files({'FNAM.Filename': 'fx\\mus\\mus_gone.wav'}) == []
 
 
 def test_an_fnv_sound_keeps_its_own_volume_and_reach():
@@ -759,12 +794,36 @@ def test_a_portal_names_its_rooms_by_fo4_id_and_a_room_keeps_its_bounds(monkeypa
     assert PL.placement(0x99, ids) == pack_subrecord('XRGD', b'r' * 28) and PL.placement(0x1, ids) == b''
 
 
+def test_a_room_keeps_its_linked_rooms_by_fo4_id_sorted_and_counted(monkeypatch):
+    """XRMR then XLRM after XPRM; the links renumbered and sorted, one not built dropped, XRMR's count matching."""
+    links = [(b'XLRM', struct.pack('<I', fid)) for fid in (0x1058, 0x1057, 0x1059)]
+    raw = {0x105B: [(b'XMBO', b'b' * 12), (b'XPRM', b'p' * 32), (b'XRMR', bytes([3, 0, 1, 0])), *links]}
+    monkeypatch.setattr(PL, 'fields', lambda: raw)
+    ids = {'00001057': 0x03000090, '00001058': 0x03000010}
+    assert PL.placement(0x105B, ids) == (pack_subrecord('XMBO', b'b' * 12) + pack_subrecord('XPRM', b'p' * 32)
+                                       + pack_subrecord('XRMR', bytes([2, 0, 1, 0]))
+                                       + pack_subrecord('XLRM', struct.pack('<I', 0x03000010))
+                                       + pack_subrecord('XLRM', struct.pack('<I', 0x03000090)))
+
+
 def test_a_trigger_box_keeps_its_primitive_but_no_room_bound(monkeypatch):
     """An activator's reference (a trigger box) is no room: no XMBO; a room marker's keeps it."""
     monkeypatch.setattr(PL, '_activators', lambda: frozenset({0xACAC}))
     trigger = [(b'NAME', struct.pack('<I', 0xACAC)), (b'XMBO', b'b' * 12), (b'XPRM', b'p' * 32)]
     room = [(b'NAME', struct.pack('<I', 0x1F)), (b'XMBO', b'b' * 12), (b'XPRM', b'p' * 32)]
     assert not PL._room_bound(trigger) and PL._room_bound(room)
+
+
+def test_a_trigger_box_is_on_the_trigger_layer(monkeypatch):
+    """An activator's primitive gets XTRI 12 (L_TRIGGER) after its activate parent; a room marker's gets none."""
+    monkeypatch.setattr(PL, '_activators', lambda: frozenset({0xACAC}))
+    trigger = [(b'NAME', struct.pack('<I', 0xACAC)), (b'XPRM', b'p' * 32), (b'XAPD', b'\1')]
+    room = [(b'NAME', struct.pack('<I', 0x1F)), (b'XPRM', b'p' * 32)]
+    assert PL._trigger(trigger) and not PL._trigger(room) and not PL._trigger(trigger[:1])
+    found = [trigger[1], (b'XTRI', PL.TRIGGER_LAYER), trigger[2]]
+    monkeypatch.setattr(PL, 'fields', lambda: {0x1: found})
+    assert PL.placement(0x1, {}) == (pack_subrecord('XPRM', b'p' * 32) + pack_subrecord('XAPD', b'\1')
+                                     + pack_subrecord('XTRI', struct.pack('<I', 12)))
 
 
 def test_a_light_keeps_fnvs_falloff_and_fov_and_a_slow_flicker_moves_at_half_speed():
@@ -1049,6 +1108,20 @@ def test_a_sandbox_copy_takes_each_allow_from_fnvs_no_flag():
     assert chet[2] == b'\0' and chet[5] == b'\1'
     assert packages._values({'PKDT.Type': '9', 'PKDT.TypeFlags': '1'}, 'Sandbox') == {}
     assert packages._values({'PKDT.Type': '12', 'PKDT.TypeFlags': '0'}, 'Travel') == {}
+    guard = packages._values({'PKDT.Type': '14', 'PKDT.TypeFlags': '0'}, 'Sandbox')
+    assert [slot for slot, allow in guard.items() if allow == b'\1'] == [7] and len(guard) == 7
+
+
+def test_a_guard_or_ambush_goes_to_its_location_out_of_combat():
+    """The CG02 radroach's Guard (radius 180) wanders at its marker as a Sandbox; a Guard or Ambush without a radius
+    travels there. None is a HoldPosition, which FO4 runs only in combat."""
+    packages = PK.Packages.__new__(PK.Packages)
+    roach = {'PKDT.Type': '14', 'PLDT.Type': '0', 'PLDT.Location': '0009DEC9', 'PLDT.Radius': '180'}
+    assert packages._plan(roach, {0x9DEC9: 0x55}, 0) == ('Sandbox', struct.pack('<iIi', 0, 0x55, 180))
+    assert packages._plan({**roach, 'PLDT.Radius': '0'}, {0x9DEC9: 0x55}, 0)[0] == 'Travel'
+    assert packages._plan({**roach, 'PKDT.Type': '9', 'PLDT.Radius': '0'}, {0x9DEC9: 0x55}, 0)[0] == 'Travel'
+    assert packages._plan({**roach, 'PKDT.Type': '9'}, {0x9DEC9: 0x55}, 0)[0] == 'Sandbox'
+    assert packages._plan(roach, {}, 0) == 'location not built'
 
 
 def test_a_follow_copy_stops_at_fnvs_follow_distance():
@@ -1076,25 +1149,27 @@ def test_fnvs_own_behavior_flags_become_fo4_interrupt_flags():
 
 
 def test_a_guard_held_through_combat_gets_a_combat_override_list():
-    """An FNV Guard flagged Continue During Combat gets a second HoldPosition copy with the Combat override, listed
+    """An FNV Guard flagged Continue During Combat gets a second, HoldPosition copy with the Combat override, listed
     in its NPC's ECOR form list; a Guard without the flag and a cowering flee (a HoldPosition) with it get none."""
     ids = {PK.COMBAT_SITE: 0x900, PK.COMBAT_LIST_SITE: 0x901}
     writer = SimpleNamespace(added=[], add_record=lambda sig, data: writer.added.append((sig, data)),
                              derive_formid=lambda site, key: ids[site])
     packages = PK.Packages.__new__(PK.Packages)
     packages.builder = SimpleNamespace(writer=writer, fnv_id=lambda fnv: int(fnv, 16), counts=Counter())
-    packages.vanilla = {'HoldPosition': pack_subrecord('EDID', b'V\0') + pack_subrecord('PKDT', bytes(12))}
+    packages.vanilla = {name: pack_subrecord('EDID', b'V\0') + pack_subrecord('PKDT', bytes(12))
+                        + pack_subrecord('PKCU', name.encode()) for name in ('HoldPosition', 'Travel')}
     packages.combat, packages.combat_lists, packages.greets, packages.topics = {}, {}, [], {}
-    packages._fragments = lambda rec, form_map: b''
+    packages._fragments = lambda rec, form_map, number=0: b''
     rec = {'EditorID': 'Guard', 'PKDT.Type': '14', 'PKDT.Flags': str(PK.CONTINUE_DURING_COMBAT), 'PSDT.Month': '-1',
            'PSDT.DayOfWeek': '-1', 'PSDT.Date': '0', 'PSDT.Time': '-1', 'PSDT.Duration': '0'}
-    assert packages._write('00000010', rec, ('HoldPosition', b''), b'', {}) == 0x10
-    assert packages._write('00000011', {**rec, 'PKDT.Flags': '0'}, ('HoldPosition', b''), b'', {}) == 0x11
+    assert packages._write('00000010', rec, ('Travel', b''), b'', {}) == 0x10
+    assert packages._write('00000011', {**rec, 'PKDT.Flags': '0'}, ('Travel', b''), b'', {}) == 0x11
     assert packages._write('00000012', {**rec, 'PKDT.Type': '10'}, ('HoldPosition', b''), b'', {}) == 0x12
     npc = {'FormID': '00000020', 'EditorID': 'Trooper', 'AIPackageCount': '2', 'AIPackage[0]': '00000011',
            'AIPackage[1]': '00000010'}
     assert packages.combat_list(npc) == 0x901 and packages.combat_list({}) == 0
-    combat = dict(subrecords(writer.added[1][1][24:]))
+    guard, combat = (dict(subrecords(writer.added[i][1][24:])) for i in (0, 1))
+    assert guard[b'PKCU'] == b'Travel' and combat[b'PKCU'] == b'HoldPosition'
     assert combat[b'PKDT'][5] == PK.COMBAT_OVERRIDE and combat[b'EDID'] == b'FNV_GuardCombat\0'
     assert [s for s, _ in writer.added] == ['PACK', 'PACK', 'PACK', 'PACK', 'FLST']
     assert dict(subrecords(writer.added[4][1][24:]))[b'LNAM'] == struct.pack('<I', 0x900)
@@ -1104,7 +1179,7 @@ def test_a_dialogue_package_with_an_npc_travels_to_it_and_plays_the_topics_chat(
     """Captain Parker's arrest of Keith: a Travel near Keith within 128 units whose fragments play the
     TES4Chat_CaptainParkerArrest scene with Keith; an unbuilt target is left out."""
     packages = PK.Packages.__new__(PK.Packages)
-    packages.topic_names = {'0014D99A': 'CaptainParkerArrest'}
+    packages.topic_names, packages.hooks = {'0014D99A': 'CaptainParkerArrest'}, {}
     talks = {}
     scripts = SimpleNamespace(talk=lambda prop: talks.setdefault(prop, 0x77))
     packages.builder = SimpleNamespace(scripts=scripts, counts=Counter())
@@ -1115,6 +1190,22 @@ def test_a_dialogue_package_with_an_npc_travels_to_it_and_plays_the_topics_chat(
     vmad = packages._fragments(rec, {0xF83A5: 0x55})
     assert b'F3NV_DialoguePackage' in vmad and talks == {'TES4Chat_CaptainParkerArrest': 0x77}
     assert struct.pack('<I', 0x77) in vmad and struct.pack('<I', 0x55) in vmad
+    assert PK.DAY_DONE.encode() not in vmad
+
+
+def test_a_quest_gated_once_a_day_chat_is_done_once_it_starts():
+    """CG03AmataButchConv (Once Per Day, GetStage CG03 >= 15): its chat script gets the day faction, so its OnEnd
+    marks Amata done and the Travel never restarts the chat over Butch's reply."""
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.topic_names, packages.hooks = {'000854F6': 'CG03BullyIntroConv'}, {}
+    packages.once = SimpleNamespace(day_faction=lambda rec: 0x66)
+    packages.builder = SimpleNamespace(scripts=SimpleNamespace(talk=lambda prop: 0x77), counts=Counter())
+    stage = '60000000000070413a000000854e0100000000000000000000000000'
+    rec = {'FormID': '000854FD', 'PKDT.Type': '15', 'PKDT.Flags': str(PK.ONCE_PER_DAY), 'PTDT.Type': '0',
+           'PTDT.Target': '0001CE27', 'PKDD.Topic': '000854F6', 'ConditionCount': '1', 'Condition[0].Raw': stage}
+    vmad = packages._fragments(rec, {0x1CE27: 0x55})
+    assert PK.DAY_DONE.encode() in vmad and struct.pack('<I', 0x66) in vmad
+    assert packages.builder.counts['dialogue package with an NPC, once a day'] == 1
 
 
 def test_a_use_weapon_package_shoots_its_target_with_fnvs_weapon_and_firing():
@@ -1182,6 +1273,20 @@ def test_an_escort_leads_its_built_target_to_its_location():
     assert packages._values({**rec, 'PTDT.Count': '0'}, 'EscortPlayer') == {}
 
 
+def test_a_packages_target_tests_run_on_its_target_reference():
+    """CG04AmataSayGoodbye's IsInCombat on its Target (the player): FO4 packages have no Target (vanilla runs none
+    of its 4,700 package conditions there), so it runs on the reference; a package without one keeps Target."""
+    rec = {'PTDT.Type': '0', 'PTDT.Target': '00000014',
+           'Condition[0].Raw': '00000000000000002101000000000000000000000100000000000000'}
+    target = PK.target_reference(rec, {})
+    assert target == 0x14
+    combat = CD.FO4.index('IsInCombat')
+    assert SAY.conditions_of(rec, {}, {}, reference=target) == R.pack_ctda(0, 0.0, combat, 0, 0, R.RUN_REFERENCE,
+                                                                             0x14, -1)
+    assert PK.target_reference({**rec, 'PTDT.Type': '2'}, {}) is None
+    assert PK.target_reference({**rec, 'PTDT.Target': '00064912'}, {0x64912: 0x2BF4F0}) == 0x2BF4F0
+
+
 def _packages_for(packs: dict, made: dict) -> PK.Packages:
     """Packages over FNV `packs` whose builder makes items from `made` and records readiness; _write gives 0x77."""
     packages = PK.Packages.__new__(PK.Packages)
@@ -1203,8 +1308,19 @@ def test_a_left_out_package_is_in_the_readiness_report_and_a_tested_item_is_made
     packages, forms = _packages_for(packs, {0x500: 0x900500}), {}
     assert packages.package('00000101', forms) == 0
     assert packages.builder.readiness.entries == [
-        {'kind': RD.PACKAGE_LEFT_OUT, 'owner': '00000101', 'detail': 'NellisFindJanet (type Find)'}]
+        {'kind': RD.PACKAGE_LEFT_OUT, 'owner': '00000101', 'detail': 'NellisFindJanet (find target not furniture)'}]
     assert packages.package('00000102', forms) == 0x77 and forms == {0x500: 0x900500}
+
+
+def test_a_find_aimed_at_furniture_sits_in_a_chair_near_its_location():
+    """CG03's students find a desk within 350 of the classroom marker: SitFoundRef there.
+    See: docs/fork/fo4_pipeline.md#find-furniture
+    """
+    rec = {'PKDT.Type': PK.FNV_FIND, 'PTDT.Type': '2', 'PTDT.Target': PK.FURNITURE_TYPE, 'PLDT.Type': '0',
+           'PLDT.Location': '0001EFFF', 'PLDT.Radius': '350'}
+    packages = PK.Packages.__new__(PK.Packages)
+    assert packages._find(rec, {0x1EFFF: 0x0201EFFF}) == ('SitFoundRef', struct.pack('<iIi', 0, 0x0201EFFF, 350))
+    assert packages._find({**rec, 'PTDT.Target': '9'}, {0x1EFFF: 0x0201EFFF}) == 'find target not furniture'
 
 
 def test_a_faction_enemy_test_asks_whether_the_actor_is_hostile_to_the_player():
@@ -1275,6 +1391,18 @@ def test_quest_scope_counts_writes_to_a_quests_variables():
             'VDoctors.Start()\nIf Generic.Cost == 3\nx = VFreeformNellis.State\nTES4Polyfill.SetStage(CG03Test, 9)\n')
     found = {n for m in QS.STARTS.finditer(text) for n in m.groups() if n}
     assert found == {'VCG01Test', 'VMS01', 'VCG02', 'VDoctors', 'CG03Test'}
+
+
+def test_quest_scope_builds_an_empty_quest_a_built_quests_script_reads():
+    """A built quest's script reading an authored-empty quest (VCGTutorial's CG02 stub) brings it in, so the
+    property fills; a read quest with stages, a script or lines stays out."""
+    scope = QS.QuestScope.__new__(QS.QuestScope)
+    scope.quests = {0x10: {'EditorID': 'VCGTutorial', 'FormID': '00000010'}, 0x20: {'EditorID': 'CG02'},
+                    0x30: {'EditorID': 'VMQ02', 'Stage[0].Index': '10'}, 0x40: {'EditorID': 'VRadio', 'SCRI': '0099'}}
+    scope.lines = collections.defaultdict(list)
+    scope._script = lambda scri: (set(), set())
+    scope._file = lambda script: ({0x20, 0x30, 0x40}, set()) if script.endswith('VCGTutorial') else (set(), set())
+    assert scope._empty_reads({0x10}) == {0x20}
 
 
 def test_quest_scope_follows_speaker_tests_to_placed_actors():
@@ -1417,7 +1545,9 @@ def test_converted_clip_leaves_its_track_names_blank(monkeypatch, tmp_path):
     monkeypatch.setattr(HC, 'clip_to_animation_data',
                         lambda *a: SimpleNamespace(num_tracks=2, bone_names=['Root', 'COM']))
     monkeypatch.setattr(HC, 'write_fo4_animation', lambda path, anim: written.append(anim.bone_names))
-    clips.write('x.kf', tmp_path / 'out' / 'x.hkx')
+    (tmp_path / 'out').mkdir()
+    (tmp_path / 'out' / 'x.hkx').write_bytes(b'')
+    clips._converted('x.kf', tmp_path / 'out' / 'x.hkx', (), 0)
     assert written == [['', '']]
 
 
@@ -1671,3 +1801,18 @@ def test_a_receiver_of_a_station_past_the_free_frequencies_stays_a_plain_activat
     radio.stations = {i: {'RecordFlags': str(RA.RADIO_STATION)} for i in range(count)}
     radio.stations_of = {100: count - 1, 101: 0}
     assert radio.receiver(100) == b'' and radio.receiver(101) != b''
+
+
+def test_an_owner_npc_a_master_made_keeps_its_master_form():
+    """owners_from_masters: an NPC named as an owner (XOWN) maps to the NPC its master's ledger made; others drop.
+    See: docs/fork/fo4_gui.md#addon-refs
+    """
+    folder = Path('export/NVBI Version 1 dot 55')
+    if not (folder / '_HEADER.txt').is_file():
+        pytest.skip('NVBI is not exported here')
+    npcs = {int(r['FormID'], 16) for r in CB.export_records(folder, 'NPC_')}
+    owners = sorted(CB.named_owners(folder) & npcs)
+    made = {CB.NPC_KEY.format(fnv): 0x02000800 + n for n, fnv in enumerate(owners[::2])}
+    writer = SimpleNamespace(from_master=lambda site, key: made.get(key) if site == CB.MADE_SITE else None)
+    found = CB.owners_from_masters(SimpleNamespace(writer=writer), folder)
+    assert owners and found == {fnv: made[CB.NPC_KEY.format(fnv)] for fnv in owners[::2]}

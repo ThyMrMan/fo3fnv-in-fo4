@@ -16,7 +16,9 @@ from pathlib import Path
 #: Bytes per 4x4 block of the block-compressed DXGI formats; others are 4 bytes per pixel.
 BLOCK_BYTES = {70: 8, 71: 8, 72: 8, 80: 8, 81: 8, 73: 16, 74: 16, 75: 16, 76: 16, 77: 16, 78: 16,
                82: 16, 83: 16, 84: 16, 94: 16, 95: 16, 96: 16, 97: 16, 98: 16, 99: 16}
-GNRL_ENTRY, DX10_ENTRY, DX10_CHUNK = struct.Struct('<I4sIIQIII'), struct.Struct('<I4sIBBHHHBBBB'), \
+#: The game's own archives in its Data folder (Archives' default).
+GAME_ARCHIVES = 'Fallout4 - *.ba2'
+GNRL_ENTRY, DX10_ENTRY, DX10_CHUNK =struct.Struct('<I4sIIQIII'), struct.Struct('<I4sIBBHHHBBBB'), \
     struct.Struct('<QIIHHI')
 
 
@@ -83,7 +85,7 @@ class Archive:
 class Archives:
     """Every BA2 in a Data folder, later archives winning, read by path."""
 
-    def __init__(self, data_dir: Path, pattern: str = 'Fallout4 - *.ba2'):
+    def __init__(self, data_dir: Path, pattern: str = GAME_ARCHIVES):
         """Index the archives in `data_dir` matching `pattern`."""
         self.by_name = {}
         for path in sorted(Path(data_dir).glob(pattern)):

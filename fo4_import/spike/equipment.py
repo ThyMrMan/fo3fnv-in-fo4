@@ -44,6 +44,7 @@ from fo4_import.base.install import source_walk
 from fo4_import.base.source_fault import SourceFault, count
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.nif import headgear, outfit, weapon
+from fo4_import.nif.hair_mesh import fallout4_hat_field, sits_on_hair
 from fo4_import.pipeline.elric_cache import mesh_bytes, write_new
 from fo4_import.pipeline.work_cache import cached, versioned
 from fo4_import.spike.gun_choice import DNAM_FLAGS, FO4_AUTOMATIC, FO4_NOT_PLAYABLE, GUN_TYPES, fnv_wants
@@ -506,10 +507,22 @@ class Equipment:
         heads = {sex: self._on_head(model, sex) for sex, model in models.items()} if slots and worn else {}
         if not heads or not all(on for on, _ in heads.values()):
             return None
+        slots = self._hair_kept(slots, models, heads)
         paths = {sig: self._worn(models[sex], sex, slots, heads[sex][1]) for sig, sex in zip(THIRD_PERSON, SEXES)}
         swaps = {SWAP_OF[sig]: swap for sig, swap in zip(THIRD_PERSON, self._worn_swaps(fnv, rec, models)) if swap}
         addon = self._addon(fnv, rec, struct.unpack('<I', template[b'MODL'])[0], _bod2(slots), paths, swaps)
         return {b'BOD2': _bod2(slots), **self._world(fnv, rec, addon)}
+
+    def _hair_kept(self, slots: tuple, models: dict, heads: dict) -> tuple:
+        """`slots` without the hair top (30) when every sex's hat sits on the hair (hair_mesh.sits_on_hair).
+        See: docs/fork/fo4_spikes.md#hat-above-hair
+        """
+        field = fallout4_hat_field() if headgear.HAIR_SLOT in slots else None
+        if not field or not all(sits_on_hair(headgear.placed(self._static(models[sex])[1], self._fit(sex),
+                                                             heads[sex][1]), field) for sex in models):
+            return slots
+        self.builder.counts['hat above the hair (hair top kept)'] += 1
+        return tuple(s for s in slots if s != headgear.HAIR_SLOT)
 
     def _worn_swaps(self, fnv: int, rec: dict, models: dict) -> list:
         """Per sex, _swap() of `rec`'s worn alternates on `models` {sex: FNV model}."""

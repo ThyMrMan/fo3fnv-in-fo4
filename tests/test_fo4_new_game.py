@@ -14,7 +14,8 @@ from tes5_import.base.tes5_reader import subrecords
 
 
 def test_the_new_game_quest_has_a_hand_start_stage(monkeypatch):
-    """FNV_NewGame carries F3NV_NewGame and a stage 10 whose fragment (F3NV_NewGameStart) starts FNV by hand."""
+    """FNV_NewGame carries F3NV_NewGame and stages 5 (the opening and character creation) and 10 (FNV at once),
+    run by hand through F3NV_NewGameStart's fragments."""
     written = []
     builder = SimpleNamespace(writer=SimpleNamespace(derive_formid=lambda site, key: 0x01000800,
                                                      add_record=lambda sig, rec: written.append((sig, rec))),
@@ -28,8 +29,10 @@ def test_the_new_game_quest_has_a_hand_start_stage(monkeypatch):
     subs = list(subrecords(rec[24:]))
     vmad = dict(subs)[b'VMAD']
     assert sig == 'QUST' and builder.scripts.used == [new_game.FRAGMENTS]
-    assert (b'INDX', struct.pack('<HBB', new_game.START_BY_HAND, 0, 0)) in subs
-    assert all(name in vmad for name in (b'F3NV_NewGame', b'F3NV_NewGameStart', b'Fragment_Stage_0010_Item_00'))
+    assert all((b'INDX', struct.pack('<HBB', s, 0, 0)) in subs for s in (new_game.OPEN_BY_HAND, new_game.START_BY_HAND))
+    assert all(name in vmad for name in (b'F3NV_NewGame', b'F3NV_NewGameStart', b'Fragment_Stage_0005_Item_00',
+                                         b'Fragment_Stage_0010_Item_00'))
+    assert b'AnimArchetypePlayer' in vmad and struct.pack('<I', new_game.ANIM_PLAYER) in vmad
 
 
 def test_fallout3_opens_at_cg00_with_its_own_script_names():

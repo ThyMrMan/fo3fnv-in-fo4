@@ -26,6 +26,8 @@ AV_PROPERTY_PREFIX = 'TES4AV_'
 CONTROLS_PROPERTY, CONTROLS_SCRIPT = 'TES4PlayerControls', 'F3NV_PlayerControls'
 #: Property and script of the helper quest sending the character menus and holding suggested tag skills.
 CHARACTER_PROPERTY, CHARACTER_SCRIPT = 'TES4CharacterEvents', 'F3NV_CharacterEvents'
+#: The race menu (Skyrim's name) and the custom event F3NV_PlayerControls sends when it skips one.
+RACE_MENU, RACE_MENU_SKIPPED = 'RaceSex Menu', 'RaceMenuSkipped'
 
 
 def set_target(name: str) -> None:
@@ -72,6 +74,22 @@ def event_opener(skyrim_opener: str) -> str:
                              '\n  TES4Polyfill.TraceAnimEvents(Self, akTarget)'}
     return FALLOUT4_EVENTS.get(skyrim_opener, skyrim_opener) + next(
         (line for opener, line in trace.items() if skyrim_opener.startswith(opener)), '')
+
+
+#: Fallout 4's remote OnDeath, which an ObjectReference script on an actor hears once registered.
+REMOTE_DEATH = 'Event Actor.OnDeath(Actor akSender, Actor akKiller)'
+
+
+def remote_death(extends: str) -> bool:
+    """Whether OnDeath is REMOTE_DEATH: a reference script on Fallout 4.
+    See: docs/fork/fo4_script_compile.md#ondeath-on-a-reference
+    """
+    return is_fallout4() and extends == 'ObjectReference'
+
+
+def death_registration() -> list:
+    """Lines registering REMOTE_DEATH on the script's own actor, if any."""
+    return [f'  If {self_as_actor()}', f'    RegisterForRemoteEvent({self_as_actor()}, "OnDeath")', '  EndIf']
 
 
 def is_hit_event(skyrim_opener: str) -> bool:
@@ -140,11 +158,23 @@ def controls_call(verb: str, args: str) -> tuple:
     return f'{CONTROLS_PROPERTY}.{verb}({args})', {CONTROLS_PROPERTY: CONTROLS_SCRIPT}
 
 
-def menu_registration(menu: str) -> str:
-    """Listen for menu `menu` (Skyrim's name); FO4: its open/close event."""
-    if is_fallout4():
-        return f'RegisterForMenuOpenCloseEvent("{FALLOUT4_MENU_NAMES.get(menu, menu)}")'
-    return f'RegisterForMenu("{menu}")'
+def menu_registrations(menu: str) -> list:
+    """Lines listening for menu `menu` (Skyrim's name); FO4: its open/close event, and a skipped race menu."""
+    if not is_fallout4():
+        return [f'RegisterForMenu("{menu}")']
+    skip = [f'RegisterForCustomEvent({CONTROLS_PROPERTY}, "{RACE_MENU_SKIPPED}")'] if menu == RACE_MENU else []
+    return [f'RegisterForMenuOpenCloseEvent("{FALLOUT4_MENU_NAMES.get(menu, menu)}")'] + skip
+
+
+def race_menu_skipped(menus) -> list:
+    """FO4, a script listening for the race menu: the handler taking a skipped one as its close; else [].
+
+    See: docs/fork/fo4_pipeline.md#character-creation
+    """
+    if not (is_fallout4() and RACE_MENU in menus):
+        return []
+    return [f'Event {CONTROLS_SCRIPT}.{RACE_MENU_SKIPPED}({CONTROLS_SCRIPT} akSender, Var[] akArgs)',
+            f'  OnMenuOpenCloseEvent("{target_menu_name(RACE_MENU)}", False)', 'EndEvent', '']
 
 
 def target_menu_name(menu: str) -> str:

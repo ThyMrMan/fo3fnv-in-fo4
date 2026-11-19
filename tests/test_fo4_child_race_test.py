@@ -60,7 +60,7 @@ def test_the_written_plugin(tmp_path):
     assert (len(race.get(b'TETI', [])), len(race[b'FMRI']), b'TINL' in race) == (0, 64, False)
     assert (len(tinted[b'TETI']), b'FMRI' in tinted) == (46, False)
     assert race[b'WNAM'] == tinted[b'WNAM'] == [struct.pack('<I', T.own(T.SKIN))]
-    assert (race[b'FULL'], tinted[b'FULL']) == ([b'Player Child (no tints)\0'], [b'Player Child (tints)\0'])
+    assert (race[b'FULL'], tinted[b'FULL']) == ([b'Child\0'], [b'Player Child (tints)\0'])
     for edid in ('F3NV_NakedChildTorso', 'F3NV_NakedChildHands', 'F3NV_Vault81SuitChildAA'):
         assert races <= set(recs[edid][1][b'MODL'])
     assert set(recs[T.SKIN][1][b'MODL']) == {struct.pack('<I', T.own('F3NV_NakedChildTorso')),

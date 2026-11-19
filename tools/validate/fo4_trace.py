@@ -45,14 +45,17 @@ FALL = 100.0
 # Reading
 # ---------------------------------------------------------------------------
 
-def default_log() -> 'Path | None':
-    """Papyrus.0.log under My Games (OneDrive's Documents first, as Windows redirects it)."""
+def my_games() -> 'Path | None':
+    """Fallout 4's My Games folder (OneDrive's Documents first), or None."""
     home = Path(os.environ.get('USERPROFILE', Path.home()))
-    for docs in (home / 'OneDrive' / 'Documents', home / 'Documents'):
-        log = docs / 'My Games' / 'Fallout4' / 'Logs' / 'Script' / 'Papyrus.0.log'
-        if log.exists():
-            return log
-    return None
+    found = [docs / 'My Games' / 'Fallout4' for docs in (home / 'OneDrive' / 'Documents', home / 'Documents')]
+    return next((folder for folder in found if folder.is_dir()), None)
+
+
+def default_log() -> 'Path | None':
+    """Papyrus.0.log under My Games (my_games), or None."""
+    log = (my_games() or Path('.')) / 'Logs' / 'Script' / 'Papyrus.0.log'
+    return log if log.exists() else None
 
 
 def read(log: Path) -> list:

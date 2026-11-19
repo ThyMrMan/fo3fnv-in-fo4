@@ -8,6 +8,7 @@ from script_convert import target
 from script_convert.converter import ScriptConverter
 from script_convert.cross_ref import CrossRefGraph
 from script_convert.quest_fragments import stage_fragments
+from script_convert.quest_fragments_falloutnv import aged_first
 from tes5_import.dialogue.quest import quest_stage_fragments
 from tes5_import.dialogue.unlocks import build_unlock_plan
 from tes5_import.dialogue.unlock_prerequisites_falloutnv import waits_longer
@@ -25,6 +26,16 @@ def fo4(monkeypatch, src: str, extends: str) -> str:
     """`src` converted for Fallout 4."""
     monkeypatch.setenv(target.TARGET_ENV, target.FALLOUT4)
     return ScriptConverter(CrossRefGraph()).convert_standalone('T', src, extends, 'T')
+
+
+def test_agerace_moves_ahead_of_the_equips_before_it_in_its_block():
+    """CG02 stage 100 equips the adult suit, then ages the player: FO4 equips only what the race wears."""
+    source = ('player.removeallitems\nplayer.additem VaultSuit101 1 1\nplayer.equipitem VaultSuit101 0 1\n'
+              'player.unequipitem Hat 0 1\nplayer.AgeRace 1\nif x\nplayer.equipitem Pipboy\nendif\nplayer.AgeRace -1')
+    assert aged_first(source).splitlines() == [
+        'player.removeallitems', 'player.additem VaultSuit101 1 1', 'player.AgeRace 1',
+        'player.equipitem VaultSuit101 0 1', 'player.unequipitem Hat 0 1', 'if x', 'player.equipitem Pipboy',
+        'endif', 'player.AgeRace -1']
 
 
 def test_onfire_runs_on_the_wielders_weapon_fire(monkeypatch):

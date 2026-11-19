@@ -110,15 +110,16 @@ def aggro_radius(rec: dict) -> tuple:
 _PC_LEVEL_MULT = 0x80
 
 
-def npc_health(rec: dict) -> int:
-    """A FO3/FNV NPC's hit points: Base Health + Endurance and level times the game's two health settings.
+def npc_health(rec: dict, get=setting) -> int:
+    """A FO3/FNV NPC's hit points as FalloutNV.exe computes them, 0 for Base Health 0; `get` reads a setting.
 
     See: docs/commentary/tes5_import_falloutnv_actors.md#npc-health
     """
+    base = get_int(rec, 'DATA.BaseHealth', 50)
     level = 1 if get_int(rec, 'ACBS.Flags') & _PC_LEVEL_MULT else get_int(rec, 'ACBS.Level', 1)
-    return int(get_int(rec, 'DATA.BaseHealth', 50)
-               + get_int(rec, 'DATA.Endurance') * setting('fAVDNPCHealthEnduranceMult')
-               + max(level - 1, 0) * setting('fAVDNPCHealthLevelMult'))
+    endurance = get_int(rec, 'DATA.Endurance') + get('fAVDNPCHealthEnduranceOffset')
+    return max(0, int(base + endurance * get('fAVDNPCHealthEnduranceMult')
+                      + max(level - 1, 0) * get('fAVDNPCHealthLevelMult'))) if base else 0
 
 
 #: Types a TPLT chain can pass through. FO3/FNV has LVLN as well as LVLC.

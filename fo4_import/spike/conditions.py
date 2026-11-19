@@ -12,6 +12,7 @@ See: docs/fork/fo4_spikes.md#spike-1
 
 import re
 import struct
+from itertools import count, takewhile
 from pathlib import Path
 
 from fo4_import.pipeline.export_index import source_game
@@ -89,6 +90,12 @@ def fnv_av_name(index: int) -> str:
     """The game's name of FNV actor value `index` ('' past the list)."""
     label = FNV_AV_NAMES[index] if index < len(FNV_AV_NAMES) else ''
     return FNV_AV_GAME_NAMES.get(label, label.replace(' ', ''))
+
+
+def raws(rec: dict) -> list:
+    """An FNV record's top-level conditions, raw hex, in order."""
+    keys = takewhile(rec.__contains__, (f'Condition[{i}].Raw' for i in count()))
+    return [rec[key] for key in keys]
 
 
 def parse(raw_hex: str) -> dict:
@@ -207,8 +214,8 @@ def _mirrored(cond: dict, form_map: dict) -> bool:
 
 
 def _talked(cond: dict, form_map: dict) -> bool:
-    """True for a Subject `GetIsID(actor) == 1` whose actor has a talking-as list in `form_map`."""
-    return (cond['func'] == 'GetIsID' and cond['run_on'] == RUN_SUBJECT and not cond['op_flags'] & 0xE4
+    """True for Subject/Target `GetIsID(actor) == 1` of an actor with a talker."""
+    return (cond['func'] == 'GetIsID' and cond['run_on'] in (RUN_SUBJECT, RUN_TARGET) and not cond['op_flags'] & 0xE4
             and cond['value'] == 1.0 and (TALKING_AS, cond['p1']) in form_map)
 
 
@@ -227,7 +234,7 @@ def talking_through(conds: list, form_map: dict) -> list:
     IsActorTalkingThroughActivator (== or != 0 or 1) as that actor's GetIsID negated.
     See: docs/fork/fo4_pipeline.md#talking-activators
     """
-    actors = [cond['p1'] for cond in conds if _talked(cond, form_map)]
+    actors = [cond['p1'] for cond in conds if _talked(cond, form_map) and cond['run_on'] == RUN_SUBJECT]
     out = []
     for cond in conds:
         if _talked(cond, form_map):

@@ -19,7 +19,7 @@ def test_a_nested_stage_is_taken_out_of_the_outer_one():
         charged('test inner', time.sleep, 0.6)
 
     outer()
-    spent = {line.split(': ')[0]: float(line.split(': ')[1][:-1]) for line in report()}
+    spent = {line.split(': ')[0]: float(line.split(': ')[1].split('s')[0]) for line in report()}
     assert 0.3 <= spent['stage test outer'] <= 0.4
     assert 0.6 <= spent['stage test inner'] <= 0.7
 

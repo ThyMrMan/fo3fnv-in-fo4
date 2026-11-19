@@ -25,7 +25,7 @@ from pathlib import Path
 
 from script_convert.constants import (
     FAME_GLOBALS, KNOWN_GLOBALS, TES4_MURDER_BOUNTY, _FORM_TYPE_TESTS,
-    _canonical_global, record_type_to_papyrus, safe_property_name,
+    _canonical_global, is_player, record_type_to_papyrus, safe_property_name,
     script_type_may_override
 )
 from script_convert.command_rows import (
@@ -160,7 +160,7 @@ def resolve(conv, expr: str, extends: str) -> str:
     if record is not None:
         return record
 
-    if low in ('player', 'playerref'):
+    if is_player(low):
         return 'Game.GetPlayer()'
     if low in ('getself', 'this', 'self'):
         return conv._self_reference(extends)
@@ -299,7 +299,7 @@ def _quoted(conv, inner: str, extends: str) -> str:
     # String where an ObjectReference was required.
     if low in conv.sc.local_vars:
         return conv.sc.var_renames.get(low, inner)
-    if low in ('player', 'playerref'):
+    if is_player(low):
         return 'Game.GetPlayer()'
     resolved = _record(conv, inner)
     return resolved if resolved is not None else '"%s"' % inner

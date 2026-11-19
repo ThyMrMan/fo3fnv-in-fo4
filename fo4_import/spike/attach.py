@@ -36,11 +36,13 @@ from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.writer import pack_string_subrecord
 from tes5_import.record_types.crime_falloutnv import ENEMY_LIST_EDID
 from script_convert.constants import (FALLOUT4_CHAT_PREFIX, FALLOUT4_POSE_PREFIX, FALLOUT4_SCREEN_PREFIX,
-                                      FALLOUT4_SWAP_PREFIX, FALLOUT4_TALK_PREFIX, TALKING_LISTS_PROPERTY,
-                                      papyrus_script_name)
+                                      FALLOUT4_SWAP_PREFIX, FALLOUT4_TALK_PREFIX, FALLOUT4_WALK_PREFIX,
+                                      TALKING_LISTS_PROPERTY, papyrus_script_name)
 
 #: The player reference, which converted scripts name `Player`.
 PLAYER = ('Player', 0x14)
+#: Name prefixes of the Scene properties the conversation builder makes: a talk, a chat, a SayTo package's walk-up.
+TALK_PREFIXES = (FALLOUT4_TALK_PREFIX, FALLOUT4_CHAT_PREFIX, FALLOUT4_WALK_PREFIX)
 #: MESG DNAM Message Box, the one flag FNV and FO4 share (FNV bit 1 is Auto Display, FO4's Delay Initial Display).
 MESSAGE_BOX = 0x1
 #: A message button's test that never passes: the player is not the player's base (FO4 Player 0x7).
@@ -139,7 +141,7 @@ class ObjectScripts:
     def properties(self, script: str, only: 'set | None' = None) -> dict:
         """{property: FormID} of converted `script`'s properties the spike can fill (those named in `only`).
 
-        A `TES4Talk_<topic>` scene gets its FormID here, kept in `talks` for the conversation builder;
+        A `TES4Talk_<topic>` scene (TALK_PREFIXES) gets its FormID here, kept in `talks` for the conversation builder;
         material swaps, imagespace modifiers and poses are made on demand (_made). A name matches the build's
         forms ignoring case, as FNV's script names do (SunnyREF is the reference SunnyRef).
         """
@@ -147,8 +149,7 @@ class ObjectScripts:
             (self.dir / f'{script}.psc').read_text(encoding='utf-8')) if only is None or prop in only]
         messages = {prop: self.message(prop) for kind, prop in declared if kind == 'Message' and prop in self.messages}
         props = fill(declared, {**self.forms, 'Message': messages}, self.helper_index)
-        talks = {prop: self.talk(prop) for kind, prop in declared
-                 if kind == 'Scene' and prop.startswith((FALLOUT4_TALK_PREFIX, FALLOUT4_CHAT_PREFIX))}
+        talks = {prop: self.talk(prop) for kind, prop in declared if kind == 'Scene' and prop.startswith(TALK_PREFIXES)}
         made, named = {prop: self._made(kind, prop) for kind, prop in declared}, self.named_lower()
         placed = {prop: self.unique_actors[prop.lower()] for kind, prop in declared
                   if prop.lower() in self.unique_actors and _is_reference_type(kind)}

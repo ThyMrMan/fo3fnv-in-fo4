@@ -57,7 +57,7 @@ from fo4_import.pipeline.export_index import asset_root, export_file, own_record
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
-#: The built gun's file beside the plain conversion, which FNV's statics and misc items may share.
+#: How a built gun's file ends (gun_mesh), beside the plain conversion FNV's statics and misc items may share.
 GUN_SUFFIX = '_gun.nif'
 #: derive_formid site of a copied mod (key: the FNV gun's FormID and its attach point's EditorID, one part each).
 SITE = 'FNV OMOD'
@@ -79,6 +79,13 @@ RACE_EDID = 'FNV_HumanRaceSubGraphDataAdditive'
 def _fnv_path(export_dir, rec: dict):
     """FNV gun `rec`'s mesh file in the export."""
     return export_file(export_dir, 'meshes', rec['Model.MODL'].replace('\\', '/').lower())
+
+
+def gun_mesh(model: str, edid: str) -> str:
+    """Gun `edid`'s built mesh beside its plain conversion `model`, one per gun.
+    See: docs/fork/fo4_spikes.md#gun-mesh-per-gun
+    """
+    return f'{model[:-len(".nif")]}_{edid.lower()}{GUN_SUFFIX}'
 
 
 def turned(position: tuple, angle: tuple, scale: float, matrix: np.ndarray) -> tuple:
@@ -157,7 +164,7 @@ class Guns:
         if int(rec.get('DNAM.Flags1', 0)) & FNV_BACKPACK:
             static = gun.without(static, gun.BACKPACK)
         nodes = gun.fnv_nodes(fnv_path)
-        layout = gun.fnv_layout(static, nodes)
+        layout = gun.kept_layout(static, nodes)
         if layout is None:
             count(SourceFault(fnv_path, 'gun mesh has no shapes'))
             self.builder.counts['guns not on their FNV mesh (a source fault)'] += 1
@@ -182,7 +189,7 @@ class Guns:
         name, obts = _default(template)
         model, fnv_path, static, nodes, layout = fnv_mesh
         path, _ = write_assets(self.builder.export_dir, model, self.builder.data_dir, animated=False)
-        out_path = path[:-len('.nif')] + GUN_SUFFIX
+        out_path = gun_mesh(path, rec['EditorID'])
         held = self.taken.pop(id(fnv_mesh), None)
         held = held[2:] if held is not None and held[0] is fnv_mesh and held[1] is choice else (None, None)
         receiver, matrix, made = held[0] or self.built(choice, fnv_mesh)
@@ -207,18 +214,15 @@ class Guns:
         return self.clips
 
     def built(self, choice: Choice, fnv_mesh: tuple) -> tuple:
-        """(receiver NIF bytes, placement, FO4 gun NIF bytes) of choose()'s `fnv_mesh` built on `choice`'s receiver
-        (nif.gun.placement, nif.gun.gun)."""
-        _, _, static, nodes, _ = fnv_mesh
+        """(receiver bytes, *nif.gun.built()) of `fnv_mesh` on `choice`'s receiver."""
         receiver = self._read(choice.model)
-        matrix = gun.placement(static, nodes, receiver)
-        return receiver, matrix, gun.gun(static, nodes, receiver, matrix)
+        return receiver, *gun.built(fnv_mesh[2], fnv_mesh[3], receiver)
 
     def clip_args(self, rec: dict, template: tuple, fnv_path, receiver: bytes, mesh: tuple) -> tuple:
         """GunClips.key's args for gun `rec` (`mesh`: FO4 mesh, placement) on `template`."""
         subs, combo = template
         return (rec, self.choices.clip_keywords(subs, combo), fnv_path, gun.receiver_bones(receiver), mesh[1],
-                (gun.pieces(mesh[0]), gun.pieces(receiver)))
+                (gun.kept_pieces(mesh[0]), gun.kept_pieces(receiver)))
 
     def _predicted(self) -> list:
         """[(FNV FormID, WEAP record, FO4 EditorID or None, mods)] of the plugin's own guns not built yet that a build
@@ -336,6 +340,8 @@ class Guns:
         edid = f'{RACE_EDID}_{plugin_stem(self.builder.export_dir)}' if built else RACE_EDID
         own = (lambda kw: kw >> 24 == writer.own_index) if built else None
         subs = self.clips.race(edid, own) if self.clips else None
+        if self.clips:
+            self.clips.save_stamps()
         if subs:
             fid = writer.derive_formid(RACE_SITE, edid)
             self.builder.writer.add_record('RACE', pack_fo4_record('RACE', fid, 0, b''.join(

@@ -81,11 +81,11 @@ def start_findings(ctx) -> list:
 
 
 def aliases(rec) -> list:
-    """[(alias name, {subrecord: [data]})] of a QUST's reference aliases, in order."""
+    """[(alias name, {subrecord: [data]})] of a QUST's reference aliases, in order; ALST holds the alias id."""
     out, current = [], None
     for sub in rec.subrecords:
         if sub.type == 'ALST':
-            current = defaultdict(list)
+            current = defaultdict(list, ALST=[sub.data])
         elif sub.type == 'ALED' and current is not None:
             out.append((first_text(current['ALID']), current))
             current = None

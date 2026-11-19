@@ -327,6 +327,13 @@ On a Fallout 4 build, a placed activator counts as a speaker: radio lines name
 their station's talking activator (`RadioNewVegasTA`, placed twice), which says
 them ([radio dialogue](../fork/fo4_radio.md#radio-dialogue)).
 
+A said line's follow-up (FNV's TCFU, `FollowUp[i]`) is said right after it, so
+the follow-up's topic is reachable too. 1,107 FNV lines carry one, and 75
+topics are reachable only that way: Sunny's tutorial end
+(`VCG02QuestTransition` and its choices `VCG02GSSunnySmilesTopic006`/`007`),
+Doc Mitchell's topics 076 and 083 to 085, Raul's stories and Caesar's topics.
+Fallout3.esm has none.
+
 Two topics are reached per case, not globally:
 - **Radio:** a station plays its own RadioHello lines and the topics its own
   lines choose (`radio_lines`), as the build's `steps()` does. RadioGoodbye is

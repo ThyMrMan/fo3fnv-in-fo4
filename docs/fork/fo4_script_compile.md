@@ -79,6 +79,65 @@ scan and the cross-script Property scan.
 `AWillow4a.PCsexpartners == 0` became `== None` against what is now an Int. It now checks
 the ref-as-number map first, just as it already checked the Actor promotion.
 
+## <a id="ondeath-on-a-reference"></a>OnDeath on a reference script
+
+A script that sits on both containers and creatures extends ObjectReference, and Fallout 4
+refuses an `Event OnDeath` there ("new event ondeath cannot be defined because the script
+is not flagged as native"). Fallout 3's `FFER05LootBoxSCRIPT` (three containers, one
+brahmin) failed this way, and with it every script naming it (`FFERepeatA`, `FFER15LootBox`,
+`FFER73LootBox`). The block now becomes Fallout 4's remote event,
+`Event Actor.OnDeath(Actor akSender, Actor akKiller)`, registered with
+`RegisterForRemoteEvent` on the script's own actor from OnCellAttach, OnLoad and OnInit,
+next to OnHit's `RegisterForHitEvent`. On a container the actor cast is None and
+nothing registers. Code: `target.remote_death`, `assemble.lifecycle`.
+
+## <a id="player-faction-mirror"></a>No PlayerFaction mirror on Fallout 4
+
+`setfactionreaction X PlayerFaction n` also called `TES4Polyfill.MirrorPlayerFactionRelation`,
+which copies the change onto Skyrim's own PlayerFaction. The Fallout 4 polyfill has no such
+function (it is in `FALLOUT4_UNUSED_HELPERS`), and FO3/FNV's PlayerFaction already is Fallout
+4's (`factions.ENGINE_FACTIONS`), so the converter no longer writes the call there. Fallout 3's
+`MS01QuestScript` (Big Town) failed to compile on it. Through `BigtownSentryScript`, so
+did every dialogue line's end fragment that runs a generic `SayToDone`, Dad's "boy or a girl?"
+line included: the birth stopped before the sex choice.
+
+## <a id="ref-widening"></a>A `ref` widened to Form
+
+A TES4 `ref` holds references, base records and the number 0 alike. Papyrus will not put a
+base record (`let rCrosshairsLast := JailShoes`, an Armor) in an ObjectReference, so a `ref`
+that also holds one is declared Form, the one type that takes both. Only a value an
+ObjectReference cannot hold widens it: an ObjectReference, an Actor or a converted script's
+type stays as is (`symbols._fits_reference`).
+
+`_mixed_record_type`, the case of a `ref` also cleared with 0, widened on any record type
+it was given, and read `player` as its NPC_ record, an ActorBase. The player is emitted
+`Game.GetPlayer()`, an Actor, as the record-kinds pass already knew. Fallout 3's
+`MQ01Script` sets `targetRef` to 0, the player and four actors' references, so it became
+Form, and passing it as the target of `SayWhenFree` (an ObjectReference) failed to compile.
+Both passes now share `_assigned_type` (the player is an Actor) and `_fits_reference`, so
+`MQ01Script` and the ten scripts that name it compile (Sarah Lyons' squad, `QF_MQ01` and
+its lines).
+
+## <a id="package-events"></a>Package blocks run from the package's fragments (2026-11-16, not yet played)
+
+`begin OnPackageStart|Done|End|Change <package>` became Fallout 4's `OnPackageStart` and
+`OnPackageEnd`/`OnPackageChange` actor events, guarded on the package. Those events never
+reach a converted actor script: every scripted actor's `OnPackageStart` traces `pkgstart`,
+and no log has a single one. In Fallout 3's baby steps, Dad walked to
+`CG01DadExitRoomMarker` and stood in the open playroom door, because
+`OnPackageDone CG01DadCloseDoor` (stage 18 closes and locks the door) never ran. His
+`CG01DadCloseGate` package, which sets stage 16 from its own OnEnd script, did run. Vanilla
+answers a package from its fragments too: one vanilla script uses the events.
+
+On Fallout 4 the block is now a function on its own script, `TES4_<block>_<package>()`, and
+the named package's fragments call it on the actor through a cast that is None for any
+other actor, as SayToDone does: Start in OnBegin, Done in OnEnd (completed), Change in
+OnChange (left), End in both. A package that a block names gets that fragment even with no
+script of its own. `package_events.package_hooks` reads the scripts and packages once, and
+the converter (`PF_` script) and the importer (VMAD flags) share it through
+`package_sections(rec, hooked)`. Fallout 3 has 67 such blocks in 35 scripts, New Vegas 36 in
+20.
+
 ## <a id="record-compared-to-zero"></a>A record compared to 0 on first sight
 
 Willow writes `... && NovacPlayersRoom == 0` with a bare cell name. The `== 0` to

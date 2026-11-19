@@ -38,7 +38,7 @@ from script_convert.anim_playing_falloutnv import played
 from script_convert.message_menus import PAGE_OPTIONS
 from script_convert.poll_motion import axis_key, rate_scale
 from script_convert.emit import expr as _expr
-from script_convert.constants import PLAYER_BASE_FORMID, typed_already
+from script_convert.constants import PLAYER_BASE_FORMID, is_player, typed_already
 from script_convert.constants_falloutnv import (FALLOUT_COMMAND_ALIASES,
                                                 FALLOUT_UNMAPPED_ACTOR_VALUES)
 from tes5_import.dialogue.say_topics import PLAYER_TOKENS
@@ -658,7 +658,7 @@ def start_combat(ctx, call) -> str:
         return None
     ref = ctx._resolve_self_ref(call.ref, call.extends, actor_func=True)
     target = _as_actor(ctx, call.arg(0))
-    if (call.ref or '').lower() in ('player', 'playerref'):
+    if is_player(call.ref):
         return f'{ref}.StartCombat({target})'
     if ref == 'Self' and call.extends == 'ObjectReference':
         ref = self_as_actor()
@@ -699,7 +699,7 @@ def mod_disposition(ctx, call) -> str:
         return ctx.note('ModDisposition')
     target = _as_actor(ctx, call.arg(0))
     ref = ctx._resolve_self_ref(call.ref, call.extends, actor_func=True)
-    if (call.ref or '').lower() in ('player', 'playerref'):
+    if is_player(call.ref):
         return f'{ref}.StartCombat({target})'
     return ctx._force_combat_call(ref, target)
 
@@ -1022,7 +1022,7 @@ def is_action_ref(ctx, call) -> str:
     if not len(call):
         return f'{ctx._get_action_ref_param()} == None'
     src = call.source(0).strip()
-    arg = ('Game.GetPlayer()' if src.lower() in ('player', 'playerref')
+    arg = ('Game.GetPlayer()' if is_player(src)
            else call.arg(0))
     return f'{ctx._get_action_ref_param()} == {arg}'
 

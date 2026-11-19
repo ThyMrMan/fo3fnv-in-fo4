@@ -1,0 +1,79 @@
+# Fallout: New Vegas's opening on Fallout 4, part 1: VCG01, Ain't That a Kick in the Head, to the Vit-o-matic.
+# Runs after Fallout 4's character creation, on an MO2 profile with FalloutNV.esm ("New Vegas"):
+#   python -m tools.live.fo4_story_cases tests/story/fo4_creation.f4test tests/story/fnv_opening --set SEX=male
+# Leaving the sink sets VCG00 stage 0: FNV's intro movie (FNVIntro.bik, skipped with T twice), the cemetery,
+# then stage 100 moves the player to Doc Mitchell's and sets VCG01 stage 0.
+# Speakers are display names; INFOs and refs are the source (FalloutNV.esm) FormIDs.
+# Source refs: the trigger before the Vit-o-matic 104C16, the Vit-o-matic 104C13 (docs/fork/fo4_opening_progression_plan.md).
+
+case vcg01_wake_up
+until 120 GetStageDone FNV_VCG00 0 == 1              # leaving the sink starts the source game
+menu 60 PlayBinkMenu                                  # VCG00 stage 0's intro movie, interruptible
+wait 2
+press T
+wait 1
+press T
+until 300 GetStageDone FNV_VCG00 100 == 1             # the cemetery: Benny, Victor; 100 hands off to VCG01
+until 120 GetStage FNV_VCG01 >= 10                    # Doc's timers and lines; 10 names the player (a note on FO4)
+until 120 GetStage FNV_VCG01 >= 20                    # 17's Male/Female box answers itself with the mirror's sex
+until 120 GetStage FNV_VCG01 >= 40                    # 36's Reflectron is the mirror's (skipped): 40 on leaving it
+until 120 GetStage FNV_VCG01 >= 55                    # Doc's lines set 45 and 55: the player may walk
+end
+
+case vcg01_vit_o_matic
+walk {FalloutNV.esm:104C16}                           # into the trigger before the machine: 60
+until 10 GetStage FNV_VCG01 >= 60
+heard Doc Mitchell 001074A2                           # Doc's line at 60 shows objective 30 as it ends; the machine checks it
+walk {FalloutNV.esm:104C13} 64                        # to the Vit-o-matic
+activate {FalloutNV.esm:104C13}                       # use it: 65, and the SPECIAL card opens
+menu 30 SPECIALMenu
+invoke SPECIALMenu List_mc.selectedIndex=1            # Strength; each 5, with 5 points to spend (40)
+invoke SPECIALMenu IncrementPoints()                  # the right arrow
+invoke SPECIALMenu IncrementPoints()
+invoke SPECIALMenu IncrementPoints()
+invoke SPECIALMenu IncrementPoints()
+invoke SPECIALMenu IncrementPoints()
+invoke SPECIALMenu BGSCodeObj.startEditText()           # edit the name, as pressing its row does
+invoke SPECIALMenu onVirtualKeyboardResult Courier 1          # the card shows the name
+invoke SPECIALMenu BGSCodeObj.endEditText Courier            # and the game takes it, as the card does on Enter
+close 30 SPECIALMenu                                  # its Done (tryCloseMenu), as the Accept button
+closed 30 SPECIALMenu
+until 10 GetStage FNV_VCG01 >= 65
+end
+
+case vcg01_psych_test
+until 120 GetStage FNV_VCG01 >= 80                    # Doc reacts (70), the skull test is skipped (76, 79), he heads for his chair (80)
+walk {FalloutNV.esm:103E55} 100                       # DocMitchellCouchREF, inside VCG01DocMitchellCouchTriggerREF
+activate {FalloutNV.esm:103E55}                       # sit: the trigger sees the player seated, then Doc starts the talk
+menu 120 DialogueMenu                                 # 0010558F: "...say the first thing that comes to mind. Dog."
+look {FalloutNV.esm:104C0F}                           # DocMitchellREF: seated, the player faces the couch's way
+choose 60 Cat.
+choose 60 Shelter.
+choose 60 Campfire.
+choose 60 Bribe.
+choose 60 Dark.
+choose 60 Caretaker.
+choose 60 Strongly agree.                             # five statements
+choose 60 Strongly agree.
+choose 60 Strongly agree.
+choose 60 Strongly agree.
+choose 60 Strongly agree.
+choose 60 A broken chain.                             # three inkblots
+choose 60 I see a priceless work of art.
+choose 60 A light in the darkness.
+until 60 GetStageDone FNV_VCG01 85 == 1              # "Well, that is all she wrote": its end sets 85
+end
+
+case vcg01_tags_traits
+until 60 GetStage FNV_VCG01 >= 90                     # 85 timer: SetTagSkills 3 opens our CRUI_LevelUp in TagsMode
+menu 60 CRUI_LevelUp
+wait 2                                                # Open fills the menu
+invoke CRUI_LevelUp ProcessUserEvent XButton 0        # X (released) keeps the three tags the psych test suggested
+closed 30 CRUI_LevelUp
+until 120 GetStage FNV_VCG01 >= 102                   # Doc trait intro (95), its timer (98, 100): ShowTraitMenu (102)
+menu 60 CRUI_LevelUp
+wait 2
+invoke CRUI_LevelUp ProcessUserEvent XButton 0        # no traits: X keeps none
+closed 30 CRUI_LevelUp
+until 60 GetStage FNV_VCG01 >= 105                    # Doc farewell transition
+end

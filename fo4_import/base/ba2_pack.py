@@ -30,6 +30,7 @@ import shutil
 from pathlib import Path
 
 from core.build_resources import pool_workers
+from fo4_import.base import touched
 from fo4_import.base.ba2 import Archive
 from fo4_import.base.ba2_textures import write_textures
 from fo4_import.base.ba2_write import same_bytes, write_general
@@ -236,9 +237,10 @@ def _staged_files(staged: Path, keep: 'set | None') -> dict:
     return out
 
 
-def _pack(archive: Path, files: dict, make) -> None:
+def _pack(archive: Path, files: dict, make, unchanged: set = frozenset()) -> None:
     """Pack `archive` with make(kept) unless the record beside it shows the same `files` ({key: [size, mtime]})
-    packed; `kept` are the keys unchanged since the archive on disk was packed."""
+    packed; `kept` are the keys unchanged since the archive on disk was packed, by their record or as `unchanged`
+    says (bytes known equal). When those are all its keys, only the record is written again."""
     state = hashlib.sha1(json.dumps(files, sort_keys=True).encode()).hexdigest()
     record = pack_record(archive)
     packed = _read_json(record)
@@ -247,7 +249,9 @@ def _pack(archive: Path, files: dict, make) -> None:
     if current and packed.get('files') == state:
         return
     before = packed.get('manifest', {}) if current else {}
-    make({key for key, value in files.items() if before.get(key) == value})
+    kept = {key for key, value in files.items() if before.get(key) == value} | (unchanged & before.keys())
+    if kept != before.keys() or kept != files.keys():
+        make(kept)
     stat = archive.stat()
     record.parent.mkdir(parents=True, exist_ok=True)
     record.write_text(json.dumps({'files': state, 'archive': [stat.st_size, stat.st_mtime_ns], 'manifest': files}),
@@ -347,7 +351,8 @@ def _pack_general(archive: Path, named: dict, held: 'dict | None' = None) -> Non
     if files:
         everything = {**dict.fromkeys(held), **named}
         _pack(archive, {name.lower(): value for name, value in files.items()},
-              lambda kept: write_general(everything, archive, kept, {name: value[0] for name, value in files.items()}))
+              lambda kept: write_general(everything, archive, kept, {name: value[0] for name, value in files.items()}),
+              {name.lower() for name in held})
     for stale in () if files else (archive, pack_record(archive)):
         stale.unlink(missing_ok=True)
 
@@ -367,9 +372,11 @@ def archived(archive: Path) -> 'dict | None':
 
 def _held(archive: Path, main: dict, replaced: tuple) -> dict:
     """What `archive` keeps as packed ({name as it spells it: [size, mtime]}, archived()): each loose file of
-    `main` ({name: path}) whose size and time, else bytes, match its packed copy; with `replaced` folders, also
-    every entry outside them that is not loose (a stage that rewrites only those folders).
+    `main` ({name: path}) whose size and time (or those before this run touched it: touched.before), else bytes,
+    match its packed copy, at its time now; with `replaced` folders, also every entry outside them that is not
+    loose (a stage that rewrites only those folders), at its recorded time.
     See: docs/fork/fo4_pipeline.md#unchanged-bytes
+    See: docs/fork/fo4_pipeline.md#touched
     """
     record = archived(archive) or {}
     spelled = {name.lower(): name for name in record}
@@ -377,10 +384,11 @@ def _held(archive: Path, main: dict, replaced: tuple) -> dict:
     held = {spelled[n]: record[spelled[n]] for n in spelled
             if replaced and n not in loose and not n.startswith(replaced)}
     stats = {n: loose[n].stat() for n in spelled.keys() & loose.keys()}
-    same = {n for n, st in stats.items() if record[spelled[n]] == [st.st_size, st.st_mtime_ns]}
+    same = {n for n, st in stats.items()
+            if record[spelled[n]] in ([st.st_size, st.st_mtime_ns], touched.before(loose[n], st))}
     sized = {n: loose[n] for n, st in stats.items() if n not in same and record[spelled[n]][0] == st.st_size}
     for n in same | (same_bytes(archive, sized) if sized else set()):
-        held[spelled[n]] = record[spelled[n]]
+        held[spelled[n]] = [stats[n].st_size, stats[n].st_mtime_ns]
     return held
 
 
@@ -545,13 +553,21 @@ def _archive(path: str, _size: int, _mtime: int) -> Archive:
 
 
 def data_file(data_dir: Path, rel: str) -> 'bytes | None':
-    """The bytes of Data path `rel` in `data_dir`: loose, else from its top-level archives; None when neither."""
-    loose = Path(data_dir) / rel
-    if loose.is_file():
-        return loose.read_bytes()
-    key = str(rel).replace(chr(92), '/').lower()
-    for archive in sorted(Path(data_dir).glob('*.ba2'), reverse=True) if Path(data_dir).is_dir() else ():
-        stamp = str(archive), archive.stat().st_size, archive.stat().st_mtime_ns
-        if key in _names(*stamp):
-            return _archive(*stamp).read(key)
-    return None
+    """Data path `rel`'s bytes in `data_dir`, loose or archived (data_reader)."""
+    return data_reader(data_dir)(rel)
+
+
+def data_reader(data_dir: Path):
+    """read(rel) -> data_file(`data_dir`, rel), its archives listed once: for reads while none of them changes."""
+    data = Path(data_dir)
+    archives = sorted(data.glob('*.ba2'), reverse=True) if data.is_dir() else ()
+    stamps = [(str(a), a.stat().st_size, a.stat().st_mtime_ns) for a in archives]
+
+    def read(rel: str) -> 'bytes | None':
+        """The bytes of Data path `rel`, loose or archived; None when neither."""
+        loose = data / rel
+        if loose.is_file():
+            return loose.read_bytes()
+        key = str(rel).replace(chr(92), '/').lower()
+        return next((_archive(*stamp).read(key) for stamp in stamps if key in _names(*stamp)), None)
+    return read

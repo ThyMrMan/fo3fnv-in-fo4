@@ -391,6 +391,11 @@ def script_prefix(suffix: str = '_') -> str:
     return current_namespace().upper() + suffix
 
 
+def is_player(name: str) -> bool:
+    """Whether TES4 name `name` is the player reference (emitted Game.GetPlayer())."""
+    return (name or '').lower() in ('player', 'playerref')
+
+
 def is_generated_script_type(ptype: str) -> bool:
     """Whether `ptype` names a script class this pipeline generated.
 
@@ -796,15 +801,17 @@ FALLOUT4_HELPER_QUESTS = {'F3NV_PlayerControls': 0x900, 'F3NV_CharacterEvents': 
                           'F3NV_State': 0x903}
 #: Globals -> object id in FALLOUT4_HELPER_PLUGIN.
 FALLOUT4_HELPER_GLOBALS = {'TES4ControlsDisabled': 0xA00, 'TES4Trace': 0xA01}
-#: Message boxes -> (object id in FALLOUT4_HELPER_PLUGIN, title and text, buttons); ids append only.
-FALLOUT4_HELPER_MESSAGES = {'TES4ChooseSexMessage': (0xB00, 'Choose Sex', ('Male', 'Female')),
-                            'TES4SpecialPointMessage': (0xB01, 'Intense Training', (
+#: Message boxes -> (object id in FALLOUT4_HELPER_PLUGIN, title and text, buttons); ids append only (0xB00 retired).
+FALLOUT4_HELPER_MESSAGES = {'TES4SpecialPointMessage': (0xB01, 'Intense Training', (
                                 'Strength', 'Perception', 'Endurance', 'Charisma', 'Intelligence', 'Agility', 'Luck'))}
 #: The converted-creature keyword and FNV's robot frenzy effect -> object id in FALLOUT4_HELPER_PLUGIN.
 FALLOUT4_HELPER_CREATURE_KEYWORD, FALLOUT4_HELPER_ROBOT_FRENZY = 0xC00, 0xC01
+#: The keyword a scripted Say links its speaker to its target with (TES4Polyfill.SayWhenFree) -> its object id.
+FALLOUT4_HELPER_SAY_TARGET_KEYWORD = 0xC02
+#: The player's child race (FO3 AgeRace, TES4Polyfill.AgeRace) and the Pip-Boy addon drawing on it -> object ids.
+FALLOUT4_HELPER_CHILD_RACE, FALLOUT4_HELPER_CHILD_PIPBOY = 0xD00, 0xD01
 #: Helper quest script -> {property: helper message} it is given.
-FALLOUT4_HELPER_QUEST_MESSAGES = {'F3NV_PlayerControls': {'ChooseSex': 'TES4ChooseSexMessage'},
-                                  'F3NV_CharacterEvents': {'SpecialPoint': 'TES4SpecialPointMessage'}}
+FALLOUT4_HELPER_QUEST_MESSAGES = {'F3NV_CharacterEvents': {'SpecialPoint': 'TES4SpecialPointMessage'}}
 #: Prefix of the Scene property `StartConversation Player [topic]` starts on Fallout 4 (topic, else GREETING).
 FALLOUT4_TALK_PREFIX = 'TES4Talk_'
 #: The Scene property that opens a speaker's GREETING on Fallout 4: `StartConversation Player`, a talker's activation.
@@ -813,6 +820,8 @@ FALLOUT4_GREETING_TALK = FALLOUT4_TALK_PREFIX + 'GREETING'
 TALKING_ACTIVATOR = 'TACT'
 #: Prefix of the Scene property an NPC-to-NPC `StartConversation <actor> <topic>` starts on Fallout 4.
 FALLOUT4_CHAT_PREFIX = 'TES4Chat_'
+#: Prefix (then the FO3/FNV package FormID) of the Scene a SayTo Dialogue package to the player starts on Fallout 4.
+FALLOUT4_WALK_PREFIX = 'TES4Walk_'
 #: Prefix of the MatSwap property a Fallout 4 `SwapTexture` applies (fallout4_swap_property).
 FALLOUT4_SWAP_PREFIX = 'TES4Swap_'
 #: Prefix of the seat (ObjectReference) the player's Fallout 4 `AddScriptPackage <package>` seats them in.

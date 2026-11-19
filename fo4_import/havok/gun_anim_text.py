@@ -78,15 +78,21 @@ def persistent_ids(text: str) -> set:
 @dataclass
 class Vanilla:
     """Vanilla's AnimTextData: each graph's clip names (from every offsets file of it), the persistent list (every
-    archive's, joined) and the per-id files, {(kind folder, lower case; id): bytes reader}."""
+    archive's, joined) and the per-id files, {(kind folder, lower case; id): bytes reader}; the (name, size, time)
+    of each archive read (none: not read from archives); the files read so far."""
     clips: dict = field(default_factory=dict)
     persistent: set = field(default_factory=set)
     files: dict = field(default_factory=dict)
+    stamp: tuple = ()
+    read_files: dict = field(default_factory=dict)
 
     def read(self, kind: str, entry: int) -> 'bytes | None':
-        """The file of `kind` (folder name) for `entry`; None without one."""
-        reader = self.files.get((kind.lower(), entry))
-        return reader() if reader else None
+        """The file of `kind` (folder name) for `entry`, read once; None without one."""
+        key = kind.lower(), entry
+        if key not in self.read_files:
+            reader = self.files.get(key)
+            self.read_files[key] = reader() if reader else None
+        return self.read_files[key]
 
 
 def load_vanilla(data: Path) -> Vanilla:
@@ -96,6 +102,8 @@ def load_vanilla(data: Path) -> Vanilla:
         archive = Archive(path)
         if archive.kind != b'GNRL':
             continue
+        stat = path.stat()
+        out.stamp += ((path.name, stat.st_size, stat.st_mtime_ns),)
         for name in archive.entries:
             if not name.startswith(prefix):
                 continue

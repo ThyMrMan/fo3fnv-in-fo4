@@ -1144,7 +1144,8 @@ Exit to Talk, record flag Must Exit To Talk and XMRK `Markers\SleepBed.nif`.
 
 `fo4_import/spike/furniture.py` writes one SNAM per seat or sleeper:
 
-- **Seats.** FNV's front markers stand outside the chair, 31-36 units in
+- **Seats** (placement superseded by [seat landing](#seat-landing); the
+  entry sides stand). FNV's front markers stand outside the chair, 31-36 units in
   front of the converted mesh's front edge (Chair01F: edge 21, marker 54.6).
   Over 129 vanilla sit markers the seat marker sits a median 18 units behind
   the front edge (quartiles 16 and 21), at floor height, facing out. A seat
@@ -1167,6 +1168,36 @@ Exit to Talk, record flag Must Exit To Talk and XMRK `Markers\SleepBed.nif`.
   front marker is midway between a left and right marker facing the same
   seat, the seated actor a quarter turn from them (`Chair_LeftEnter.kf`
   −90°, `Chair_RightEnter.kf` +90°).
+- <a id="seat-landing"></a>**Seats land where FNV's enter animation puts the
+  actor** (replaces the two bullets above, 2026-11-19). The seat 18 behind
+  the front of the bounds assumed nothing stands in front of the seat. The
+  FO3 Vault 101 classroom desks (`VaultSchoolDesk01.nif`, a chair joined to
+  a desk top in front of it) have converted bounds Y −21..75, so the seat
+  went to Y 57, inside the desk top, and the students sat in their desks.
+  FO3's side markers stand at X ±51.5, Y −0.5, and `chair_leftenter.kf` /
+  `chair_rightenter.kf` carry Bip01 50.7 forward and turn ∓90°, landing the
+  student at X ≈ 0, Y −0.5 facing +Y. Vanilla's own school desk
+  (`NpcChairSchoolDeskSit01`) also seats at its mesh's middle (0, 0), not
+  near an edge. `seats()` now puts each sit marker's seat where its enter
+  animation lands it (`chair_forwardenter.kf`: 55.4 forward, 180°), as
+  stools already were: one seat per front marker, or per side marker when
+  the mesh has no front one; each active marker adds its slot's side to the
+  seat it lands nearest. On every one-seat chair the left, right and front
+  landings lie within 1.9 of each other; the two naval benches' left and
+  right markers land 75 apart, two seats the old midpoint merged into one
+  (`NavalBench0xBothSides` now seats two). The child and skirt enter clips
+  move the actor the same. Census over the exports (old seats: the built
+  FO3 plugin where present, else the old rule on the mesh's vertex bounds):
+  all 108 FO3 and 115 of 117 FNV chair bases move, nearly all by 0.5–6
+  units (FO4's median 18 behind the edge and FNV's landing agree that
+  closely); 16 FO3 and 14 FNV bases move more than 12 units or change their
+  seat count: the school desks (57.5), the outhouse (75.8), the naval
+  benches (38–89), the Oasis throne and chair (28–31), the museum benches,
+  `Bench02` and `TopsPoolLoungeChair` (12–18), each a mesh with geometry
+  in front of the seat. In the built FO3 plugin only the three desk bases
+  (`VaultSchoolDeskLeft`/`Right`, `CG03Chair`) move more than 6.2.
+  Vanilla's desk uses `AnimFurnSchoolDeskSitAnims`; FO3 authors no school
+  desk marker, so desks keep the chair keywords.
 - **Stools, floor and restrained sits** (slots 15, 17, 18): the seat is
   where FNV's enter animation leaves the actor (`stoolenter.kf`,
   `sitfloorenter.kf`, `restrainedsitenter.kf`: Bip01's travel, Bip01
@@ -1762,7 +1793,9 @@ character system on LevelUpMenuEx ([decision](research/fo4_target.md#decisions))
     in the Reflectron's own race menu. FO4's remake menu cannot, so
     `F3NV_PlayerControls.ShowRaceMenu` first shows the helper plugin's
     `TES4ChooseSexMessage` (Male, Female; object id `0xB00`) and sets it
-    through `TES4Polyfill.SetSex`. Drift: a box before the editor.
+    through `TES4Polyfill.SetSex`. Drift: a box before the editor. Retired
+    2026-11-17: FO4's own mirror creation picks the sex
+    ([character creation](fo4_pipeline.md#character-creation)).
   - Doc's reaction reads SPECIAL through `GetTES4ActorValue`, which took
     Intelligence and Luck for Oblivion attributes and returned a fixed
     stub on FO4. FO3/FNV have no Oblivion attributes: on Fallout 4
@@ -1824,7 +1857,7 @@ walking). Each is a type 6 package whose only content is a special idle
   FNV's marker stands outside the bed: the twin bed's mesh reaches 49 units
   from its center, the marker 62 (13 outside its edge), and FNV's idle moves
   the player onto it. The seat moves back along the marker's facing to 18
-  units (`SEAT_DEPTH`, a converted chair seat's depth) inside the mesh edge of
+  units (`SEAT_DEPTH`, vanilla's median chair seat depth) inside the mesh edge of
   the nearest furniture, measured within 24 units to either side
   (`seat_place`): 33.7 units for Doc's bed. `HoldPlayer` enables it and has
   the player activate it once its 3D is loaded, with movement and activation
@@ -3069,6 +3102,19 @@ The hockey mask, pre-war hat and reading glasses use FNV's meshes
     hat bit without the mask bit now adds 30: 35 converted hats (the
     caps, Ranger hats, berets, fedoras, head wraps, fire helmet). A hat
     with the mask bit (the hockey mask, White Glove masks) stays off 30.
+  - <a id="hat-above-hair"></a>*Hats that sit on the hair (2026-11-16, not
+    yet played).* FO3's party hats (`HatParty`, `HatPartyStanley`,
+    `KIDHatPartyChild`) carry the hair bit like the helmets, and FO3 draws
+    the hair's `Hat` shape under them. On 30 they hid FO4's hair top and the
+    whole birthday party was bald: the cone sits above the crown (front
+    brim 9.6 to 13.7, against 1.9 to 7.8 for every other FO3 hat) and
+    covers little of the hair. A hat on 30 now drops it
+    (`hair_mesh.sits_on_hair`) when its footprint (xy hull) holds under half
+    of vanilla's hair-top triangle centres (`hat_field`), or it cannot be
+    tipped to the hair line within 20°. FO3, per sex: party hats 0.34 to
+    0.42, the kid's 0.53 to 0.62 (and 20° leaves its back brim at 5.7 and
+    4.8), every other hat 0.78 or more (caps 0.79, combat helmet 0.91).
+    Only the three party hats change.
 - **Records:** an ARMA per item (`FNV_AA_<EditorID>`, hashed FormID)
   with those slots, the template addon's race, priorities and additional
   races, and male and female models (`<mesh>.nif`, `<mesh>_female.nif`).
@@ -3332,6 +3378,36 @@ so every point of FNV's model lands where FNV put it
 (`tests/test_fo4_placed_guns.py`). Counted as `placed guns turned as their
 mesh`. Melee and thrown weapons are not turned: FNV and FO4 build them
 along the same axis.
+
+### <a id="gun-mesh-per-gun"></a>One built mesh per gun (fixed 2026-11-19, not built or played)
+
+A built gun mesh is FNV's mesh on one FO4 receiver's skeleton, but its file
+was named after the FNV mesh alone (`<mesh>_gun.nif`). Guns sharing an FNV
+mesh on different templates wrote the same file, the last one built won, and
+the others drew a mesh rigged to another receiver's bones under their own
+clips and parts. Played 2026-11-19 on FO3's birthday BB gun
+(`CG02WeapBBGun`, Hunting Rifle): the archive held Black Bart's build on the
+Railway Rifle (its steam emitters included). Whole gun 1.4 units off, but
+the lever hangs from `WeaponBolt`, whose rest differs by (0, 11.6, 6.2)
+between the two receivers, so it floated; in the converted sighted pose 26%
+of it sat in the middle of the screen (0% on its own build), and the player
+could not aim down sights. The muzzle moved 1.4 units only, so this does not
+explain shots that never hit.
+
+Now each gun writes `<mesh>_<editorid>_gun.nif` (`guns.gun_mesh`), as its
+first-person clips already sit in a folder of its EditorID. Measured on the
+2026-11-19 builds:
+- FO3: 45 guns on 24 files, 35 sharing 14; 8 guns on 3 files built on 2 or
+  more receivers, 4 of them drawing another receiver's build: the BB gun
+  and `WeapBBGun` (Black Bart's Railway Rifle build), `WeapHuntingRifle`
+  (Ol' Painless's Railway Rifle build) and `WeapSniperRifle` (on the
+  Machinegun receiver, drawing Victory's and the Reservist's pipe rifle build).
+- FNV: 86 guns on 76 files, 19 sharing 9; 5 guns on 2 files on 2 or more
+  receivers, 2 drawing another's: `WeapBBGun` (CG02's Hunting Rifle build)
+  and `WeapNV44RevolverUnique` (the .44 receiver; Mysterious Stranger's and
+  Miss Fortune's revolver build).
+- Every other gun's file is renamed only (same bytes); guns sharing a file
+  on one receiver now write identical copies.
 
 ### <a id="spike-4-gun-clips"></a>FNV's own gun clips on a vanilla graph (built; played 2026-10-28/29; good enough, tweaks parked)
 

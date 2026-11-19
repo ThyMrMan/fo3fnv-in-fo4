@@ -10,6 +10,8 @@ See: docs/commentary/script_convert.md#quest-fragments
 from script_convert.constants import papyrus_script_name, script_prefix
 from script_convert.converter import ScriptConverter
 from script_convert.cross_ref import CrossRefGraph
+from script_convert.quest_fragments_falloutnv import aged_first, guarded, item_guard, stage_calls
+from script_convert.target import is_fallout4
 from script_convert.objective_completion import (
     objective_lines,
     superseded_stages,
@@ -60,12 +62,15 @@ def scripted_count(fragments: list) -> int:
 
 def _fragment_lines(conv, rec: dict, xref, edid: str, frag: tuple,
                     plan: tuple, stage_reveals: dict,
-                    show_objective: bool) -> list:
-    """The Papyrus function for one stage log entry.
+                    show_objective: bool, items_run: tuple = ()) -> list:
+    """The Papyrus function for one stage log entry; `items_run` (guard, [later items it calls]) for
+    Fallout 4 (quest_fragments_falloutnv).
 
     See: docs/commentary/script_convert.md#complete-flag-ends-the-quest
     """
     stage_idx, log_idx, _text, script_src, completes, i, j = frag
+    guard, later = items_run or ('', [])
+    script_src = aged_first(guarded(script_src or '', guard))
     preload_stage_scro_refs(conv, rec, xref, i, j)
     conv.set_scro_aliases(resolve_scro_aliases(
         script_src or '', scro_list(rec, f'Stage[{i}].Log[{j}].'), xref))
@@ -78,8 +83,20 @@ def _fragment_lines(conv, rec: dict, xref, edid: str, frag: tuple,
         out.append(f'  {gname}.SetValue(1)')
     if script_src.strip():
         out.extend(items(conv.convert_fragment(script_src, 'Quest')))
+    out += [f'  Fragment_Stage_{stage_idx:04d}_Item_{item}()' for item in later]
     out += ['EndFunction', '']
     return out
+
+
+def _items_run(rec: dict, fragments: list, xref) -> dict:
+    """{(stage, item): (guard, [later items])} for a Fallout 4 build, else {}.
+    See: docs/fork/fo4_pipeline.md#stage-items
+    """
+    if not is_fallout4():
+        return {}
+    calls = stage_calls(fragments)
+    return {(f[0], f[1]): (item_guard(rec, f'Stage[{f[5]}].Log[{f[6]}].', xref), calls.get((f[0], f[1]), []))
+            for f in fragments}
 
 
 def _merge_property_types(prop_refs: dict) -> dict:
@@ -126,6 +143,7 @@ def quest_fragment_psc(rec: dict, edid: str, xref: CrossRefGraph,
     indices are not objective indices.
     See: docs/commentary/script_convert.md#one-objective-per-stage
     """
+    runs = _items_run(rec, fragments, xref)
     plan = (superseded_stages(rec, fragments),
             sweep_targets(rec, fragments, edid))
     synthesize = 'ObjectiveCount' not in rec
@@ -138,7 +156,7 @@ def quest_fragment_psc(rec: dict, edid: str, xref: CrossRefGraph,
         if show:
             shown.add(frag[0])
         body += _fragment_lines(conv, rec, xref, edid, frag, plan,
-                                stage_reveals, show)
+                                stage_reveals, show, runs.get((frag[0], frag[1])))
         chargen_latch = chargen_latch or conv.sc.uses_chargen_menus
     quest_globals = sorted({g for (q, _s), gs in stage_reveals.items()
                             if q == edid.lower() for g in gs})

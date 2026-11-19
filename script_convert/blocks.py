@@ -25,6 +25,8 @@ from script_convert.constants_falloutnv import (
     FALLOUT_BLOCK_MAP,
     FALLOUT_COMBAT_STATE_GUARDS,
 )
+from script_convert.package_events import SECTIONS as PACKAGE_BLOCKS
+from script_convert.package_events import block_header as package_header
 from script_convert.say_to_done import BLOCK_TYPE as SAY_TO_DONE_BLOCK
 from script_convert.say_to_done import block_header as say_to_done_header
 from script_convert.target import is_fallout4
@@ -112,14 +114,22 @@ FALLOUT4_FILTER_PARAM = {'onactorequip': ('akBaseObject', 'Form')}
 FALLOUT4_GUARDS = {'onfire': f'asEventName == "{WEAPON_FIRE}"'}
 
 
+def runs_from_package(block_type: str, block_filter: str) -> bool:
+    """Whether a block is an FO4 package block naming its package."""
+    return is_fallout4() and block_type in PACKAGE_BLOCKS and bool(re.match(r'\s*\w', block_filter or ''))
+
+
 def block_header(block) -> 'tuple | None':
-    """(opener, closer) a block becomes: SayToDone a function, else an event.
+    """(opener, closer) a block becomes: SayToDone and a Fallout 4 package block a function, else an event.
 
     See: docs/commentary/script_convert.md#saytodone
+    See: docs/fork/fo4_script_compile.md#package-events
     """
     btype = block.btype.lower()
     if btype == SAY_TO_DONE_BLOCK:
         return say_to_done_header(block)
+    if runs_from_package(btype, block.filter):
+        return package_header(block)
     if is_fallout4() and btype in FALLOUT4_BLOCK_MAP:
         return FALLOUT4_BLOCK_MAP[btype]
     return BLOCK_MAP.get(btype)
@@ -196,7 +206,7 @@ def block_filter_guard(conv, block_type: str,
     caller keeps the body commented out rather than running it for every event.
     See: docs/commentary/script_convert.md#block-filter-guards
     """
-    if not block_filter:
+    if not block_filter or runs_from_package(block_type, block_filter):
         return ''
     target = (FALLOUT4_FILTER_PARAM if is_fallout4() and block_type in FALLOUT4_FILTER_PARAM
               else BLOCK_FILTER_PARAM).get(block_type)

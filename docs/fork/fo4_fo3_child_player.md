@@ -20,6 +20,7 @@ Status is in [ROADMAP.md](ROADMAP.md#fo4-app); the spike itself is
 - [The route per age](#route)
 - [The child-race spike](#spike)
 - [The in-game test](#spike-test)
+- [Age before equipping](#age-then-equip)
 
 ## <a id="fo3"></a>What Fallout 3 does
 
@@ -235,6 +236,50 @@ listed at the end.
 12. Save as `childtest-adult`, load it. Note: the face again.
 13. Load `childtest-base` and repeat steps 3-12 with the tints race id.
 
+## <a id="built"></a>Built without the test (2026-11-16, not yet played)
+
+The birthday playtest showed the plan's consequence: an adult body, and
+`KIDVaultSuitChild101 ... cannot be equipped by the passed in actor's race`
+(Papyrus log 2026-11-16 13:31). The race was built without waiting for the
+test kit, with one change from the [spike](#spike): the vanilla child
+addons are overridden, not copied.
+
+- `FalloutHelpers.esl` holds `F3NV_PlayerChildRace` "Child" (object id
+  `0xD00`, `FALLOUT4_HELPER_CHILD_RACE`): the no-tints copy above, on the
+  vanilla child skin.
+- Each Fallout4.esm addon that draws on `HumanChildRace` (16: the child
+  skin's `NakedChildTorso`/`NakedChildHands`, `AAVault81SuitChild`, the
+  `AAClothesKids*` and other child clothes) is overridden there to list the
+  new race among its additional races. Vanilla names every race an addon
+  draws on: 408 of `HumanRace`'s 443 addons list `GhoulRace`. A first
+  build instead gave the race Armor Race (`RNAM`) `HumanChildRace`, as
+  `GhoulRace` has `HumanRace`; the race switched in play
+  (`HumanRace` to `F3NV_PlayerChildRace`, Papyrus log 2026-11-16 14:15)
+  but the body did not change, so Armor Race does not pick addons.
+  Another mod editing one of these 16 addons conflicts with the override.
+- `F3NV_PipboyChildAA` (`0xD01`) is `PipboyAA` on the new race, and the
+  vanilla `Pipboy` (`00021B3B`) is overridden to list it after its own.
+  Code: `fo4_import/helpers_child.py`, from the kit's functions.
+- `AgeRace` converts on Fallout 4 to `TES4Polyfill.AgeRace(ref, steps)`
+  (`command_rows_fallout4`): a younger step from `HumanRace` sets the child
+  race, an older step from it sets `HumanRace`, any other race stays. The
+  race's height is left to the engine (no `SetScale`). Fallout 3 calls it
+  at CG02 stage 5 (`-1`) and 30 (`1`), and in Tranquility Lane
+  (`MQ04Script`, `MQ04PlayerContainerScript`).
+
+Not known until played: whether the switch crashes (the 19401 report), the
+face after the switch back, and whether the race height applies to the
+player.
+
+<a id="child-height"></a>**The race height does not apply to the player
+(played 2026-11-16).** With the child addons overridden, the child body
+drew at adult height, as 19401 reports. `AgeRace` on the player now also
+sets the child race's height by `SetScale(0.825)` (HumanChildRace `DATA`
+male and female height) and `SetScale(1.0)` going older. Papyrus cannot
+read a race's height, so the value is the record's, written into the
+polyfill. Another actor keeps its scale: the engine applies race height to
+NPCs. The test kit still answers those apart from the conversion.
+
 **On a crash,** send from `Documents\My Games\Fallout4\F4SE\` (or the
 OneDrive `Documents` copy):
 
@@ -245,3 +290,17 @@ OneDrive `Documents` copy):
 - `F3NV.log` only when the save also runs our converted game plugins (the
   plain FO4 save writes nothing there);
 - which step crashed and which race id was set.
+
+## <a id="age-then-equip"></a>Age before equipping (2026-11-18, found by the stage sweep; not yet played)
+
+CG02 stage 100 removes the child's items, adds `VaultSuit101`, equips it, and
+only then runs `player.AgeRace 1`. FO3 equips any armor whatever the race. FO4
+equips only what an addon draws on the actor's race, so the suit stayed
+unequipped: "armor cannot be equipped by the passed in actor's race" (FO3
+sweep, `QF_CG02` stage 100), and the player would start CG03 without it.
+The quest fragment writer now moves each `AgeRace` line ahead of the
+`EquipItem` lines before it in the same block
+(`quest_fragments_falloutnv.aged_first`). That gives FO4 the end state
+FO3 reaches, since the race does not matter to FO3's equip. Of Fallout3.esm's 4
+`AgeRace` calls, this is the only one after an equip; CG02 stage 5 and
+MQ04 age the player first.

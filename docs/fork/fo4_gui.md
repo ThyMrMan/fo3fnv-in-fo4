@@ -215,18 +215,57 @@ and `target_box.py`.
     (`run.reached_worlds`) and that have grid cells, whole (Dead Money's 7,
     not its test maps);
   - the master worldspaces whose grid cells it changes: the one with the
-    most cells first, as a region around those cells (or the user's region
-    corners), the others whole. A worldspace's persistent cell (record flag
+    most cells first, as a one-cell region on one of those cells (or the
+    user's region corners), the others whole. The build adds every other
+    grid cell the add-on holds itself
+    ([edited cells](fo4_plugin_layout.md#edited-cells)), so the add-on's
+    cells are built and no others. A worldspace's persistent cell (record flag
     0x400) is not a grid cell: Honest Hearts and Better Brotherhood override
-    WastelandNV's, which would stretch the region to (0, 0);
+    WastelandNV's;
   - with neither, its own first interior as the start cell, new ones first
     (Gun Runners' Arsenal's vendor chest cell); a pack gets neither.
   The test block is off for an add-on. Checked on the exports: Dead Money,
   Honest Hearts, Gun Runners' Arsenal and the four packs come out as the
-  command-line builds of 2026-11-09 were run. Old World Blues and Lonesome
-  Road come out larger: they change 32 and 13 WastelandNV cells across the
-  map (regions -26 -31 22 17 and -22 -26 22 3) and one or two Freeside
-  worldspace cells, which the hand-made builds' entrance regions left out.
+  command-line builds of 2026-11-09 were run.
+
+  <a id="addon-cells"></a>**Only the changed cells (2026-11-14).** The
+  region was once the box around every changed cell. Landscape Disposition
+  Fix changes 503 WastelandNV cells across the map, so its box (-22 -30 21
+  29) was 2,640 cells: nearly the whole game, made again and dropped as
+  unchanged (233,137 references the same as the master's). Built both ways
+  from the same code, the WRLD and QUST groups are byte-identical. The box
+  build also made a crucified-furniture pose race, its keyword and two biped
+  slot keywords on the mod's own ids, all for master content. The cell build
+  instead keeps one unplaced workbench side copy: station sides follow the
+  placements a build sees, so either scope makes one. Build time: 181.9 s
+  against 126.8 s.
+
+  <a id="addon-refs"></a>**Only the add-on's own references (2026-11-14).**
+  Its cells still held every master reference and actor in them (93,571
+  REFRs and 2,074 actors for Landscape Disposition Fix), each made with its
+  base, then dropped as the same as the master's. `master_overrides` keeps a
+  master record the add-on does not hold only when it names one of the
+  add-on's new records, and that only happens for scope artifacts such as a
+  station's side copy. So a build with masters now places only the
+  references its plugin holds (`CellBuilder.placing`, `own_refs`: its own
+  and its overrides). Every other reference in its cells keeps the FO4 FormID
+  its master's build gave it (`master_ref`: the master's id when the master
+  holds it, an actor's from its ledger), without its base being made, so
+  links, enable parents, doors, navmeshes and quests still name it. The
+  cell's key lights are still ranked among all its lights.
+  An owner (XOWN on a reference, cell or encounter zone) that is a master's
+  NPC used to resolve only because placing the master's actor made its
+  base; with no master actors placed, YUP's 138 owned references lost their
+  owner. `owners_from_masters` now maps each NPC named as an owner to the
+  NPC its master's ledger made (`CellBuilder.owner_ids`).
+  Checked against a build placing everything (NewVegasBounties, one cell):
+  29 of 33 groups are byte-identical. The 18 packages differ only in their
+  ForceGreet numbers ([greet once](fo4_pipeline.md#greet-once)): the old
+  build also numbered the master's ForceGreets, so the add-on's own started
+  at 55. The greeting line's 54 fewer conditions are those master
+  ForceGreets, which the master's own greeting line already tests. One
+  unused biped-slot keyword is gone. One interior lost its owner, fixed
+  above.
 
 ### <a id="light"></a>Light plugins: the per-mod opt-in (built 2026-11-12, not run from the app yet)
 
@@ -798,13 +837,41 @@ instance or game yet):
   `tes_runtime/dist/F3NV.dll` into the game output's `F4SE/Plugins`, so the
   output is a complete MO2 mod. The game target only; the DLC and mods use
   the game's.
-- **Faces** (`spike.facegen` on the built plugin, any target): the Creation
-  Kit's FaceGen through MO2, the FNV face fits refined and baked in.
-  Optional and unticked: about 2 s per NPC. It needs the MO2 mod source:
-  the stages run with `F3NV_MO2` set to its instance, which
+- **Faces** (`spike.facegen --own-facegen` on the built plugin, any target;
+  2026-11-15): our own FaceGen heads, the FNV face fits refined and baked
+  in, as the chain makes them (about 20 minutes for the base game). Ticked by
+  default and open on any OS, with or without MO2. The Creation Kit runs
+  only for NPCs our export fails on, through MO2: the stages run with
+  `F3NV_MO2` set to the MO2 mod source's instance, which
   `pipeline.creation_kit` reads in place of the developer's
   `C:\Modlists\fo3fnv-in-fo4` (the build's own Creation Kit steps follow it
-  too). The CK loads MO2's selected profile, not necessarily the source's.
+  too); without one, or off Windows, those NPCs are listed and the stage
+  exits 2. Until then it was the CK's FaceGen for every NPC, needing MO2 and
+  Windows, unticked as it took hours.
+
+### <a id="rebuild"></a>Rebuild what changed (2026-11-15)
+
+The `update` stage runs `fo4_import.pipeline.build_plan --run`, the
+chain's own way to rebuild ([build plan](fo4_plugin_layout.md#build-plan)):
+a plugin whose only changes are code its meshes, archives or scripts parts
+ran is replayed (`part_replay`), the rest rebuilt with the command its
+stamp records, masters first; a plugin's faces run again after its
+rebuild. It gets `stages.rebuilt()`: the target's built plugin, the built
+plugins it reads as masters, and every built plugin reading it, directly
+or through another. Built plugins are the game's, each add-on's, and any
+other with a finished build record in a folder beside the game's output
+(the chain's and the command line's `F3NV - <mod>` folders, which the app
+does not list as add-ons).
+
+- **Ticks.** Once the target has a finished build record, Build (now "whole
+  build") counts as done and starts unticked, and Rebuild what changed is
+  the default; before that it is disabled ("build it once first"). Faces
+  count as done once a faces run finished: the rebuild runs them again
+  when the plugin changes. Ticking Build as well runs the whole build
+  first, then the rebuild (the mods built on it, and stale faces).
+- **On the user's setup** (read only, 2026-11-15): with the game as target,
+  the set is FalloutNV.esm and the 30 mod plugins built on it, Fallout3.esm
+  left out, as the chain's `others` step builds them.
 
 ## <a id="phases"></a>Phases
 

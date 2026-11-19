@@ -26,8 +26,8 @@ def _say(dials: dict, lines: list) -> SAY.SayTopics:
     say.dials, say.infos, say.said, say.borrowed = dials, {'Q': lines}, set(), {}
     say.engine = {**SAY.ENGINE_TOPICS, **B.named_barks(dials)}
     say.replies = B.replies(dials, lines, say.engine)
-    say.builder = SimpleNamespace(new_id=lambda key: 0x900)
-    say.info = lambda rec, form_map, owner=0, place='': b'I'
+    say.builder, say.say_target = SimpleNamespace(new_id=lambda key: 0x900), 0xC02
+    say.info = lambda rec, form_map, owner=0, place='', linked=None: b'I'
     return say
 
 

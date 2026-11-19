@@ -430,6 +430,17 @@ def test_world_links_flag_broken_doors_traps_targets_and_markers():
                     ('world|G|marker|nameless', 'review')}
 
 
+def test_a_trigger_box_without_the_trigger_layer_is_an_error():
+    """A primitive on an activator needs XTRI 12; one on a static, or one that has it, is fine."""
+    layer = struct.pack('<I', 12)
+    index = PluginIndex([rec('ACTI', 0x10), rec('STAT', 0x11),
+                         rec('REFR', 0x20, [('NAME', struct.pack('<I', 0x10)), ('XPRM', b'\0' * 32), ('XTRI', layer)]),
+                         rec('REFR', 0x21, [('NAME', struct.pack('<I', 0x10)), ('XPRM', b'\0' * 32)]),
+                         rec('REFR', 0x22, [('NAME', struct.pack('<I', 0x11)), ('XPRM', b'\0' * 32)])], fo4=True)
+    found = world_links.trigger_findings('G', index)
+    assert [(f.key, f.detail) for f in found] == [('world|G|trigger|layer', ('00000021',))]
+
+
 #: Papyrus log lines of each shape the triage groups, with their stack frames.
 PAPYRUS = [
     'error: Property Door on script X_A attached to  (0F000001) cannot be bound because  (0F000002) is not the right type',

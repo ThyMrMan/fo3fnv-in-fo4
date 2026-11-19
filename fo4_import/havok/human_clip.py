@@ -12,6 +12,7 @@ part it maps to (PART_ENDS); a bone without a part takes its leader's turn.
 See: docs/fork/fo4_idles.md#clips
 """
 
+import pickle
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +24,8 @@ from external.pynifly_hkx.anim_fo4 import parse_fo4_skeleton, write_fo4_animatio
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.havok.kf_cache import decoded
+from fo4_import.pipeline.elric_cache import write_new
+from fo4_import.pipeline.work_cache import cached
 
 FO4_SKELETON = 'meshes\\actors\\character\\characterassets\\skeleton.hkx'
 FNV_SKELETON = 'characters\\_male\\skeleton.nif'
@@ -36,6 +39,8 @@ UNIT_SCALE = 1.0
 SOUND_KEY = 'sound'
 #: Every annotation track's name: vanilla leaves them blank (all 1,500 clips surveyed in fo4_idles.md#encoder-test).
 TRACK_NAME = ''
+#: FNV text keys (lower case) bounding the section an idle's loop count repeats.
+LOOP_KEYS = ('startloop', 'endloop')
 #: A seated first frame: each thigh's drop over its length below [0], the pelvis below [1] of its rest height.
 SEATED = (0.5, 0.75)
 #: FNV finger chain (Bip01 <side> ...) -> FO4 finger number, thumb first.
@@ -82,39 +87,62 @@ class HumanClips:
     def __init__(self, export_meshes: Path):
         """Clips read from `export_meshes` (the export's meshes folder)."""
         self.meshes = export_meshes
-        fo4 = parse_fo4_skeleton(Archives(FALLOUT4_DIR / 'Data', 'Fallout4 - Animations.ba2').read(FO4_SKELETON))
+        raw = Archives(FALLOUT4_DIR / 'Data', 'Fallout4 - Animations.ba2').read(FO4_SKELETON)
+        self.skeletons = (raw, (export_meshes / FNV_SKELETON).read_bytes())
+        fo4 = parse_fo4_skeleton(raw)
         self.pose = {b: (tuple(p.translation), (p.rotation[3], *p.rotation[:3]), UNIT_SCALE)
                      for b, p in zip(fo4.bones, fo4.reference_pose)}
         self.fo4 = Skeleton(fo4.bones, fo4.parents, [compose(t, quat_wxyz_to_mat(q), s) for t, q, s in self.pose.values()])
         self.fnv = Skeleton.from_nif(str(export_meshes / FNV_SKELETON))
         self.deltas = matching_pose(self.fnv, self.fo4)
 
-    def write(self, kf: str, out: Path, props=()) -> None:
-        """Convert the FNV clip at `kf` (relative to the meshes folder) to `out`, showing `props` (anim_props.Prop
-        or fnv_props.ConvertedProp)."""
+    def write(self, kf: str, out: Path, props=(), loops: int = 0) -> None:
+        """_converted() of FNV clip `kf` written to `out`; work-cached.
+        See: docs/fork/fo4_idles.md#clip-cache
+        """
+        inputs = ((self.meshes / kf).read_bytes(), pickle.dumps((tuple(props), loops), protocol=5), *self.skeletons)
+        write_new(out, cached('human_clip', __name__, inputs, lambda: self._converted(kf, out, props, loops)))
+
+    def _converted(self, kf: str, out: Path, props, loops: int) -> bytes:
+        """The FO4 clip of FNV clip `kf` (under meshes) showing `props`, its loop section (loop_section) played
+        `loops` times when over 1, written to `out`; its bytes."""
         clip = decoded(str(self.meshes / kf))[0]
         moved = retarget_clip(clip, self.fnv, self.fo4, BONES, self.deltas, translated=(COM,))
         events = [(0.0, HEAD_TRACKING[0]), (float(clip.duration), HEAD_TRACKING[1])]
         for prop in props:
             events += prop.events(clip.text_keys, float(clip.duration))
             moved.tracks.append(prop.track(clip, self.fnv))
-        self._save(moved, list(dict.fromkeys(events)), out)
+        section = loop_section(clip.text_keys, float(clip.duration)) if loops > 1 else None
+        if section:
+            extra = (loops - 1) * (section[1] - section[0])
+            events = [(t + extra if t >= section[1] else t, text) for t, text in events]
+        self._save(moved, list(dict.fromkeys(events)), out, section and (*section, loops))
+        return out.read_bytes()
 
     def write_pose(self, kf: str, out: Path, sound) -> None:
         """Convert FNV furniture clip `kf` to `out` as a furniture pose in FNV's marker frame (the marker is FNV's),
         no head tracking (vanilla's furniture clips carry no events), each `Sound: <EditorID>` key played by
-        `sound(EditorID)` (an event or None).
+        `sound(EditorID)` (an event or None); work-cached, keyed by those events too.
         See: docs/fork/fo4_pipeline.md#crucifix
+        See: docs/fork/fo4_idles.md#clip-cache
         """
         clip = decoded(str(self.meshes / kf))[0]
-        moved = retarget_clip(clip, self.fnv, self.fo4, BONES, self.deltas, translated=(COM,))
         keys = [(float(t), key.partition(':')) for t, key in clip.text_keys]
         events = [(t, sound(name.strip())) for t, (kind, _, name) in keys if kind.strip().lower() == SOUND_KEY]
-        self._save(moved, [e for e in events if e[1]], out)
+        events = [e for e in events if e[1]]
+        inputs = ((self.meshes / kf).read_bytes(), pickle.dumps(events, protocol=5), *self.skeletons)
+        write_new(out, cached('human_pose', __name__, inputs, lambda: self._posed(clip, events, out)))
 
-    def _save(self, moved, events: list, out: Path) -> None:
-        """Write retargeted clip `moved` with `events` [(time, text)] to `out`, its tracks unnamed."""
+    def _posed(self, clip, events: list, out: Path) -> bytes:
+        """Decoded FNV `clip` retargeted and written to `out` with `events`; its bytes."""
+        self._save(retarget_clip(clip, self.fnv, self.fo4, BONES, self.deltas, translated=(COM,)), events, out)
+        return out.read_bytes()
+
+    def _save(self, moved, events: list, out: Path, repeat: tuple = None) -> None:
+        """Write retargeted clip `moved` with `events` [(time, text)] to `out`, its tracks unnamed, a section
+        `repeat` (start, end, times) played that many times (repeated)."""
         anim = clip_to_animation_data(moved, self.fo4.names, self.pose, events)
+        anim = repeated(anim, *repeat) if repeat else anim
         anim.bone_names = [TRACK_NAME] * anim.num_tracks
         out.parent.mkdir(parents=True, exist_ok=True)
         write_fo4_animation(str(out), anim)
@@ -131,6 +159,30 @@ class HumanClips:
             hip, knee = (world[self.fnv.index[f'Bip01 {side} {b}']][3, :3] for b in ('Thigh', 'Calf'))
             drops.append((hip[2] - knee[2]) / np.linalg.norm(knee - hip))
         return max(drops) < SEATED[0] and world[pelvis][3, 2] < SEATED[1] * rest[pelvis][3, 2]
+
+
+def loop_section(text_keys, duration: float) -> tuple:
+    """(start, end) seconds of a clip's `StartLoop`/`EndLoop` text keys (any case); the whole clip without them.
+    See: docs/fork/fo4_idles.md#loop-counts
+    """
+    keys = {text.strip().lower(): float(t) for t, text in text_keys}
+    start, end = keys.get(LOOP_KEYS[0], 0.0), keys.get(LOOP_KEYS[1], duration)
+    return (start, end) if end > start else (0.0, duration)
+
+
+def repeated(anim, start: float, end: float, times: int):
+    """`anim` (anim_fo4.AnimationData) with its frames from `start` to `end` seconds played `times` times, in place;
+    its annotations are already timed for the result."""
+    first, last = (round(t / anim.frame_duration) for t in (start, end))
+    for track in anim.tracks:
+        for name in ('translations', 'rotations', 'scales'):
+            keys = getattr(track, name)
+            if len(keys) == anim.num_frames:
+                setattr(track, name, keys[:last] + keys[first:last] * (times - 1) + keys[last:])
+    anim.num_frames += (times - 1) * (last - first)
+    anim.duration = (anim.num_frames - 1) * anim.frame_duration
+    anim.num_blocks = -(-(anim.num_frames - 1) // (anim.max_frames_per_block - 1)) or 1
+    return anim
 
 
 def matching_pose(fnv: Skeleton, fo4: Skeleton) -> dict:

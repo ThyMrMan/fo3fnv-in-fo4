@@ -39,17 +39,18 @@ from fo4_import.spike.packages import listed
 from fo4_import.spike.entry_condition import condition_of
 from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.head_parts import choose, head_parts_edit
-from fo4_import.spike.npc_skills import with_skills
+from fo4_import.spike.npc_skills import merged_prps, with_skills
 from fo4_import.spike.own_heads import OwnHeads
 from fo4_import.spike.placement import place, placement, starts_disabled
 from fo4_import.spike.stand_in_fields import checked
 from fo4_import.spike.voice_types import with_voice
 from fo4_import.spike.void_actors import VOID_FOLDER, VoidActors
-from fo4_import.spike.actor_data import (ACBS_TEMPLATE, NPC_FLAGS, STARTS_DEAD, UNIQUE, hit_proof, starts_dead,
-                                         with_actor_data)
+from fo4_import.spike.actor_data import (ACBS_TEMPLATE, AUTO_CALC, HEALTH, NPC_FLAGS, STARTS_DEAD, UNIQUE, StatTables,
+                                         added_health, hit_proof, starts_dead, with_actor_data)
 from fo4_import.spike.ragdoll_pose import Poses, ragdolls
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_subrecord
+from tes5_import.record_types.actors_falloutnv import npc_health
 
 #: Body subrecords a converted NPC leaves out: factions, crime faction, short name (subtitles), scripts (Jones').
 BODY_TIES = frozenset({b'SNAM', b'CRIF', b'SHRT', b'VMAD', b'LTPT', b'LTPC'})
@@ -255,6 +256,14 @@ def with_perks(perks: list):
     return edit
 
 
+def with_health(stats: dict, settings: dict, tables: StatTables):
+    """NPC edit: own Health = `stats`' npc_health less added_health.
+    See: docs/fork/fo4_pipeline.md#npc-health
+    """
+    health = npc_health(stats, settings.__getitem__)
+    return lambda subs: merged_prps(subs, {HEALTH: health - added_health(subs, tables)})
+
+
 def composed(*edits):
     """One record edit applying `edits` (None skipped) in order; None when there are none."""
     present = [e for e in edits if e is not None]
@@ -348,7 +357,7 @@ class Npcs:
         self.voids, self.poses, self.own_heads = VoidActors(builder), None, OwnHeads(builder, export_dir)
         lines = [line for quest in getattr(getattr(builder, 'say', None), 'infos', {}).values() for line in quest]
         names = {int(r['FormID'], 16): r['EditorID'] for r in export_records(export_dir, 'CLAS') if r.get('EditorID')}
-        self.classes = Classes(builder, lines, names, HUMAN_CLASS)
+        self.classes = Classes(builder, lines, names, HUMAN_CLASS, creatures.stat_tables.health)
 
     def source(self, fnv: int, flag: int) -> 'dict | None':
         """The NPC or creature `fnv` takes part `flag` from (template_source); None if a list."""
@@ -510,7 +519,7 @@ class Npcs:
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, body.body, body.flags, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), BODY_TIES, b'',
             checked(self.builder.counts, body.body, rec['EditorID'],
-                    composed(*parts, with_template(template, flags, traits), None if body is not male else with_class()))))
+                    composed(None if body is not male else with_class(), *parts, with_template(template, flags, traits)))))
         self.builder.counts['NPC_ (template actor)'] += 1
         return fid
 
@@ -556,13 +565,15 @@ class Npcs:
         return self.made_lists[fnv]
 
     def _actor_data(self, fnv: int):
-        """The edit giving FNV NPC `fnv` its (or its templates') flags, level band and AI data (actor_data)."""
+        """The edit giving FNV NPC `fnv` its (or its templates') flags but Auto-calc, level band, AI data
+        (actor_data) and hit points (with_health)."""
         npc = self.records[fnv]
         flags = int((self.source(fnv, USE_BASE_DATA) or npc).get('ACBS.Flags', 0))
         female = int((self.source(fnv, USE_TRAITS) or npc).get('ACBS.Flags', 0)) & FEMALE
-        stats = {**(self.source(fnv, USE_STATS) or npc), 'ACBS.Flags': flags & ~FEMALE | female}
+        stats = {**(self.source(fnv, USE_STATS) or npc), 'ACBS.Flags': flags & ~(FEMALE | AUTO_CALC) | female}
         proof = hit_proof(self.export_dir, self.source(fnv, USE_SCRIPT) or npc)
-        return with_actor_data(stats, self.source(fnv, USE_AI_DATA) or npc, NPC_FLAGS, proof)
+        return composed(with_actor_data(stats, self.source(fnv, USE_AI_DATA) or npc, NPC_FLAGS, proof),
+                        with_health(stats, self.builder.combat_styles.settings, self.creatures.stat_tables))
 
     def _skills(self, fnv: int):
         """FNV NPC `fnv`'s (or stats template's) skills edit; None from a list."""
@@ -575,13 +586,15 @@ class Npcs:
         return own + vendor_snam(self.builder, fnv)
 
     def _inventory(self, fnv: int, child_race: int = 0):
-        """The edit giving FNV NPC `fnv` (or its template) its worn items as an outfit, the rest as inventory; a
-        child (on FO4 `child_race`) wears only what draws on it (_child_worn)."""
+        """The edit giving FNV NPC `fnv` (or its template) its worn items as an outfit, the rest as inventory, a Use
+        All list as its entries (Items.given); a child (on FO4 `child_race`) wears only what draws on it
+        (_child_worn)."""
         rec, items = self.source(fnv, USE_INVENTORY) or {}, self.builder.items
         worn, carried = [], []
-        for i in range(int(rec.get('ItemCount', 0))):
-            item = int(rec[f'Item[{i}].FormID'], 16)
-            made, entry = items.item(item), (int(rec[f'Item[{i}].Count']), condition_of(int(rec['FormID'], 16), i))
+        given = [out for i in range(int(rec.get('ItemCount', 0))) for out in items.given(
+            int(rec[f'Item[{i}].FormID'], 16), int(rec[f'Item[{i}].Count']), condition_of(int(rec['FormID'], 16), i))]
+        for item, count, condition in given:
+            made, entry = items.item(item), (count, condition)
             if made is not None and items.wearable(item):
                 worn.append((item, made, entry))
             elif made is not None:

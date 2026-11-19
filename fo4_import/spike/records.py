@@ -73,7 +73,11 @@ XDI_KEYWORD = 0x800
 #: SCEN ACTV (Dialogue Distance Override); the menu scene also ends past it, as 127 vanilla phases end on GetDistance.
 DIALOGUE_DISTANCE = 500.0
 RUN_QUEST_ALIAS = 5
-OP_GREATER = 0x40
+#: FO4 CTDA Run On Linked Reference: the subject's linked reference of the keyword in parameter 3.
+RUN_LINKED_REF = 4
+OP_GREATER, OP_LESS = 0x40, 0x80
+#: Scene action FNAM Ignore For Completion (MS07b_001's package action): the phase's conditions end it.
+IGNORED = 0x80000
 FUNC_GET_DISTANCE = 1
 PLAYER = 0x14
 #: Fallout4.esm's MiscMod01 TRNS: the Pip-Boy preview transform (PTRN) of 1,128 vanilla misc items.
@@ -111,7 +115,7 @@ def _zstr(sig: str, text: str) -> bytes:
 
 def pack_ctda(op_flags: int, value: float, func: int, p1: int = 0, p2: int = 0,
               run_on: int = RUN_SUBJECT, ref: int = 0, param3: int = -1) -> bytes:
-    """One FO4 condition (32 bytes); param3 is the alias id run on a quest alias."""
+    """One FO4 condition (32 bytes); param3 an alias id or linked-ref keyword."""
     data = struct.pack('<B3xfH2xIIIIi', op_flags, value, func, p1, p2, run_on, ref, param3)
     return pack_subrecord('CTDA', data)
 
@@ -203,25 +207,40 @@ def pack_dialogue_action(index: int, alias: int, topic: int, phase: int = 0, lis
     return subs + pack_subrecord('ANAM', b'')
 
 
-def pack_scen(fid: int, edid: str, quest: int, alias: int, actions: list, keyword: int,
-              phases: tuple = ('Menu',), flags: int = 0, listener: 'int | None' = None, vmad: bytes = b'') -> bytes:
-    """A scene of named `phases` in order with actor `alias` and `actions` (indices 1..n), tagged with `keyword`
-    (0: none), FNAM SCENE_FLAGS plus `flags`; with a `listener` actor too, an NPC-only scene (NPC_SCENE_FLAGS);
-    `vmad` its fragments.
+def pack_package_action(index: int, alias: int, package: int, phase: int = 0) -> bytes:
+    """A Package scene action: `alias` runs `package` (IGNORED)."""
+    subs = pack_subrecord('ANAM', struct.pack('<H', 1)) + _zstr('NAM0', '') + _s32('ALID', alias)
+    subs += pack_u32('INAM', index) + pack_u32('FNAM', IGNORED) + pack_u32('SNAM', phase) + pack_u32('ENAM', phase)
+    return subs + pack_u32('PNAM', package) + pack_subrecord('ANAM', b'')
 
-    A one-phase scene also completes once the alias is farther than
-    DIALOGUE_DISTANCE from the player; with several phases each completes
-    on its actions, as vanilla's do (a completion condition holds the phase
-    until it is true).
+
+def near_player(alias: int, reach: float) -> bytes:
+    """A condition: `alias` is within `reach` of the player."""
+    return pack_ctda(OP_LESS, reach, FUNC_GET_DISTANCE, PLAYER, run_on=RUN_QUEST_ALIAS, param3=alias)
+
+
+def pack_scen(fid: int, edid: str, quest: int, alias: int, actions: list, keyword: int,
+              phases: tuple = ('Menu',), flags: int = 0, listener: 'int | None' = None, vmad: bytes = b'',
+              ends: 'dict | None' = None) -> bytes:
+    """A scene of named `phases` in order with actor `alias` and `actions` (indices 1..n), tagged with `keyword`
+    (0: none), FNAM SCENE_FLAGS plus `flags`; with a `listener` too, an NPC-only scene (NPC_SCENE_FLAGS), the
+    listener Optional unless an action is its; `vmad` its fragments; `ends` {phase: completion conditions}.
+
+    A one-phase player scene also completes once the alias is farther than DIALOGUE_DISTANCE from the player.
+    See: docs/fork/fo4_pipeline.md#npc-chat-distance
+    See: docs/fork/fo4_pipeline.md#chat-listener-required
     """
-    walked_off = b'' if len(phases) > 1 else pack_ctda(OP_GREATER, DIALOGUE_DISTANCE, FUNC_GET_DISTANCE, PLAYER,
-                                                       run_on=RUN_QUEST_ALIAS, param3=alias)
+    alone = len(phases) > 1 or listener is not None
+    walked_off = b'' if alone else pack_ctda(OP_GREATER, DIALOGUE_DISTANCE, FUNC_GET_DISTANCE, PLAYER,
+                                             run_on=RUN_QUEST_ALIAS, param3=alias)
+    acts = listener is not None and any(_s32('ALID', listener) in action for action in actions)
     subs = _zstr('EDID', edid) + (pack_subrecord('VMAD', vmad) if vmad else b'')
     subs += pack_u32('FNAM', (SCENE_FLAGS if listener is None else NPC_SCENE_FLAGS) | flags)
     for phase in phases:
-        subs += pack_subrecord('HNAM', b'') + _zstr('NAM0', phase) + pack_subrecord('NEXT', b'') + walked_off
+        subs += pack_subrecord('HNAM', b'') + _zstr('NAM0', phase) + pack_subrecord('NEXT', b'')
+        subs += (ends or {}).get(phase, walked_off)
         subs += pack_subrecord('NEXT', b'') + pack_u32('WNAM', 350) + pack_subrecord('HNAM', b'')
-    for actor, optional in ((alias, 0),) if listener is None else ((alias, 0), (listener, ACTOR_OPTIONAL)):
+    for actor, optional in ((alias, 0),) if listener is None else ((alias, 0), (listener, 0 if acts else ACTOR_OPTIONAL)):
         subs += _s32('ALID', actor) + pack_u32('LNAM', 4 | optional) + pack_u32('DNAM', 10)
     subs += b''.join(actions) + pack_u32('PNAM', quest) + pack_u32('INAM', len(actions))
     subs += pack_subrecord('VNAM', struct.pack('<4I', 3, 3, 3, 3)) + pack_subrecord('ACTV', struct.pack('<f', DIALOGUE_DISTANCE))
@@ -355,7 +374,7 @@ def _sounds(sigs: tuple, sounds: tuple) -> bytes:
 
 def pack_fnv_quest(fid: int, edid: str, name: str, priority: int, vmad: bytes, stages: list, objectives: list,
                    aliases: list, start: bool = False, repeats: bool = False) -> bytes:
-    """A quest: scripts, stages [(index, log flags)], objectives [(index, text, [alias ids])], aliases.
+    """A quest: scripts, stages [(index, log flags)], objectives [(index, text, [(alias id, CTDAs)])], aliases.
 
     Aliases are [(alias id, name, reference or None)] (see _alias), as an
     objective targets an alias in FO4, not a reference. `start`: start game
@@ -370,7 +389,7 @@ def pack_fnv_quest(fid: int, edid: str, name: str, priority: int, vmad: bytes, s
         subs += pack_subrecord('INDX', struct.pack('<HBB', index, 0, 0)) + pack_subrecord('QSDT', bytes([log_flags]))
     for index, text, targets in objectives:
         subs += pack_subrecord('QOBJ', struct.pack('<H', index)) + pack_u32('FNAM', 0) + _zstr('NNAM', text)
-        subs += b''.join(pack_subrecord('QSTA', struct.pack('<iII', alias, 0, 0)) for alias in targets)
+        subs += b''.join(pack_subrecord('QSTA', struct.pack('<iII', alias, 0, 0)) + ctdas for alias, ctdas in targets)
     subs += pack_u32('ANAM', max((alias[0] for alias in aliases), default=-1) + 1)
     subs += b''.join(_alias(*alias) for alias in aliases)
     return pack_fo4_record('QUST', fid, 0, subs)

@@ -13,7 +13,7 @@ See: docs/commentary/script_convert.md#getfactionrelation-has-two-receivers
 
 from fo4_import.base.bink import movie_key
 from fo4_import.spike.type_tests import BIPED_SLOT_PREFIX, CREATURE_TYPES, WEAPON_SLOT, creature_keyword, equipped_slot
-from script_convert.constants import (FALLOUT4_POSE_PREFIX, fallout4_screen_property, fallout4_swap_property,
+from script_convert.constants import (FALLOUT4_POSE_PREFIX, is_player,fallout4_screen_property, fallout4_swap_property,
                                       papyrus_script_name, safe_property_name, typed_already)
 from script_convert.anim_action_falloutnv import anim_action
 from script_convert.anim_playing_falloutnv import anim_playing
@@ -222,15 +222,19 @@ def show_message(ctx, call):
 
     Declines (None) so the row renders a plain Show() unless the MESG is one
     of this script's planned button sites (message_menus.button_messages).
+    On Fallout 4 the script's only box, when it picks the player's sex, is
+    answered from the sex FO4's character creation set (TES4Polyfill.SexButton).
     See: docs/commentary/script_convert.md#fnv-showmessage-menus
     """
     name = authored_site(ctx.message_menus, ctx.sc.edid,
                          call.source(0).strip() if len(call) else '')
     if not name:
         return None
+    ctx.sc.uses_msg_buttons = True
+    if is_fallout4() and ctx.sc.sex_buttons and len(ctx.message_menus[ctx.sc.edid.lower()]) == 1:
+        return 'TES4_MsgButton = TES4Polyfill.SexButton(%d, %d)' % ctx.sc.sex_buttons
     mesg = safe_property_name(name)
     ctx.sc.property_refs[mesg] = 'Message'
-    ctx.sc.uses_msg_buttons = True
     return f'TES4_MsgButton = TES4_ShowMsg({mesg})'
 
 
@@ -417,7 +421,7 @@ def player_package(ctx, call):
     the seat that package becomes, or leaves it empty. Declines for other receivers and targets.
     See: docs/fork/fo4_spikes.md#spike-2-vcg01
     """
-    if not is_fallout4() or (call.ref or '').lower() not in ('player', 'playerref'):
+    if not is_fallout4() or not is_player(call.ref):
         return None
     ctx.sc.property_refs[CONTROLS_PROPERTY] = CONTROLS_SCRIPT
     if call.name == 'removescriptpackage' or not len(call):

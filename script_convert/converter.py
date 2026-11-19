@@ -10,7 +10,8 @@ from script_convert.constants import (
     COMBAT_APPROACH_QUEST, FALL_DAMAGE_SPELL, KNOWN_GLOBALS, LAST_ACTIVATOR_VAR, LOOSE_OPS, UDF_RESULT_VAR, PAPYRUS_BOOL_FUNCTIONS, PLACED_REF_SIGS,
     PLAYER_ALIAS_EXTENDS, RETURN_TYPES, SELF_NAMES, _REF_TYPES,
     _canonical_global, digit_stripped_formid, _record_type_to_base_papyrus,
-    formid_property_name, papyrus_quoted, generated_script_stem, is_generated_script_type, safe_property_name,
+    formid_property_name, papyrus_quoted, generated_script_stem, is_generated_script_type, is_player,
+    safe_property_name,
     papyrus_script_name, resolve_property_formid,
 )
 from script_convert.command_rows import (
@@ -24,8 +25,10 @@ from script_convert.command_rows import (
 from script_convert import command_rows_fallout4 as _fo4_rows
 from script_convert import quest_var_mirrors as _quest_vars, resolve_name as _resolve_name
 from script_convert import assemble as _assemble
+from script_convert import trace_points as _trace
 from script_convert import commands as _commands
 from script_convert.context import ScriptContext
+from script_convert.message_menus import sex_buttons
 from script_convert.implicit_subject import stage_subject as implicit_stage_subject
 from script_convert.poll_interval import quest_delay_arm, update_interval
 from script_convert.target import av_call, is_fallout4, script_as_actor, self_as_actor, variable_type
@@ -453,7 +456,9 @@ class ScriptConverter:
             'Int Function TES4_ShowMsg(Message TES4_akMsg, ' + ', '.join(
                 f'Float afArg{n} = 0.0' for n in range(1, 10)) + ')',
             '  TES4_MsgButton = -1',
+            *_trace.message('shown'),
             '  TES4_MsgButton = TES4_akMsg.Show(' + ', '.join(f'afArg{n}' for n in range(1, 10)) + ')',
+            *_trace.message('answered'),
             *(['  TES4_MessageBoxClosed()'] if self.sc.msgbox_hook else []),
             '  Return TES4_MsgButton',
             'EndFunction',
@@ -578,6 +583,10 @@ class ScriptConverter:
         """
         low = name.lower()
         return low in COMPARISON_BOOL_FUNCTIONS or is_fallout4() and low in _fo4_rows.COMPARISON_BOOL
+
+    def returns_number(self, name: str) -> bool:
+        """Does the target's row answer `name` with a number?"""
+        return is_fallout4() and name.lower() in _fo4_rows.NUMBER_VALUED
 
     def emit_name(self, name: str, extends: str) -> str:
         """A local, a zero-argument command read, or an external property."""
@@ -1288,6 +1297,7 @@ class ScriptConverter:
         # otherwise lands a String in whatever the target is declared as.
         self.sc.obse_arrays = {v.name.lower() for v in tree.variables
                              if v.vtype.lower() == 'array_var'}
+        self.sc.sex_buttons = sex_buttons(source)
         variables = [(v.vtype, v.name) for v in tree.variables]
         return variables, [(b.btype, b.filter, b.body) for b in tree.blocks]
 
@@ -1534,12 +1544,7 @@ class ScriptConverter:
         # that starts MQ01, so MQ00 could never be completed either.
         name = _QUOTED_NAME_RE.sub(r'\1', name.strip())
         low = name.lower()
-        # A declared local otherwise wins over the built-in keywords, including
-        # `player`.  StartCelleAufzugTriggerZone01Script declares `Short Player`
-        # as its own trigger flag; mapping that to Game.GetPlayer() turned
-        # `Set Player to 1` into the un-assignable `Game.GetPlayer() = 1`.
-        # (The same precedence is applied further down for EditorIDs.)
-        _is_player_kw = low in ('player', 'playerref')
+        _is_player_kw = is_player(low)
         if ((low in self.sc.local_vars or low in self.sc.var_types)
                 and not (as_receiver and _is_player_kw)):
             return safe_property_name(name)
@@ -1751,14 +1756,11 @@ class ScriptConverter:
             return None
         amount = float(literal)
 
+        other = None if is_fallout4() else {f1.lower(): f2, f2.lower(): f1}.get('playerfaction')
+
         def _mirror(mode: int) -> str:
-            if f1.lower() == 'playerfaction':
-                return ('\n  TES4Polyfill.MirrorPlayerFactionRelation('
-                        f'{f2}, {mode})')
-            if f2.lower() == 'playerfaction':
-                return ('\n  TES4Polyfill.MirrorPlayerFactionRelation('
-                        f'{f1}, {mode})')
-            return ''
+            """The mirror line; none on FO4, where PlayerFaction is the player's."""
+            return f'\n  TES4Polyfill.MirrorPlayerFactionRelation({other}, {mode})' if other else ''
 
         if is_mod:
             # A relative nudge: treat any negative shift as souring the

@@ -545,3 +545,14 @@ def test_a_creature_standing_in_on_a_tunneling_race_never_tunnels():
     robot = 2 << 24 | FALLOUT4_HELPER_CREATURE_KEYWORD
     assert ids == {0xE01: (7, CR.DISABLE_TUNNELING), 0xE02: (7, CR.DISABLE_TUNNELING), 0xE03: (7,), 0xE04: (7,),
                    0xE05: (7, robot)}
+
+
+def test_a_level_0_creature_keeps_its_health_against_fo4s_negative_level_bonus():
+    """FO3's level-0 radroach (Health 5, race 3): FO4 adds (level - 1) x 5 = -5, so its own is 7, not 2 (it
+    spawned at 0 health in game)."""
+    from fo4_import.spike import creatures as CR
+    body = b''.join(pack_subrecord(tag, data) for tag, data in (
+        ('ACBS', struct.pack('<IhH', 0x18, 3, 0) + bytes(8)), ('RNAM', struct.pack('<I', 0x4716C)),
+        ('PRPS', struct.pack('<If', CR.HEALTH, 1.0))))
+    out = CR.with_stats({'DATA.Health': '5'}, {0x4716C: 3.0})(body)
+    assert struct.unpack('<If', dict(subrecords(out))[b'PRPS']) == (CR.HEALTH, 7.0)

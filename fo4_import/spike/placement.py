@@ -1,12 +1,13 @@
-"""FNV reference subrecords FO4 keeps, read from FalloutNV.esm: bounds, primitive, portal rooms, ragdoll, parents,
-ownership, item count (XCNT), open by default (ONAM) and an occlusion plane's size and linked planes (XOCP,
-XORD), all in FNV's layout.
+"""FO3/FNV reference subrecords FO4 keeps, read from the source plugin (install.use_source): bounds, primitive,
+portal and linked rooms, ragdoll, parents, ownership, item count (XCNT), open by default (ONAM) and an occlusion
+plane's size and linked planes (XOCP, XORD), all in the source's layout.
 
 The export writes a reference's XPRM but not XMBO (a room marker's bound
-half extents), XPOD (a portal's origin and destination rooms) or XRGD (the
-bone pose of a ragdolled object, such as a lying skeleton). Fallout 4 has
-all four in FNV's layout, so they are copied from the plugin itself, read
-once per build; a portal's rooms are renumbered as every reference is.
+half extents), XPOD (a portal's origin and destination rooms), XRMR/XLRM
+(a room's linked rooms, FO3's) or XRGD (the bone pose of a ragdolled
+object). Fallout 4 has them in the same layout, so they are copied from the
+plugin itself, read once per build; their rooms are renumbered as every
+reference is.
 A portal keeps no XMBO, as none of Fallout4.esm's 1,725 portals has one, and
 neither does a trigger box (an activator's primitive): none of its 5,335 do.
 An owner (XOWN, FNV's 4 bytes in FO4's 12) is its converted faction or NPC;
@@ -22,9 +23,13 @@ from fo4_import.base.install import source_walk
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
-#: The subrecords copied, in FO4's REFR order.
-KEPT = (b'XMBO', b'XPRM', b'XPOD', b'XORD', b'XOCP', b'XRGD', b'XRDS', b'XAPD', b'XAPR', b'XOWN', b'XRNK', b'XESP', b'XCNT', b'XPRD',
-        b'ONAM', b'XMRK', b'FNAM', b'FULL', b'TNAM')
+#: The subrecords written, in FO4's REFR order: all copied but XTRI, the trigger layer an activator's primitive gets.
+ORDER = (b'XMBO', b'XPRM', b'XPOD', b'XORD', b'XOCP', b'XRMR', b'XLRM', b'XRGD', b'XRDS', b'XAPD', b'XAPR', b'XTRI',
+         b'XOWN', b'XRNK', b'XESP', b'XCNT', b'XPRD', b'ONAM', b'XMRK', b'FNAM', b'FULL', b'TNAM')
+#: The subrecords copied.
+KEPT = tuple(tag for tag in ORDER if tag != b'XTRI')
+#: XTRI on a primitive placed on an activator: FO4's L_TRIGGER, as vanilla's DN050BabyTrigger writes it.
+TRIGGER_LAYER = struct.pack('<I', 12)
 #: Patrol data after XPRD as all 7,684 vanilla points write it: flag, no idle, then a PDTO (none crashes FO4).
 PATROL_REST = pack_subrecord('XPPA', b'') + pack_subrecord('INAM', bytes(4))
 #: A map marker's fields, kept only on a reference with XMRK (FNV uses TNAM and XRDS elsewhere too).
@@ -49,23 +54,38 @@ def _activators() -> frozenset:
     return frozenset(rec.form_id for rec, _ in source_walk(b'ACTI', b'TACT'))
 
 
+def _on_activator(tags: dict) -> bool:
+    """Whether a reference's subrecords {tag: data} place an activator."""
+    return b'NAME' in tags and struct.unpack('<I', tags[b'NAME'])[0] in _activators()
+
+
 def _room_bound(subs: list) -> bool:
     """Whether a reference's subrecords hold an XMBO not on a trigger box.
     See: docs/fork/fo4_pipeline.md#rooms
     """
     tags = dict(subs)
-    return b'XMBO' in tags and (b'NAME' not in tags or struct.unpack('<I', tags[b'NAME'])[0] not in _activators())
+    return b'XMBO' in tags and not _on_activator(tags)
+
+
+def _trigger(subs: list) -> bool:
+    """Whether a reference's subrecords place a primitive (XPRM) on an activator."""
+    tags = dict(subs)
+    return b'XPRM' in tags and _on_activator(tags)
 
 
 @functools.cache
 def _scan() -> tuple:
     """({FNV reference FormID: [(tag, data)]} of the references and actors holding any KEPT subrecord,
-    {FormID: record flags} of all of them), read once from FalloutNV.esm; a trigger box's XMBO left out."""
+    {FormID: record flags} of all of them), read once from the source plugin; a trigger box's XMBO left out, its
+    trigger layer added.
+    See: docs/fork/fo4_pipeline.md#trigger-layer
+    """
     out, flags = {}, {}
     for rec, _ in source_walk(b'REFR', b'ACHR', b'ACRE'):
         flags[rec.form_id] = rec.flags
         subs = list(subrecords(rec.body))
         found = [(tag, data) for tag, data in subs if tag in KEPT and (tag != b'XMBO' or _room_bound(subs))]
+        found += [(b'XTRI', TRIGGER_LAYER)] if _trigger(subs) else []
         if found:
             out[rec.form_id] = found
     return out, flags
@@ -147,6 +167,15 @@ def _field(tag: bytes, data: bytes, ids: dict, owner: 'bytes | None') -> 'bytes 
     return data
 
 
+def _linked_rooms(found: list, ids: dict) -> list:
+    """`found` with its linked rooms (XLRM) through `ids`, sorted, those not built dropped, XRMR counting the rest.
+    See: docs/fork/fo4_pipeline.md#linked-rooms
+    """
+    rooms = sorted(r for r in (_renumbered(struct.unpack('<I', d)[0], ids) for t, d in found if t == b'XLRM') if r)
+    kept = [(t, bytes([len(rooms)]) + d[1:] if t == b'XRMR' else d) for t, d in found if t != b'XLRM']
+    return kept + [(b'XLRM', struct.pack('<I', room)) for room in rooms]
+
+
 def _patrol_rest(fnv_fid: int, arrivals: dict) -> bytes:
     """XPPA, INAM and a PDTO naming the point's `arrivals` topic (else 0)."""
     return PATROL_REST + pack_subrecord('PDTO', struct.pack('<II', 0, arrivals.get(fnv_fid, 0)))
@@ -155,16 +184,16 @@ def _patrol_rest(fnv_fid: int, arrivals: dict) -> bytes:
 def placement(fnv_fid: int, ids: dict, owners: dict = None, pose: bool = True, arrivals: dict = None) -> bytes:
     """FO4 subrecords of FNV reference `fnv_fid`'s KEPT fields, references through `ids` {FNV hex: FO4}.
 
-    Portal rooms are renumbered; an enable or activate parent not built is dropped; an owner maps through
+    Portal and linked rooms are renumbered; an enable or activate parent not built is dropped; an owner maps through
     `owners` {FNV FormID: FO4}, else it and its rank drop; a map marker keeps its flags, name, type and
     radius. Without `pose` XRGD drops (FNV ragdoll bones). A patrol point's PDTO is its `arrivals` topic.
     See: docs/fork/fo4_pipeline.md#parents
     See: docs/fork/fo4_pipeline.md#patrol-points
     """
-    found = fields().get(fnv_fid, [])
+    found = _linked_rooms(fields().get(fnv_fid, []), ids)
     owner, portal = owned(found, owners or {}), any(t == b'XPOD' for t, _ in found)
     marker, out = any(t == b'XMRK' for t, _ in found), b''
-    for tag, data in sorted(found, key=lambda f: KEPT.index(f[0])):
+    for tag, data in sorted(found, key=lambda f: ORDER.index(f[0])):
         skip = tag == b'XMBO' and portal or tag in MARKER and not marker or tag == b'XRGD' and not pose
         kept = None if skip else _field(tag, data, ids, owner)
         out += pack_subrecord(tag.decode(), kept) if kept is not None else b''

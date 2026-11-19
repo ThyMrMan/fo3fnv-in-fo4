@@ -3,6 +3,7 @@
 See: docs/fork/fo4_plugin_layout.md#which-builds
 """
 
+import concurrent.futures
 import importlib
 import json
 import os
@@ -22,6 +23,7 @@ from fo4_import.pipeline import build_steps as BS
 from fo4_import.pipeline import code_identity as CI
 from fo4_import.pipeline import mod_dirs as MD
 from fo4_import.pipeline import ran_code as RC
+from fo4_import.pipeline import stage_timer as ST
 from fo4_import.pipeline import work_cache as WC
 from fo4_import.pipeline.code_tag import ROOT
 from tes5_import.base.writer import pack_subrecord
@@ -176,6 +178,9 @@ def recording(tmp_path, monkeypatch):
     monkeypatch.setattr(BI, '_SEEN', {k: set() for k in BI._SEEN})
     monkeypatch.setattr(BI, '_STATE', {'on': False, 'main': False})
     monkeypatch.setattr(BI, 'MASTERS', BI.MasterLog())
+    monkeypatch.setattr(RC, 'PARTS', {})
+    monkeypatch.setattr(RC, '_PART', [None])
+    monkeypatch.setenv(RC.PART_ENV, '')
     monkeypatch.delenv(BI.ENV, raising=False)
     BI.start(tmp_path / 'record')
     yield tmp_path
@@ -210,6 +215,56 @@ def test_a_build_records_what_it_read_not_what_it_wrote(recording):
     assert BP.check(plugin) == (BP.CURRENT, '')
     source.write_text('fnv2', encoding='utf-8')
     assert BP.check(plugin) == (BP.BUILD, f'file {BI.norm(source)}')
+
+
+def _asset_helper(v: int) -> int:
+    """A repo function run only in an assets stage."""
+    return v * 2
+
+
+def _pack_stage() -> None:
+    """An assets stage running _asset_helper and _helper."""
+    _asset_helper(2)
+    _helper(2)
+
+
+def test_a_build_records_the_parts_each_function_ran_in(recording):
+    """A function run only in an assets stage is kept under assets; one run before it, in records, under both;
+    a change to the first is an assets-only change, to the second a change to both."""
+    data = recording / 'data'
+    _helper(1)
+    ST.timed('pack', RC.ARCHIVES)(_pack_stage)()
+    plugin = data / 'Test.esm'
+    _finished(plugin)
+    rec = json.loads(BI.write(plugin, data, ['--export', 'x']).read_text(encoding='utf-8'))
+    parts, asset, both = rec['code_parts'], 'tests/test_fo4_build_plan.py::_asset_helper', \
+        'tests/test_fo4_build_plan.py::_helper'
+    assert asset in parts[RC.ARCHIVES] and asset not in parts[RC.RECORDS]
+    assert both in parts[RC.ARCHIVES] and both in parts[RC.RECORDS]
+    assert BP.stale_parts({**rec, 'code': {**rec['code'], asset: 'old'}}) == {RC.ARCHIVES}
+    assert BP.stale_parts({**rec, 'code': {**rec['code'], both: 'old'}}) == {RC.ARCHIVES, RC.RECORDS}
+    assert BP.stale_parts({'code': {both: 'old'}}) is None
+
+
+def _worker_helper(v: int) -> int:
+    """A repo function run only in a pool worker."""
+    return v - 1
+
+
+def _pool_stage() -> int:
+    """An assets stage running _worker_helper in a worker process."""
+    with concurrent.futures.ProcessPoolExecutor(1) as pool:
+        return pool.submit(_worker_helper, 3).result()
+
+
+def test_a_pool_worker_records_in_the_part_of_the_stage_that_started_it(recording):
+    """A worker started inside an assets stage keeps what it ran under assets alone."""
+    assert ST.timed('pool', RC.ARCHIVES)(_pool_stage)() == 2
+    plugin = recording / 'data' / 'Test.esm'
+    _finished(plugin)
+    parts = json.loads(BI.write(plugin, recording / 'data', []).read_text(encoding='utf-8'))['code_parts']
+    key = 'tests/test_fo4_build_plan.py::_worker_helper'
+    assert key in parts[RC.ARCHIVES] and key not in parts.get(RC.RECORDS, [])
 
 
 def _mo2(root: Path, modlist: str, junk: str = '') -> None:
@@ -297,6 +352,14 @@ def test_master_formids_are_read_in_the_dependent_plugins_numbering(tmp_path):
     held = BP.held((str(one), str(two)), tuple(masters), frozenset())
     assert {0x02000FD0, 0x03000AAA} <= held
     assert 0x03000FD0 not in held and 0x02000AAA not in held
+
+
+def test_asking_held_for_no_id_is_not_logged(monkeypatch):
+    """A master form with no id (None: its ledger lacks the actor) is not held, and the log stays writable."""
+    monkeypatch.setattr(BI, 'MASTERS', BI.MasterLog())
+    held = BI.Held({0x01000900})
+    assert None not in held and 0x01000900 in held
+    assert BI.MASTERS.body()['held'] == {'01000900': True}
 
 
 def _dlc_asks(game: Path, dlc_data: Path) -> Path:

@@ -7,6 +7,8 @@
   review: a script may move the player out.
 * A quest objective target (QSTA) naming an alias its quest lacks is an error.
 * A map marker (REFR XMRK) with no name is marked for review.
+* A trigger box (a primitive, XPRM, placed on one of the plugin's activators) without XTRI 12, L_TRIGGER, is an
+  error: the player walks through it and its OnTriggerEnter never runs.
 
 See: docs/commentary/tools_preflight.md#world-links
 """
@@ -14,6 +16,7 @@ See: docs/commentary/tools_preflight.md#world-links
 import struct
 from collections import defaultdict
 
+from fo4_import.spike.placement import TRIGGER_LAYER
 from tools.validate.preflight.findings import Finding
 from tools.validate.preflight.plugin_index import first, u32
 
@@ -83,7 +86,20 @@ def marker_findings(game: str, index) -> list:
                     f'{len(nameless)} map markers have no name', tuple(sorted(nameless)[:SAMPLES]))]
 
 
+def trigger_findings(game: str, index) -> list:
+    """One error listing a Fallout 4 build's trigger boxes that lack the trigger layer (XTRI 12).
+    See: docs/fork/fo4_pipeline.md#trigger-layer
+    """
+    activators = {r.form_id for r in index.by_type['ACTI']}
+    bare = [index.edid(r.form_id) or f'{r.form_id:08X}' for r in index.by_type['REFR']
+            if first(r, 'XPRM') and u32(first(r, 'NAME')) in activators and first(r, 'XTRI') != TRIGGER_LAYER]
+    if not index.fo4 or not bare:
+        return []
+    return [Finding('world', f'world|{game}|trigger|layer', 'error',
+                    f'{len(bare)} trigger boxes have no trigger layer (XTRI 12)', tuple(sorted(bare)[:SAMPLES]))]
+
+
 def audit(game: str, index) -> list:
     """The world linkage findings for one game."""
     return (door_findings(game, index) + trapped_findings(game, index)
-            + target_findings(game, index) + marker_findings(game, index))
+            + target_findings(game, index) + marker_findings(game, index) + trigger_findings(game, index))

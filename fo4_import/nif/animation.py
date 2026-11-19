@@ -22,8 +22,8 @@ import numpy as np
 from fo4_import.nif.blocks import DESC_SKINNED, DESC_SKINNED_COLOR, NONE, SHADER_SKINNED
 from fo4_import.nif.file import NifFile
 from fo4_import.nif.fnv_file import parent_map
-from fo4_import.nif.particles import drives_particles, particle_block
-from fo4_import.nif.shader_anim import channel, key_group, shader_block, shapes_by_name, timing
+from fo4_import.nif.particles import HIDDEN, drives_particles, particle_block
+from fo4_import.nif.shader_anim import channel, idle_blend, interpolator, key_group, shader_block, shapes_by_name, timing
 
 #: Bones a BSTriShape vertex is weighted to.
 VERTEX_BONES = 4
@@ -45,7 +45,7 @@ def animatable(manager) -> bool:
 
     See: docs/fork/fo4_pipeline.md#effect-animation
     """
-    return any(moves(cb) or channel(cb) or drives_particles(cb)
+    return any(moves(cb) or channel(cb) or drives_particles(cb) or shows(cb)
                for seq in manager.controller_sequences for cb in seq.controlled_blocks)
 
 
@@ -98,7 +98,7 @@ def controllers(nif: NifFile, root, manager, nodes: dict, particles: dict, peaks
     base = len(nif.blocks)
     multi = _multi_target(manager)
     at = {'manager': base, 'multi': base + 1, 'shapes': shapes_by_name(nif), 'made': {}, 'animated': {},
-          'particles': particles, 'peaks': peaks or {}}
+          'particles': particles, 'peaks': peaks or {}, 'nodes': nodes, 'vis': {}}
     nif.blocks += [('NiControllerManager', {}), ('NiMultiTargetTransformController', {})]
     seq_index = [_sequence(nif, seq, at, root) for seq in manager.controller_sequences]
     palette = len(nif.blocks)
@@ -135,6 +135,10 @@ def _sequence(nif: NifFile, seq, at: dict, root) -> int:
     nif.blocks.append(('NiControllerSequence', {}))
     blocks = []
     for cb in seq.controlled_blocks:
+        if shows(cb):
+            block = _visibility(nif, cb, at)
+            blocks += [block] if block else []
+            continue
         if drives_particles(cb):
             block = particle_block(nif, cb, at['particles'])
             if block:
@@ -165,6 +169,41 @@ def _sequence(nif: NifFile, seq, at: dict, root) -> int:
         'stop': seq.stop_time, 'manager': at['manager'],
         'accum_root': _string(nif, seq.target_name or root.name), 'notes': []})
     return index
+
+
+def shows(cb) -> bool:
+    """Whether an FNV controlled block drives a node's visibility (NiVisController)."""
+    return cb.controller_type == b'NiVisController'
+
+
+def _visibility(nif: NifFile, cb, at: dict) -> 'dict | None':
+    """The FO4 controlled block of FNV visibility track `cb`, bound to its node's NiVisController (made once, idle
+    until a sequence plays, as vanilla's); the node starts as the track's first key shows it. None when the node
+    is not kept.
+    See: docs/fork/fo4_pipeline.md#visibility-tracks
+    """
+    target = cb.controller.target if cb.controller is not None else None
+    node = at['nodes'].get(id(target)) if target is not None else None
+    if node is None:
+        return None
+    if id(cb.controller) not in at['vis']:
+        blend = idle_blend(nif, 'Bool')
+        at['vis'][id(cb.controller)] = len(nif.blocks)
+        fields = nif.blocks[node][1]
+        nif.blocks.append(('NiVisController', {**timing(cb.controller), 'next': fields['controller'], 'target': node,
+                                               'interpolator': blend}))
+        fields['controller'] = at['vis'][id(cb.controller)]
+        fields['flags'] |= 0 if _shown_at_start(cb.interpolator) else HIDDEN
+    return {'interpolator': interpolator(nif, cb.interpolator), 'controller': at['vis'][id(cb.controller)],
+            'priority': cb.priority, 'node': _string(nif, cb.node_name), 'property': _string(nif, cb.property_type),
+            'controller_type': _string(nif, cb.controller_type), 'controller_id': _string(nif, cb.variable_1),
+            'interpolator_id': _string(nif, cb.variable_2)}
+
+
+def _shown_at_start(interp) -> bool:
+    """Whether a bool track shows its node at its first key (unset 2 shows)."""
+    keys = interp.data.data.keys if interp is not None and interp.data else []
+    return bool(keys[0].value) if keys else interp is None or interp.bool_value != 0
 
 
 def _interpolator(nif: NifFile, interp) -> int:

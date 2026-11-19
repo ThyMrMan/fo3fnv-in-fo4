@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from fo4_import.base.ledger import ID, Ledger, LedgerWriter, ledger_path
+from fo4_import.base import master_overrides as MO
 from fo4_import.base.master_overrides import added_perk_entries, drop_unchanged, master_records
 from fo4_import.base.source_ids import SourceIds, built_plugins, dependent_masters, master_ledgers
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record, pack_quest, pack_topic
@@ -311,3 +312,15 @@ def test_a_perk_entry_renumbered_by_the_dlcs_additions_is_still_the_masters():
             sub('EPFB', struct.pack('<H', number)) + sub('PRKF', b'')
     added = added_perk_entries(head + entry(1, 57) + entry(2, 58), head + entry(1, 55))
     assert [dict(e)[b'DATA'][0] for e in added] == [2]
+
+
+def test_a_record_heads_only_the_group_labelled_with_its_formid():
+    """A dropped record followed by another record's kept group (a world's persistent cell before its blocks) stays
+    dropped; followed by its own kept children group it stays as their head."""
+    cell = pack_fo4_record('CELL', 0x01000ABC, 0, b'')
+    child = pack_fo4_record('REFR', 0x01000DEF, 0, b'')
+    keep = lambda blob, heads: blob if heads or blob[:4] == b'REFR' else b''
+    blocks = pack_group(4, struct.pack('<I', 0xFFFFFFFF), child)
+    own = pack_group(6, struct.pack('<I', 0x01000ABC), child)
+    assert MO._pruned(cell + blocks, keep) == blocks
+    assert MO._pruned(cell + own, keep) == cell + own

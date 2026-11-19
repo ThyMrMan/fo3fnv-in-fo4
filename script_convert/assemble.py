@@ -28,10 +28,13 @@ from script_convert import anim_action_falloutnv as _anim, \
     udf_fallout4 as _udf4
 from script_convert.poll_motion import relative_sets
 from script_convert.poll_interval import MIN_INTERVAL, QUEST_DEFAULT, QUEST_DELAY_VAR, float_literal
-from script_convert.target import (HIT_REGISTRATION, arm_update, event_opener, is_fallout4,
-                                   is_hit_event, menu_close_guard, menu_registration, on_talking_activator,
-                                   run_update_now, sleep_registration, target_menu_name, variable_type)
+from script_convert.target import (CONTROLS_PROPERTY, CONTROLS_SCRIPT, HIT_REGISTRATION, REMOTE_DEATH, arm_update,
+                                   death_registration, event_opener, is_fallout4, is_hit_event, menu_close_guard,
+                                   menu_registrations, on_talking_activator, race_menu_skipped, remote_death,
+                                   run_update_now, sleep_registration,
+                                   target_menu_name, variable_type)
 from script_convert.emit import script as _script
+from script_convert.say_to_done import held_says
 from script_convert.tes4 import nodes as N
 
 
@@ -57,8 +60,8 @@ def build(conv, name: str, source: str, extends: str, editor_id: str) -> str:
     body += door_relock(conv, tree, extends)
     body += lifecycle(conv, tree, extends)
     body = block_activation(conv, tree, extends, body)
-    body = _adds.own_reads(_trace.items(_trace.trigger(_trace.actor(fall_damage(conv, extends, body), extends),
-                                                       extends)))
+    body = held_says(_adds.own_reads(_trace.items(_trace.trigger(_trace.actor(fall_damage(conv, extends, body),
+                                                                                 extends), extends))))
     body += helpers(conv)
     body += chargen_latch(conv)
     body += stage_latches(conv)
@@ -414,7 +417,7 @@ def quest_restart(conv, tree, extends: str, name: str) -> list:
     kept += [(QUEST_DELAY_VAR, 'Float')] if out else []
     out += ['', f'Function TES4Start({script} akQuest) Global']
     out += [f'  {ptype} v{i} = akQuest.{prop}' for i, (prop, ptype) in enumerate(kept)]
-    out.append('  akQuest.Start()')
+    out += _trace.quest_start('asked') + ['  akQuest.Start()'] + _trace.quest_start('returned')
     out += [f'  akQuest.{prop} = v{i}' for i, (prop, _t) in enumerate(kept)]
     out += ['EndFunction', '',
             f'Bool Function TES4SetStage({script} akQuest, Int aiStage) Global',
@@ -609,7 +612,7 @@ def events(conv, tree, extends: str, skip_poll: bool = False) -> list:
         if opener == BLOCK_MAP['ontrigger'][0]:
             out += _one_trigger_at_a_time(*(_TRIGGER_FUNCTION if is_fallout4() else header), merged[header])
         else:
-            out += [event_opener(opener)] + _rearm_hit(opener) + merged[header] + [closer, '']
+            out += [_opener(opener, extends)] + _rearm_hit(opener) + merged[header] + [closer, '']
         # TES4's `begin OnTrigger` runs EVERY FRAME an object is inside the
         # volume.  Skyrim splits that: OnTriggerEnter is the entry frame and
         # OnTrigger the repeat, so a converted OnTrigger body alone never runs
@@ -657,6 +660,12 @@ def _trigger_repeat(merged: dict, order: list) -> list:
         f'  If {_TRIGGER_INSIDE} && {_TRIGGER_INSIDE}.Find(akActionRef) >= 0',
         f'    {_TRIGGER_INSIDE}.Remove({_TRIGGER_INSIDE}.Find(akActionRef))', '  EndIf']
     return [f'ObjectReference[] {_TRIGGER_INSIDE}', '']
+
+
+def _opener(opener: str, extends: str) -> str:
+    """The target's opener; a reference script's OnDeath is remote."""
+    text = event_opener(opener)
+    return text.replace(BLOCK_MAP['ondeath'][0], REMOTE_DEATH, 1) if remote_death(extends) else text
 
 
 def _rearm_hit(opener: str) -> list:
@@ -869,11 +878,11 @@ _INSURANCE_SECS = '5.0'
 def poll(conv, tree, extends: str) -> list:
     """The OnUpdate loop that replaces TES4's per-frame `begin GameMode`.
 
-    Emitted whenever the script DECLARES a poll block, empty or not: an empty
-    `begin ScriptEffectUpdate` still declares one, and 19 scripts have one
-    (GhostEffectScript's is empty by design -- the work is in
-    ScriptEffectStart, and the update block exists to keep the effect alive).
-    Gating on a non-empty body dropped the whole event for them.
+    Emitted whenever the script declares a poll block, empty or not: 19 scripts
+    have an empty `begin ScriptEffectUpdate` that keeps the effect alive. Armed
+    twice: a long insurance arm at the top (a runtime error aborts the event)
+    and the real interval at the bottom.
+    See: docs/commentary/script_convert.md#poll-arms
     """
     sc = conv.sc
     if not (sc.has_gamemode or sc.has_scripteffectupdate):
@@ -890,32 +899,15 @@ def poll(conv, tree, extends: str) -> list:
         # not appear in the VMAD.
         out += [f'Float TES4_SecondsPassed = {interval}',
                 'Float TES4_LastTick = 0.0', '']
-    out += _pass_mark()
+    out += _pass_mark() + _trace.pass_state(extends)
     out.append(event_opener('Event OnUpdate()'))
     rearm = interval
     if _delayed_quest(extends):
-        out += ['  If (!IsRunning())', '    Return', '  EndIf']
+        out += (['  If (!IsRunning())'] + _trace.pass_line(extends, 'held: stopped', '    ')
+                + ['    Return', '  EndIf'])
         rearm = QUEST_DELAY_VAR
 
-    # Arm the poll TWICE: an insurance arm at the TOP and the real re-arm at
-    # the BOTTOM.
-    #
-    # The TOP arm is abort insurance ONLY, and it is LONG.  A runtime error
-    # anywhere in the body ("Cannot call X on a None object", a bad cast)
-    # ABORTS the event at that line, and with only a bottom re-register one
-    # abort silently killed the poll for the rest of the game -- the
-    # intermittent "the NPCs just stand there" class of failure.
-    #
-    # It must NOT arm at the real interval.  RegisterForSingleUpdate counts
-    # from NOW, so a top arm at `interval` starts the next pass `interval`
-    # after this one STARTED -- and a pass whose body takes longer than that
-    # (MQ01Script's tutorial poll: ~15 latent natives per 0.1s tick) overlaps
-    # itself, every overlap slows the VM further, and the pile grows without
-    # bound.  Measured in game 251 concurrent OnUpdate stacks, End
-    # fragments of 1-2s lines running 19-24s late.  A 5s insurance arm bounds
-    # the overlap to one extra stack per 5s of blocking, and any pass that
-    # finishes replaces it with the real interval.
-    out += _arm(conv, _INSURANCE_SECS, load_gated) + _pass_guard()
+    out += _arm(conv, _INSURANCE_SECS, load_gated) + _pass_guard(extends)
 
     passes = _menu_passes(conv, tree)
     sc.poll_return_prefix = _return_arm(conv, rearm, load_gated, passes)
@@ -940,17 +932,18 @@ def _pass_mark() -> list:
     return [f'Float {_PASS_STARTED} = 0.0', ''] if is_fallout4() else []
 
 
-def _pass_guard() -> list:
+def _pass_guard(extends: str) -> list:
     """Fallout 4: a pass that starts while the last still runs (the insurance arm fired) does nothing; one held
     over _PASS_HOLD is taken as aborted.
     See: docs/fork/performance.md#poll-overlap
     """
     if not is_fallout4():
         return []
-    return ['  Float TES4_PassNow = Utility.GetCurrentRealTime()',
-            f'  If {_PASS_STARTED} > 0.0 && TES4_PassNow >= {_PASS_STARTED} && '
-            f'TES4_PassNow - {_PASS_STARTED} < {_PASS_HOLD}',
-            '    Return', '  EndIf', f'  {_PASS_STARTED} = TES4_PassNow']
+    return (['  Float TES4_PassNow = Utility.GetCurrentRealTime()',
+             f'  If {_PASS_STARTED} > 0.0 && TES4_PassNow >= {_PASS_STARTED} && '
+             f'TES4_PassNow - {_PASS_STARTED} < {_PASS_HOLD}']
+            + _trace.pass_line(extends, 'held: overlap', '    ')
+            + ['    Return', '  EndIf', f'  {_PASS_STARTED} = TES4_PassNow'])
 
 
 def _pass_clear(indent: str) -> list:
@@ -975,16 +968,18 @@ def _poll_body(conv, tree, extends: str, interval: str, load_gated: bool) -> lis
         # resumes once the quest is started.
         out += ['  If (!IsRunning())', '    Return', '  EndIf']
 
-    out += _menu_hold(conv, tree)
+    out += _menu_hold(conv, tree, extends)
     out += _dialogue_gate(conv, extends, load_gated, _dialogue_bodies(conv, tree, extends))
+    out += _trace.pass_line(extends, 'ran', '  ')
     out += _elapsed_prologue(conv, interval)
     out += _glide_prologue(sc)
 
+    split = is_fallout4() and not _menu_hold(conv, tree, extends)
     for block in (tree.blocks if tree else ()):
         btype = block.btype.lower()
         if btype in POLL_BLOCKS or (btype == 'menumode'
                                      and _menumode_kind(block) == 'poll'):
-            out += _script.emit_body(conv, block.body, extends, 1)
+            out += _menu_gated(conv, block, extends, split)
 
     # Stage-arrival latches: record the stage each guarded quest is on NOW, so
     # the next pass can tell "we have already seen this stage" from "it just
@@ -996,7 +991,18 @@ def _poll_body(conv, tree, extends: str, interval: str, load_gated: bool) -> lis
     return out
 
 
-def _menu_hold(conv, tree) -> list:
+def _menu_gated(conv, block, extends: str, split: bool) -> list:
+    """A polled block's body; with `split`, MenuMode runs on FO3/FNV's menu frames (MenuFrame), the rest outside menus.
+
+    See: docs/commentary/script_convert.md#bare-menumode-on-fallout-4
+    """
+    if not split:
+        return _script.emit_body(conv, block.body, extends, 1)
+    test = 'TES4Polyfill.MenuFrame()' if block.btype.lower() == 'menumode' else '!TES4Polyfill.InMenuMode()'
+    return [f'  If {test}'] + _script.emit_body(conv, block.body, extends, 2) + ['  EndIf']
+
+
+def _menu_hold(conv, tree, extends: str) -> list:
     """Fallout 4: a pass while a pausing menu is open re-arms and does nothing, as FO3/FNV's GameMode.
 
     A script whose MenuMode blocks poll (run every frame in a menu) keeps
@@ -1007,7 +1013,8 @@ def _menu_hold(conv, tree) -> list:
                                 for b in (tree.blocks if tree else ())):
         return []
     arm = [f'    {line.strip()}' for line in conv.sc.poll_return_prefix.splitlines() if line.strip()]
-    return ['  If TES4Polyfill.InMenuMode()'] + arm + ['    Return', '  EndIf']
+    return (['  If TES4Polyfill.InMenuMode()'] + _trace.pass_line(extends, 'held: menu', '    ') + arm
+            + ['    Return', '  EndIf'])
 
 
 #: The poll body as a function, for a script whose MenuMode must run in-event; see `_menu_passes`.
@@ -1089,7 +1096,7 @@ def _dialogue_gate(conv, extends: str, load_gated: bool, bodies: list = ()) -> l
             if extends == 'Actor' else 'TES4Polyfill.PlayerIsInDialogue()')
     return ([f'  If {test}  '
              '; TES4 GameMode did not run while a menu was open'] + list(bodies)
-            + _pass_clear('    ') + _arm(conv, '0.5', load_gated, indent='    ')
+            + _trace.pass_line(extends, 'held: dialogue', '    ') + _pass_clear('    ') + _arm(conv, '0.5', load_gated, indent='    ')
             + ['    Return', '  EndIf'])
 
 
@@ -1161,15 +1168,16 @@ def lifecycle(conv, tree, extends: str) -> list:
                     and _menumode_kind(b) == 'menu' and menu_name(b)})
     declared = {b.btype.lower() for b in (tree.blocks if tree else ())}
     hits = is_fallout4() and bool(declared & {'onhit', 'onhitwith'})
-    if not (sc.has_gamemode or sc.has_scripteffectupdate or sleeps or menus or hits):
+    deaths = remote_death(extends) and 'ondeath' in declared
+    if not (sc.has_gamemode or sc.has_scripteffectupdate or sleeps or menus or hits or deaths):
         return []
     interval = QUEST_DELAY_VAR if _delayed_quest(extends) else conv._get_update_interval()
     polls = ([f'  {arm_update(interval)}']
              if (sc.has_gamemode or sc.has_scripteffectupdate) else [])
-    start = polls + ([f'  {HIT_REGISTRATION}'] if hits else [])
+    start = polls + ([f'  {HIT_REGISTRATION}'] if hits else []) + (death_registration() if deaths else [])
     if sleeps:
         start.append(f'  {sleep_registration(True)}')
-    start += [f'  {menu_registration(m)}' for m in menus]
+    start += [f'  {line}' for m in menus for line in menu_registrations(m)]
 
     if extends not in ('ObjectReference', 'Actor'):
         restart = ['Event OnQuestInit()'] + polls + ['EndEvent', ''] if polls and _delayed_quest(extends) else []
@@ -1490,7 +1498,7 @@ def menu_blocks(conv, tree, extends: str) -> list:
     """
     blocks = [b for b in (tree.blocks if tree else ())
               if b.btype.lower() == 'menumode' and _menumode_kind(b) == 'menu']
-    out, arms = message_box_closed(conv, blocks, extends), []
+    out, arms, menus = message_box_closed(conv, blocks, extends), [], set()
     for block in blocks:
         if conv.sc.msgbox_hook and _is_message_box(block) or is_fallout4() and _is_dialogue_menu(block):
             continue
@@ -1500,13 +1508,17 @@ def menu_blocks(conv, tree, extends: str) -> list:
             out.append('; --- TES4 `begin %s` - no Skyrim equivalent; body preserved but NOT executed ---' % label)
             out += [';  %s' % ln.strip() for ln in body if ln.strip()] + ['']
             continue
+        menus.add(menu)
         arms += [f'  ; TES4 `begin {label}` - runs when {menu} closes',
                  f'  If TES4_MenuName == "{target_menu_name(menu)}"'] + body + ['  EndIf']
     if not arms:
         return out
     out += [event_opener('Event OnMenuClose(String TES4_MenuName)')] + menu_close_guard()
     out += ['  If (!IsRunning())', '    Return', '  EndIf'] if extends == 'Quest' else []
-    return out + arms + ['EndEvent', '']
+    skipped = race_menu_skipped(menus)
+    if skipped:
+        conv.sc.property_refs[CONTROLS_PROPERTY] = CONTROLS_SCRIPT
+    return out + arms + ['EndEvent', ''] + skipped
 
 
 def _is_message_box(block) -> bool:

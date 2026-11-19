@@ -1,0 +1,47 @@
+# Fallout 3's opening on Fallout 4, part 2: CG01, Baby Steps (age one, the playpen).
+# CG00 stage 100 runs CG01 stage 0, which moves the player into the nursery.
+# Each beat is the player's: walk into a trigger, use the gate and the book (docs/fork/fo4_opening_progression_plan.md).
+# Source refs (Fallout3.esm): Dad's trigger 02EA54, the playpen gate 047803, the crib's exit trigger 02EA53,
+# the SPECIAL book 02ECC0, the end trigger 02ECC2.
+
+case cg01_walk_to_daddy
+ready 240
+until 120 GetStage FNV_CG01 >= 10
+hear Dad ${SEX=male:0001F3E9,female:0001F3E8}         # "Don't look straight into the light, pal/honey."
+hear Dad ${SEX=male:0001F3E7,female:0001F3E6}         # "Come on over here, son/sweetie. Walk to Daddy!"
+walk {Fallout3.esm:02EA54}                            # into Dad's trigger (a sphere around him): 12
+until 10 GetStage FNV_CG01 >= 12
+end
+
+case cg01_playpen
+until 180 GetStage FNV_CG01 >= 20                     # Dad's lines, he leaves and shuts the gate: 20
+walk {Fallout3.esm:047803} 64                         # to the playpen gate
+activate {Fallout3.esm:047803}                        # open it: 30
+until 10 GetStage FNV_CG01 >= 30
+walk {Fallout3.esm:02EA53}                            # out of the crib: 40
+until 10 GetStage FNV_CG01 >= 40
+end
+
+case cg01_special_book
+walk {Fallout3.esm:02ECC0} 64                         # to the book
+activate {Fallout3.esm:02ECC0}                        # read it: 50, and the SPECIAL card opens
+menu 30 SPECIALMenu
+invoke SPECIALMenu List_mc.selectedIndex=1            # Strength; each 5, with 5 points to spend (40)
+invoke SPECIALMenu IncrementPoints()                  # the right arrow
+invoke SPECIALMenu IncrementPoints()
+invoke SPECIALMenu IncrementPoints()
+invoke SPECIALMenu IncrementPoints()
+invoke SPECIALMenu IncrementPoints()
+invoke SPECIALMenu BGSCodeObj.startEditText()           # edit the name, as pressing its row does
+invoke SPECIALMenu onVirtualKeyboardResult Tester 1           # the card shows the name
+invoke SPECIALMenu BGSCodeObj.endEditText Tester             # and the game takes it, as the card does on Enter
+close 30 SPECIALMenu                                  # its Done (tryCloseMenu), as the Accept button
+closed 30 SPECIALMenu
+until 10 GetStage FNV_CG01 >= 50
+end
+
+case cg01_follow_dad
+until 120 GetStage FNV_CG01 >= 80                     # the timer (70), Dad's return and his talk: 80
+walk 120 {Fallout3.esm:02ECC2}                        # the engine's path through the doors into the end trigger: 90
+until 60 GetStage FNV_CG01 >= 100                     # then CG02 starts
+end

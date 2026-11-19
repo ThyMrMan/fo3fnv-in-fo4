@@ -717,6 +717,29 @@ that match the master's are dropped as unchanged overrides
 Checked on the rebuilt Old World Blues (2026-11-10): 47 of 47 of those
 references are in its plugin.
 
+**Persistent references, later worldspaces and interiors (2026-11-14).**
+Once an add-on's region shrank to one edited cell
+([one-cell scope](fo4_gui.md#addon-cells)), three of its edits fell out of
+the build, found by an audit of the real exports:
+
+- *Its references in a worldspace's persistent cell.* `Exterior` keeps a
+  persistent reference only if its grid cell is built, and edited cells left
+  the persistent cell out. 288 NVBII spawn markers, Russell's colony enable
+  parent and 34 YUP patrol points were dropped; The Living Desert lost
+  2,076. `run.edited_grids` now adds the grid cell each of the add-on's own
+  persistent references stands in (`exterior.grid_of`), one rule that
+  `addons.build_scope` and `run.edited_cells` share.
+- *Worldspaces after the first.* They were built whole, so a persistent
+  marker in a small master worldspace (NVBI's one in WastelandNVmini) would
+  have built all of it. A later master worldspace is now built only in its
+  edited cells; a worldspace the add-on makes itself, and every worldspace
+  of a masterless build, is still built whole.
+- *Its interiors.* An interior was built only if a door or script from the
+  built cells reached it. NVBII holds 117 interiors with its own references;
+  the one-cell scope built 48 of them, and the old box 87. Every interior a
+  plugin with masters holds is now a seed of the scope
+  (`interiors.edited_interiors`), so all of them are built.
+
 ### <a id="asset-overlays"></a>Asset overlays (built 2026-11-10, not played)
 
 A texture or mesh replacer with no plugin (NVTUP; NVMIM's meshes) changes
@@ -1046,6 +1069,133 @@ written records at the end), **always run** (setup the units depend on).
 
 The rest is the journal as designed, with the memo-plus-record pairing as
 its core rule.
+
+### <a id="journal-state"></a>Journaling shared state generically (phase 6, 2026-11-14)
+
+**Why not a journal per memo.** A probe (`temp/journal_probe/probe.py`,
+spike block) walked the builder before and after each base unit and
+listed the state paths that changed. Of 28 base units, the routine ones
+(STAT, ACTI, MSTT) changed `made`, `counts`, the writer's records and
+ledger (`_top_groups`, `_derived`, `_derived_taken`, `ledger.sites`),
+`meshes`, `scripts.used` and `sounds`. The first gun changed about 70
+paths across `equipment`, `guns`, `clips`, `condition`, `ammo_mods`,
+`consumables`, `projectiles`, `perks` and `scripts`. Some of those are lazy
+read caches (archive indexes, clip rigs) built by whichever unit asks first;
+others are real output (`clips.added`, `condition.weapons`, `by_anim`). The
+[shared-state survey](#shared-state) lists about 25 memos and 30
+accumulators. Writing a journal entry for each by hand would leave the next
+new one unjournaled, with nothing to say so.
+
+**The mechanism (`pipeline/journal_state.py`).** After setup, the builder
+is *adopted*:
+- every dict, list, set, Counter and defaultdict it reaches becomes a
+  tracked copy (`TDict`, `TList`, `TSet`, `TCounter`, `TDefaultDict`);
+- every object of our packages gets a tracked subclass (a `__class__`
+  swap, so `isinstance` holds);
+- a tuple is rebuilt of adopted items.
+
+Each adopted object is named by its path from the root, for example
+`builder.equipment.guns.receivers` or `builder.made[74565]`. Two references
+to one object share one copy and one name. Names are paths of authored keys
+(FormIDs, editor IDs), so the same object has the same name in the next
+build.
+
+While a unit runs (`recording`), every change to an adopted object is logged
+to that unit as a primitive op: dict set or delete, set add or discard, a
+list method, an attribute set. The values are pickled when the change is
+made. Objects made in that change are pickled whole; objects adopted earlier
+are pickled as their names. `apply` makes the same changes on whatever the
+names hold in this build, and raises `Untracked` when a name holds nothing.
+
+Three things are left plain:
+- **source records** (a dict starting with `Signature` and `FormID`), as
+  read-only input;
+- **objects of `INPUTS`** (readers, archive indexes), not walked;
+- **values that can't be pickled.** A change storing one logs `UNJOURNALED`,
+  and so does a change from another thread. Either one makes the unit
+  always-run, counted so the gap shows.
+
+Adopted state pickles plain, so pool workers get ordinary containers and
+classes.
+
+**What is not covered by construction:** a plain container a unit keeps a
+local alias to after storing it (the store keeps a tracked copy), and
+in-place changes to a non-container value (a numpy array). The check for
+both is the phase's own bar: an incremental build equals a clean one, byte
+for byte.
+
+<a id="journal-units"></a>**Units (`pipeline/journal.py`).** `@unit(site,
+done)` turns a maker method into a unit. `done(owner, key)` says whether
+its memo already holds the key; a memo hit is a plain call and no unit.
+Otherwise, with a store:
+- the call is logged to the running unit as an ask;
+- then it replays from a valid journal, or runs live and keeps a new one.
+
+A journal holds the unit's ops, with each ask in its place, and its pickled
+result. A replay makes the ops again and asks each unit again where the
+live run asked it, replayed or live in turn. So memos, record order and
+counts come out as a live build leaves them (`tests/test_fo4_journal.py`).
+
+**When a journal replays (`stale`).** Reads of adopted containers are
+logged too: a key's value, whether a key or value is held, a length, or
+the whole contents, each kept as a digest. The digest is taken over a
+fingerprint where:
+- an adopted object stands as its name;
+- a source record stands as its FormID (the export's identity covers its
+  fields);
+- other values are pickled.
+
+Before a replay, every read must find the same thing in this build's state
+now. Reads are not checked for slots the unit wrote itself, for objects it
+made, or for slots written by units it asked. Those asked units must pass
+the same check, unless they are already done. So a unit whose read input
+changed runs live, and so does every unit that asks it before it is done;
+the rest replay. A journal with an `UNJOURNALED` op never replays, and
+neither does one whose code changed: each live run keeps the identity of
+every repo function that ran in it (`ran_code.capture`, the units it asked
+included), and `code_identity.changed` must find none moved.
+
+**Counter increments.** A `Counter` logs the amount each change adds, not
+the new total, and its reads are not logged (counts report and decide
+nothing). A replay after a unit that ran live and counted differently then
+still adds up.
+
+**Running totals and high-water marks** (`MERGES`). Units also keep a few
+scalar attributes up to date:
+- *totals*, logged as the amount added: the writer's `_record_count`,
+  `_derive_collisions` and `left_to_masters`;
+- *high-water marks*, logged as the value to keep the larger of: the
+  writer's `_derive_max_probe` and the builder's `top`, which `fnv_id` sets
+  on every call.
+
+A mark that did not change logs nothing. Any other attribute logs the value
+it was set to.
+
+**On the real builder** (spike block, 2026-11-14, `temp/journal_probe`):
+- *Adoption:* the builder adopted after setup (572 objects, 0.4 s), every
+  base unit recorded.
+- *The plugin* came out byte-identical to a plain build (26,300,208
+  bytes).
+- *The units:* 3,152 base units, none unjournaled.
+- *What they logged:* 72,702 changes and 768,680 reads.
+- *Where the changes went:* mostly records, the writer's FormID tables,
+  `made`, `items.made`, `counts`, `meshes` and gun clip entries.
+- *Where the reads went:* mostly `guns.mods` (430,000, a third of them whole
+  contents), so a container's whole-contents digest is now kept until it
+  changes.
+
+These measurements predate the merge rules: they counted 9,439 writer and
+7,700 builder attribute writes, which the merge rules now cover.
+
+**Still to build** for phase 6:
+- the store on disk, and `CellBuilder.base` as the first site;
+- the rest of the unit key: the export's identity, and files read;
+- plain attributes: their writes are logged, their reads are not, so a
+  unit reading a scalar attribute another unit set (`self.top = max(...)`)
+  is not checked; to be measured on the real builder;
+- file outputs (meshes, staged textures, `stale_files`) re-registered on
+  replay;
+- the Rig Test check.
 
 A build remakes only the records whose inputs or code changed and writes
 the plugin from the rest as cached, byte for byte as a clean build would.
@@ -1377,6 +1527,109 @@ decides.
   60 min for all nine.
 - *Part D:* still what takes a needed build from tens of minutes to
   minutes.
+
+### <a id="build-parts"></a>Build parts: records and assets (2026-11-14, in progress)
+
+**Why.** A build is one unit: any changed function it ran rebuilds the whole
+plugin, records, scripts and archives. Over the chain log's history the
+rebuild triggers were `hknp_mesh.py` 16, `ba2_pack.py` 14, `collision.py`
+10 (asset code: 40 of 64), `cell.py` 14, `cleanroom.py` 5 and
+`process_job.py` 2. The 2026-11-14 chain spent about 4 h rebuilding all 31
+plugins for `hknp_mesh.py::_keys` and `cell.py::_master_places`.
+
+**Parts.** Each stage names its part where it is defined (`timed(name,
+part)`); a stage without one is in the part of the stage around it, and the
+build starts in `records`. `meshes` is `collision` and `object LOD` (they
+finish the meshes the records part wrote); `archives` is `main archive` and
+`FaceGen and texture archive`. `mesh cache` and `sounds` stay in records:
+the mesh cache only fills the cache, and the record stages copy each mesh
+into the build (`builder.base`), so a mesh writer change cannot be replayed
+without them.
+
+**What a part ran and read.** `ran_code.enter_part` re-arms the recorder
+each time the build moves between parts, so a function is noted in every
+part it ran in. A pool worker takes the part of the stage that started it
+(`PART_ENV`, inherited when the pool spawns; every pool lives inside one
+`with` block in one stage). The inputs record keeps `code_parts` {part:
+keys}. Files the records part read that the build itself wrote (meshes the
+mesh cache converted, read for attach points and bounds) are kept with
+their SHA-1 (`made_reads`): records depend on them.
+
+**The plan.** A changed code key is reported with the parts it ran in
+(`code <key> (parts: archives)`; `unknown` for a record from before parts).
+A plugin built by `pipeline.run` whose only change is code that ran in
+`meshes` or `archives` alone is replayed (`build_plan.replay_parts`,
+`rebuild`), not built: `part_replay` restores the loose files, runs the
+meshes part when it changed (below), the FaceGen prune and the texture pack
+(`faces_and_textures`, without the texture prune: a replay stages no
+texture, and the prune would empty the archive) and the Main pack, drops
+the loose files, and gives the inputs record the code as it is now. When a
+`made_reads` file changed it drops the record and exits `NEEDS_BUILD`, and
+`rebuild` builds the plugin whole. The chain runs it on the base first
+(`base replay`), so a replayed base is current and **base** is skipped
+([steps](fo4_chain.md#steps)).
+
+<a id="meshes-replay"></a>**The meshes part.** Elric (and our writer,
+[hknp_write](fo4_hknp_writer.md#seam)) reads each mesh as the records part
+wrote it, with its pre-Elric Havok blocks; after a build only the finished
+NIF is on disk. The finished NIF is a function of those pre-Elric bytes
+alone (the graft keeps our render blocks), so `elric_cache.finish` keeps
+each one it takes in `output/fo4_cache/pre_elric`, zlib-compressed and
+named by its SHA-1 (`keep_input`), pruned with the other caches. The store
+dedupes across plugins and builds: the finished-NIF cache it mirrors held
+24,268 entries in 1.57 GB on 2026-11-14 (the 33 plugins' loose `Meshes`
+folders: 70 GB, most of them no Havok input). Each build writes a replay
+manifest beside the plugin (`replay_manifest`): every path `finish` took
+with its pre-Elric SHA-1, the master's finished-alike marks, the weapons,
+the object LOD worlds, the finished list and the export. A meshes replay
+holds each path's pre-Elric bytes again (`write_mesh`) and runs `finish`,
+the weapon dressing and object LOD as the build does, then the copies a
+master holds alike are dropped and the finished-mesh record rewritten,
+then the archives as above. A pre-Elric file gone from the store makes the
+plugin need a whole build.
+
+**Proof** on a scratch copy of the Tribal Pack folder and its texture
+staging, code unchanged: 11 s (the whole build: 62–80 s); Main 12,138
+entries and Textures 1,752, the same names and sizes before and after.
+
+<a id="scripts-replay"></a>**The scripts part (2026-11-15, not yet run on a deployed plugin).**
+`script conversion` (the `script_convert.pipeline` subprocess inherits the part through `PART_ENV`) and
+`script compile` are the `scripts` part. Script work is a small share of a build: for YUP, 20 s of conversion,
+25 s of compile and 27 s for the Main archive, out of 422 s. Before this, every `script_convert/` change rebuilt
+every plugin whole, which came to about 2 hours on 2026-11-15 (a trace line in the quest polls).
+
+The record stages read the converted `.psc` files too: properties for VMADs, stage fragments, `SayWhenFree`
+topics, the quests a script starts or writes, and a script's first line. So a replay converts again and first
+compares, per script folder (its own, then each built master's), a digest of what those stages read
+(`spike/script_view.py:view`, cached by file stamp). If a digest differs, the plugin needs a whole build.
+`script_view.READERS` lists the modules that read a converted script's text, and a test fails when another
+module starts to, so a new reader has to add what it reads to `view`.
+The converted scripts' folder is left out of `made_reads` (the digests stand for it). The compile staging
+folder now falls in the scripts part, so it is no longer a records read. Before this, YUP's record held 265
+`.psc` files among its 583 `made_reads`.
+
+The replay manifest's `scripts` entry keeps what a replay needs: the export, the folder, the scripts the build
+compiled, the built masters, the digests, and whether each changed master script compiled
+([changed scripts](#changed-scripts)). A changed master script that now compiles where it did not, or the other
+way, changes which master records get overridden, so it needs a whole build.
+
+A master's converted scripts that changed (`masters.scripts`, the files a dependent compiled against) used to
+make the dependent build whole. Now they add the scripts part instead, and the replay writes the new SHA-1s.
+Only `Main` is packed again; textures are packed only with the meshes or archives part.
+
+**Proof** on a scratch copy of the Tribal Pack folder: a scripts replay took 14.8 s (the whole build: 40 s).
+Main came out the same (8,082 entries, the same names and sizes), and the plan then called the plugin current.
+The first run found a bug that every replay had: the `made_reads` check ran after `drop_packed` had removed the
+loose files, so any made file the records read and Main packs looked changed (37 meshes here). The check now
+runs before the loose files go.
+
+**Order.** (1) record parts and name them in the plan: built.
+(2) replay the archives: built, proven as above. (3) replay `meshes`
+(collision, object LOD) from the pre-Elric store and the replay manifest:
+built. (4) the mesh writers, which need the record stages' mesh copies
+(phase 6, record-level builds). Parts, the store and the manifest are
+written from the next build on; until then every plan says
+`parts: unknown` and builds whole.
 
 ## <a id="phases"></a>Phases
 

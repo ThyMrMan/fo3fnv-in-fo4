@@ -38,7 +38,7 @@ from script_convert.target import is_fallout4
 
 from script_convert.constants import (
     AXIS_COMMANDS, KNOWN_GLOBALS, NUMERIC_RANK, RETURN_TYPES,
-    _BASE_OBJECT_PAPYRUS, is_generated_script_type,
+    _BASE_OBJECT_PAPYRUS, is_generated_script_type, is_player,
     _FORM_RETURNING,
 )
 from script_convert.command_rows import (
@@ -285,21 +285,17 @@ def _classify_assignment(usage, value, lookup):
     # assignment to it.
     if _names_a_typed_call(value) and vtype in _FORM_RETURNING.values():
         usage.form_type = vtype
-    elif isinstance(value, N.Ident) and vtype:
-        # Assignment from a BARE property, whose type is whatever the record
-        # it names is: `let rCrosshairsLast := JailShoes` stores an ARMO BASE
-        # record in a TES4 `ref`.  Papyrus will not put an Armor in an
-        # ObjectReference and no cast is right either (a base form is not a
-        # reference), so the VARIABLE widens to Form -- which legally holds
-        # both that and the real references assigned elsewhere.
-        #
-        # Only a type Papyrus REFUSES to store in an ObjectReference forces
-        # the widening; a ref-shaped or script-typed value is already fine.
-        if (vtype not in ('ObjectReference', 'Actor', 'Form')
-                and not is_generated_script_type(vtype)
-                and vtype not in ('Int', 'Float', 'Bool', 'String')):
+    elif isinstance(value, N.Ident) and vtype not in ('', 'Form', 'Int', 'Float', 'Bool', 'String'):
+        if not _fits_reference(vtype):
             usage.form_type = 'Form'
     usage.ref_assign = True
+
+
+def _fits_reference(ptype: str) -> bool:
+    """Whether an ObjectReference variable can hold a `ptype` value.
+    See: docs/fork/fo4_script_compile.md#ref-widening
+    """
+    return ptype in ('ObjectReference', 'Actor') or is_generated_script_type(ptype)
 
 
 def _papyrus_name(tes4_name: str) -> str:
@@ -398,17 +394,8 @@ def resolve_ref_types(stmts, ref_vars, lookup, record_type_of):
             if not isinstance(value, N.Ident):
                 kinds.add('')
                 continue
-            if value.name.lower() == 'none':
-                continue
-            # `Player` is emitted `Game.GetPlayer()`, an ACTOR -- not the
-            # ActorBase its NPC_ record would suggest.  The old pass matched
-            # emitted text and so never saw it as a record at all; naming it
-            # here keeps `myTarget = Player` from dragging the variable to
-            # ActorBase, which cannot hold an Actor.
-            if value.name.lower() in ('player', 'playerref'):
-                kinds.add('Actor')
-                continue
-            kinds.add(record_type_of(value.name))
+            if value.name.lower() != 'none':
+                kinds.add(_assigned_type(value.name, record_type_of))
         kinds.discard('')
         if not kinds:
             if use.form_type:
@@ -429,6 +416,13 @@ def resolve_ref_types(stmts, ref_vars, lookup, record_type_of):
         elif use.form_type:
             out[low] = use.form_type
     return _copied_types(usage, out)
+
+
+def _assigned_type(name: str, record_type_of) -> str:
+    """The type a `ref` set to `name` holds: the player is an Actor.
+    See: docs/fork/fo4_script_compile.md#ref-widening
+    """
+    return 'Actor' if is_player(name) else record_type_of(name)
 
 
 def _copied_types(usage: dict, out: dict) -> dict:
@@ -457,7 +451,8 @@ def _mixed_record_type(use, record_type_of) -> str:
     rather than narrowing to the record's own class.
     """
     for value in use.assigned:
-        if isinstance(value, N.Ident) and record_type_of(value.name):
+        rtype = _assigned_type(value.name, record_type_of) if isinstance(value, N.Ident) else ''
+        if rtype and not _fits_reference(rtype):
             return 'Form'
     return ''
 

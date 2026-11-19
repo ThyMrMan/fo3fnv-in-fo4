@@ -4,7 +4,8 @@
     py -3.14 -m fo4_import.helpers_plugin --trace-switch --out "<MO2 mods>/F3NV - Trace/F3NV_Trace.esl"
 
 Actor values FO4 lacks (Variable01-10, the FO3/FNV skills), the start-game
-quests running the helper quest scripts, and the helpers' globals; one copy
+quests running the helper quest scripts, the helpers' globals, and the
+player's child race (helpers_child); one copy
 for every converted game, since they hold player and actor state. Object ids
 come from script_convert.constants (FALLOUT4_HELPER_*), a save contract.
 Cleanroom UI's CleanroomUI.esl (built by Cleanroom UI, fo4_import.cleanroom) is copied beside it.
@@ -22,17 +23,22 @@ from fo4_import.base.support_records import pack_avif, pack_global, pack_mesg, p
 from fo4_import.base.vmad import object_scripts
 from fo4_import.base.writer import FO4PluginWriter
 from fo4_import.helpers_races import race_records
-from script_convert.constants import (FALLOUT4_HELPER_AV_DEFAULTS, FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_GLOBALS,
+from fo4_import.helpers_child import child_records
+from script_convert.constants import (FALLOUT4_HELPER_AV_DEFAULTS, FALLOUT4_HELPER_AVS, FALLOUT4_HELPER_CHILD_PIPBOY,
+                                      FALLOUT4_HELPER_CHILD_RACE, FALLOUT4_HELPER_GLOBALS,
                                       FALLOUT4_HELPER_MESSAGES, FALLOUT4_HELPER_PLUGIN,
                                       FALLOUT4_HELPER_QUEST_MESSAGES, FALLOUT4_HELPER_QUESTS, FALLOUT4_HELPER_ROBOT_FRENZY,
-                                      FALLOUT4_TRACE_PLUGIN)
+                                      FALLOUT4_HELPER_SAY_TARGET_KEYWORD, FALLOUT4_TRACE_PLUGIN)
 from script_convert.target import fallout4_actor_values
+from fo4_import.spike.records import pack_kywd
 
 MASTERS = ['Fallout4.esm']
 #: MESG DNAM flag Message Box.
 MESSAGE_BOX = 0x1
 #: Editor ID prefix of the plugin's actor values (TES4Variable01), as the converter's TES4* globals.
 EDID_PREFIX = 'TES4'
+#: EditorID of the say-target keyword. See: docs/fork/fo4_pipeline.md#say-target
+SAY_TARGET_EDID = 'F3NV_SayTarget'
 
 
 def form_id(object_id: int, index: int) -> int:
@@ -72,7 +78,9 @@ def records(fo4: bytes = None) -> list:
     out += [('GLOB', pack_global(own_id(oid), edid)) for edid, oid in FALLOUT4_HELPER_GLOBALS.items()]
     out += [('MESG', pack_mesg(own_id(oid), edid, text, text, MESSAGE_BOX, list(buttons)))
             for edid, (oid, text, buttons) in FALLOUT4_HELPER_MESSAGES.items()]
-    return out + race_records(fo4 or (FALLOUT4_DIR / 'Data' / 'Fallout4.esm').read_bytes(), own_id)
+    out.append(('KYWD', pack_kywd(own_id(FALLOUT4_HELPER_SAY_TARGET_KEYWORD), SAY_TARGET_EDID, 0)))
+    fo4 = fo4 or (FALLOUT4_DIR / 'Data' / 'Fallout4.esm').read_bytes()
+    return out + race_records(fo4, own_id) + child_records(fo4, own_id)
 
 
 def _messages(script: str) -> dict:
@@ -88,7 +96,8 @@ def build(out: Path) -> int:
     for sig, record in made:
         w.add_record(sig, record)
     ids = [*FALLOUT4_HELPER_AVS.values(), *FALLOUT4_HELPER_QUESTS.values(), *FALLOUT4_HELPER_GLOBALS.values(),
-           *(oid for oid, _, _ in FALLOUT4_HELPER_MESSAGES.values()), FALLOUT4_HELPER_ROBOT_FRENZY]
+           *(oid for oid, _, _ in FALLOUT4_HELPER_MESSAGES.values()), FALLOUT4_HELPER_ROBOT_FRENZY,
+           FALLOUT4_HELPER_SAY_TARGET_KEYWORD, FALLOUT4_HELPER_CHILD_RACE, FALLOUT4_HELPER_CHILD_PIPBOY]
     w.next_object_id = own_id(max(ids) + 1)
     out.parent.mkdir(parents=True, exist_ok=True)
     w.write(str(out))

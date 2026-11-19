@@ -1,0 +1,15 @@
+# Fallout 3's opening on Fallout 4, part 1: CG00, the birth. Runs after Fallout 4's character creation:
+#   python -m tools.live.fo4_story_cases tests/story/fo4_creation.f4test tests/story/fo3_opening --set SEX=male
+# Speakers are display names; INFOs are the source (Fallout3.esm) FormIDs.
+
+case cg00_birth
+until 120 GetStage FNV_CG00 >= 5                      # leaving the sink starts CG00 stage 0, the birth
+hear Dad 0001F387                                     # "Are you a boy or a girl?"; stage 18's box answers itself
+hear Dad ${SEX=male:0001F386,female:0001F385}         # "It's a boy?" / "It's a girl?"
+hear Catherine ${SEX=male:0005EDD7,female:0005EDD8}   # "A son..." / "A daughter..."
+end
+
+case cg00_name_and_face
+until 300 GetStage FNV_CG00 >= 60                     # stage 40 names the baby: GetPlayerName is a note on FO4
+until 300 GetStage FNV_CG00 >= 100                    # 60's race menu is the mirror's (skipped), 62 on leaving it,
+end                                                   # 80 the emergency, 100 hands off to CG01

@@ -53,6 +53,32 @@ def items(lines: list) -> list:
     return out
 
 
+#: A quest poll's last traced pass state ("held: menu", "held: dialogue", "held: overlap", "ran").
+PASS_STATE = 'TES4_PassBy'
+
+
+def pass_state(extends: str) -> list:
+    """A Fallout 4 quest poll's PASS_STATE declaration."""
+    return [f'String {PASS_STATE} = ""', ''] if is_fallout4() and extends == 'Quest' else []
+
+
+def pass_line(extends: str, state: str, indent: str) -> list:
+    """A Fallout 4 quest poll's TracePass for `state`, at `indent` (written only when the state changes)."""
+    if not is_fallout4() or extends != 'Quest':
+        return []
+    return [f'{indent}{PASS_STATE} = TES4Polyfill.TracePass(Self, {PASS_STATE}, "{state}")']
+
+
+def quest_start(when: str) -> list:
+    """TES4Start's TraceQuestStart line for `when` (asked, returned)."""
+    return [f'  TES4Polyfill.TraceQuestStart(akQuest, "{when}")'] if is_fallout4() else []
+
+
+def message(when: str) -> list:
+    """TES4_ShowMsg's TraceMessage line for `when` (shown, answered)."""
+    return [f'  TES4Polyfill.TraceMessage(TES4_akMsg, "{when}", TES4_MsgButton)'] if is_fallout4() else []
+
+
 def stage_suffix() -> str:
     """The stage wrapper's StageSet line suffix: the stage asked for, whether set."""
     return '\n  TES4Polyfill.TraceStage(akQuest, aiStage, TES4_StageSet)' if is_fallout4() else ''

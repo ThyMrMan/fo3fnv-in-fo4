@@ -31,7 +31,7 @@ from fo4_import.nif.blocks import Reader, read_tri_shape
 from fo4_import.nif.convert_static import NifFormat
 from fo4_import.nif.outfit import bone_data, shape_bones
 from fo4_import.pipeline.mesh_cache import cached_convert
-from fo4_import.spike.guns import GUN_SUFFIX
+from fo4_import.spike.guns import gun_mesh
 from tes5_import.base.text_reader import parse_export_file
 
 B = chr(92)
@@ -215,8 +215,8 @@ def build(args) -> Scene:
     cls = ANIM_TYPE_CLASS[int(rec['DNAM.FalloutAnimType'])]
     archives = Archives(FALLOUT4_DIR / 'Data')
     folder, vanilla_gun = args.vanilla.split(':', 1) if args.vanilla else (None, None)
-    ours_gun = (args.data / 'Meshes' / 'fnv' / (rec['Model.MODL'].replace(B + B, '/').replace(B, '/').lower()[:-4]
-                                                 + GUN_SUFFIX)).read_bytes()
+    model = rec['Model.MODL'].replace(B + B, '/').replace(B, '/').lower()
+    ours_gun = (args.data / 'Meshes' / 'fnv' / gun_mesh(model, args.gun)).read_bytes()
     theirs_gun = archives.read('meshes' + B + vanilla_gun.replace('/', B).lower()) if vanilla_gun else None
     clips = args.data / 'Meshes' / VIEWS[0].folder.replace(B, '/') / args.gun
     scene, shown = Scene(), set()

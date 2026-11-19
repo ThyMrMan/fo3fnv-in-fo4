@@ -277,11 +277,6 @@ def stored_bytes(site: str, digest: str) -> 'bytes | None':
     return pickle.loads(found[0].read_bytes())
 
 
-def has_bytes(site: str, digest: str) -> bool:
-    """Whether stored_bytes finds `digest` under `site`, read or not."""
-    return _bytes_entry(site, digest) is not None
-
-
 def named_strings(package: str = 'fo4_import') -> set:
     """Every string constant in `package`'s code, where a site in use is named."""
     return {node.value for path in (ROOT / package).rglob('*.py') for node in ast.walk(ast.parse(path.read_bytes()))

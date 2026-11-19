@@ -217,6 +217,7 @@ FALLOUT_COMMAND_ROWS = {
                                 flags='zero_arg'),
     'getplayername': dict(note="{f} - Skyrim's race menu names the character"),
     'sexchange': dict(note='{f} {a} - Skyrim Papyrus cannot change sex', subj='ACTOR'),
+    'agerace': dict(note='{f} {a} - no younger or older race on Skyrim', subj='ACTOR'),
     'swaptexture': dict(note='{f} {a} - Skyrim Papyrus cannot swap a texture'),
     'addnote': dict(emit='Game.GetPlayer().AddItem({p0}, 1, False)', types={0: 'Book'}),
     'removenote': dict(emit='Game.GetPlayer().RemoveItem({p0}, 1, True)', types={0: 'Book'}),

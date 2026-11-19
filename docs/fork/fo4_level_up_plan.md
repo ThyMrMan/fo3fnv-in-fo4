@@ -252,6 +252,32 @@ courier packs none. With all of them: 122 perks, 16 traits, inside the
 trait menu's 31 (`MASK_BITS`; a plugin past it is counted, `level-up menu
 traits past its mask`).
 
+### <a id="save-strings"></a>Every table text under a saved string (2026-11-17, not yet played)
+
+FO4 loads each saved Papyrus string into a 4,096-byte buffer, and a
+longer one crashes every load of that save (`Fallout4.exe+2101EA4`,
+rcx = the string's length). FO4 saved `CRUI_LevelUpTable`'s 22
+properties with the rules quest even though the script is `Const`: an FO3
+save held them in alphabetical order, the first `PerkDescriptions` at
+8,332 bytes (61 perks). FNV's tables ran to 12,136 bytes of descriptions
+and 5,485 of images (91 perks). Cleanroom UI's 0a94b32 kept its own joined
+copy out of saves, but the table's copy still crashed the same load.
+
+`table_properties` now splits a plugin's listed perks into runs whose
+every text is under `SAVE_STRING` (UTF-8 bytes). Each table holds its own
+run and the rows those perks own. The first table also holds the traits
+and the rows no listed perk owns, and it stays where it was: the game
+build's rules quest, or a DLC's `FNV_LevelUpTable_<plugin>`. Each later
+table is `FNV_LevelUpTable_<plugin>_<first perk's FormID>`, a start-game
+quest keyed by that perk's source FormID that adds itself to
+`FNV_LevelUpTables`. A requirement on a perk in another run is one the
+menu asks the game about, as for another plugin's (`UnlistedHeld`). A
+text that still does not fit is counted (`level-up table text past a
+saved string`).
+
+A save that already holds the long string cannot load, whatever the
+build: the crash happens while the save's string table is read.
+
 ## <a id="open-delay"></a>The open delay (built 2026-11-12, not played)
 
 Played 2026-11-12: every open logged `sent in 2.2s` (the menu's data,

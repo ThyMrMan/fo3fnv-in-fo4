@@ -5174,6 +5174,17 @@ class TestQuestStartDoesNotClobberSeededWrites:
         assert advances == ['  If MQ00.GetStage() < 20  ; advance survives a rejected turn',
                             '    TES4Polyfill.SetStage(MQ00, 20)', '  EndIf']
 
+    def test_a_fallout4_adder_call_is_the_counter_step_handed_over_at_begin(self):
+        """CG03's Amata/Butch chat steps bullyConv in its End script as FO4's adder call: it is the counter step the
+        gate tests, so it moves to OnBegin and the gate after it reads one more.
+        See: docs/commentary/script_convert.md#sequenced-fragment-surgery
+        """
+        from script_convert.conversation_sequence import split_counter_step, stepped_gate
+        step, rest = split_counter_step(['  CG03.TES4Add_bullyConv((1))', '  x = 1'], 'CG03.bullyConv == 0')
+        assert step == ['  CG03.TES4Add_bullyConv((1))'] and rest == ['  x = 1']
+        assert stepped_gate('CG03.bullyConv == 0', step) == 'CG03.bullyConv == 1'
+        assert stepped_gate('CG03.bullyConv == 3', ['  CG03.TES4Add_bullyConv(-(1))']) == 'CG03.bullyConv == 2'
+
     def test_object_script_has_no_restart(self, converter):
         """Only a quest script is restarted, so only it carries TES4Start."""
         out = converter.convert_standalone(
@@ -5738,6 +5749,14 @@ class TestAuthoredQuestDelay:
                             {'SCRI': '00000001', 'DATA.Delay': '0'},
                             {'DATA.Delay': '5'}]}
         assert quest_script_delays(by_type) == {'00174091': 300.0}
+
+    def test_quest_script_delays_read_masters_and_overrides(self):
+        """A master's quest delay reaches a plugin overriding only its script; a quest override wins."""
+        from script_convert.poll_interval import quest_script_delays
+        master = [{'FormID': '00168A7F', 'SCRI': '00168A80', 'DATA.Delay': '0.1'},
+                  {'FormID': '00100001', 'SCRI': '00100002', 'DATA.Delay': '2'}]
+        override = [{'FormID': '00100001', 'SCRI': '00100002', 'DATA.Delay': '0'}]
+        assert quest_script_delays({'QUST': master + override}) == {'00168A80': 0.1}
 
 
 class TestFalloutObjectiveCommands:

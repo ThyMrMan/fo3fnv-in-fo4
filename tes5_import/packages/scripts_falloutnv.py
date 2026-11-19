@@ -11,7 +11,7 @@ See: docs/commentary/script_convert.md#package-fragments
 import re
 
 #: FO3/FNV PKDT.Type of a Dialogue package, as the export writes it.
-_DIALOGUE_TYPE = '15'
+DIALOGUE_TYPE = '15'
 
 #: The player's reference and base FormIDs as the export writes them.
 _PLAYER_FIDS = frozenset({'00000014', '00000007'})
@@ -53,16 +53,16 @@ def folds_change(rec: dict) -> bool:
     return bool(int(rec.get('PKDT.Flags') or 0) & _ONCE_PER_DAY) and bool(change_stages(rec))
 
 
-def package_sections(rec: dict) -> list:
-    """[(section, flag)] of a PACK's sections that run a script or say a topic."""
+def package_sections(rec: dict, hooked=()) -> list:
+    """[(section, flag)] of a PACK's sections that run code or are `hooked`."""
     return [(name, flag) for name, flag in PACKAGE_SECTIONS
             if has_code(rec.get(f'{name}.Script') or '') or rec.get(f'{name}.Topic')
-            or (name == 'OnEnd' and folds_change(rec))]
+            or (name == 'OnEnd' and folds_change(rec)) or name in hooked]
 
 
-def package_flags(rec: dict) -> int:
+def package_flags(rec: dict, hooked=()) -> int:
     """The VMAD fragment flags of a PACK: one bit per section it runs."""
-    return sum(flag for _name, flag in package_sections(rec))
+    return sum(flag for _name, flag in package_sections(rec, hooked))
 
 
 def section_source(rec: dict, section: str, formid_to_edid: dict) -> str:
@@ -80,11 +80,17 @@ def section_source(rec: dict, section: str, formid_to_edid: dict) -> str:
 def dialogue_source(rec: dict, formid_to_edid: dict) -> str:
     """`SayTo <target> <topic>` for a Dialogue package (PKDT.Type 15), else ''."""
     topic = formid_to_edid.get((rec.get('PKDD.Topic') or '').upper(), '')
-    if rec.get('PKDT.Type') != _DIALOGUE_TYPE or not topic:
+    if rec.get('PKDT.Type') != DIALOGUE_TYPE or not topic:
         return ''
     target = (rec.get('PTDT.Target') or '').upper()
     name = 'player' if target in _PLAYER_FIDS else formid_to_edid.get(target, target)
     return f'SayTo {name} {topic}'
+
+
+def says_to_player(rec: dict) -> bool:
+    """Whether a PACK is a SayTo Dialogue package aimed at the player."""
+    return (rec.get('PKDT.Type') == DIALOGUE_TYPE and rec.get('PKDD.Type') == 'SayTo'
+            and (rec.get('PTDT.Target') or '').upper() in _PLAYER_FIDS)
 
 
 def package_source(rec: dict, formid_to_edid: dict) -> str:

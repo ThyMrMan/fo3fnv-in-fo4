@@ -107,6 +107,20 @@ def test_without_havok_renumbers_a_block_after_the_havok_and_refuses_one_it_cann
         E.without_havok(bad)
 
 
+def test_graft_points_elric_physics_at_a_collision_node_after_the_havok():
+    """A node added after the Havok input (a terminal's moved root collision) moves up; its new collision object
+    names it where it now is."""
+    ours = NifFile()
+    ours.blocks = [('NiNode', _node(ours)), ('bhkCollisionObject', b'raw'), ('NiNode', _node(ours, 1))]
+    ours.blocks[0][1]['children'] = [2]
+    elric = NifFile()
+    elric.blocks = [('NiNode', _node(elric)), ('bhkPhysicsSystem', b'sys'),
+                    ('bhkNPCollisionObject', struct.pack('<iHiI', 0, 1, 1, 0))]
+    E.graft(ours, elric)
+    assert [k for k, _ in ours.blocks] == ['NiNode', 'NiNode', 'bhkPhysicsSystem', 'bhkNPCollisionObject']
+    assert ours.blocks[1][1]['collision'] == 3 and struct.unpack('<iHiI', ours.blocks[3][1])[0] == 1
+
+
 def test_finish_gives_elric_each_file_rewritten_and_writes_a_failed_one_without_havok(tmp_path):
     """Elric gets every Havok NIF's bytes as written again; one it returns nothing for loses its Havok and fails."""
     nif = NifFile()

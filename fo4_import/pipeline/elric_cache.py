@@ -22,10 +22,12 @@ import functools
 import hashlib
 import os
 import tempfile
+import zlib
 from pathlib import Path
 
 from core.build_resources import pool_workers
 from core.process_job import join_pool_job
+from fo4_import.base import touched
 from fo4_import.base.source_fault import FAULTS, SourceFault, count, faulted
 from fo4_import.nif import elric, hknp_write
 from fo4_import.nif import file as nif_file
@@ -45,6 +47,34 @@ _HELD = {}
 MARKS = {}
 #: {normcased NIF path: its finish() inputs} of each NIF finish() left unwritten this run (a master ships it alike).
 LEFT = {}
+#: Each pre-Elric NIF finish() took, zlib-compressed and named by its SHA-1 (keep_input), for a meshes replay.
+INPUT_STORE = ROOT / 'output' / 'fo4_cache' / 'pre_elric'
+#: {NIF path: SHA-1 of its pre-Elric bytes} of each NIF finish() took this run, in order.
+INPUTS = {}
+
+
+def keep_input(data: bytes) -> str:
+    """Keep pre-Elric NIF `data` in INPUT_STORE (once; a kept one marked used); its SHA-1.
+    See: docs/fork/fo4_plugin_layout.md#meshes-replay
+    """
+    key = hashlib.sha1(data).hexdigest()
+    path = INPUT_STORE / key[:2] / key
+    try:
+        work_cache.mark_used(path, path.stat().st_mtime)
+    except OSError:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        partial = path.with_suffix(f'.{os.getpid()}.tmp')
+        partial.write_bytes(zlib.compress(data, 1))
+        partial.replace(path)
+    return key
+
+
+def kept_input(key: str) -> 'bytes | None':
+    """The pre-Elric NIF keep_input() kept as `key`; None when it is gone."""
+    try:
+        return zlib.decompress((INPUT_STORE / key[:2] / key).read_bytes())
+    except OSError:
+        return None
 
 
 @functools.cache
@@ -71,10 +101,37 @@ def write_new(target: Path, data: bytes) -> None:
     except OSError:
         same = False
     if same:
-        os.utime(target)
+        touched.touch(target)
         return
+    touched.forget(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
+
+
+def write_stored(target: Path, site: str, digest: str, stamps: 'dict | None' = None) -> bool:
+    """write_new() of the bytes work_cache.store_bytes kept under `site` as `digest`, not read from the cache when
+    `target` already holds them (then touched): known by `stamps` ({str path: [size, mtime_ns, digest]}, kept
+    up to date) while its size and time match, else by its bytes. False when they are needed and gone.
+    See: docs/fork/fo4_build_speed.md#clip-files
+    """
+    stamps = {} if stamps is None else stamps
+    try:
+        stat = target.stat()
+        same = stamps.get(str(target)) == [stat.st_size, stat.st_mtime_ns, digest] or (
+            hashlib.sha1(target.read_bytes()).hexdigest() == digest)
+    except OSError:
+        same = False
+    if same:
+        _HELD.pop(os.path.normcase(str(target)), None)
+        touched.touch(target)
+    else:
+        data = work_cache.stored_bytes(site, digest)
+        if data is None:
+            return False
+        write_new(target, data)
+    stat = target.stat()
+    stamps[str(target)] = [stat.st_size, stat.st_mtime_ns, digest]
+    return True
 
 
 def write_mesh(path: Path, data: bytes) -> None:
@@ -111,6 +168,7 @@ def finish(paths: list, theirs: 'dict | None' = None) -> list:
     failed, todo = [], {}
     for path in dict.fromkeys(Path(p) for p in paths):
         data = _HELD.pop(os.path.normcase(str(path)), None) or path.read_bytes()
+        INPUTS[str(path)] = keep_input(data)
         inputs = (elric_tag(), hashlib.sha1(data).digest())
         made = mark(inputs)
         shipped = (theirs or {}).get(os.path.normcase(str(path)))
@@ -243,5 +301,5 @@ def process(sources: dict, run=None) -> dict:
 
 
 def prune_caches(days: int = UNUSED_DAYS) -> int:
-    """Delete mesh, work and Elric cache entries unused for `days` days; the count."""
-    return prune((mesh_cache.CACHE, work_cache.CACHE, CACHE), days)
+    """Delete the mesh, work, Elric and pre-Elric entries unused `days` days; how many."""
+    return prune((mesh_cache.CACHE, work_cache.CACHE, CACHE, INPUT_STORE), days)

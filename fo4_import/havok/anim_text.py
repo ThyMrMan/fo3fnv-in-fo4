@@ -13,6 +13,7 @@ See: docs/fork/research/anim_text_data.md#ours
 import concurrent.futures
 import functools
 import hashlib
+import os
 import re
 import struct
 from collections import Counter
@@ -25,7 +26,7 @@ from core.process_job import join_pool_job
 from external.pynifly_hkx.anim_fo4 import parse_fo4_animation
 from fo4_import.havok import anim_offsets, anim_speed, packfile
 from fo4_import.base.ba2 import Archives
-from fo4_import.base.ba2_pack import data_file
+from fo4_import.base.ba2_pack import data_reader
 from fo4_import.havok.gun_anim_text import (ANIM_TEXT, HEADER_SIZE, PERSISTENT, Vanilla, crc, entry_id,
                                            template_paths)
 from fo4_import.pipeline import work_cache
@@ -58,6 +59,8 @@ STANCE_START = anim_offsets.pack_string('AnimationBoneTransform') + struct.pack(
 IDENTITY = struct.pack('<7f', 1, 0, 0, 0, 0, 0, 0)
 #: Work cache site and version of {(clip path lower, SHA-1 of its bytes): Clip}; records worth a process pool.
 RECORDS_SITE, RECORDS_VERSION, POOLED = 'anim offsets records', 1, 16
+#: The work cache site of vanilla's parsed offsets (known), and its version.
+KNOWN_SITE, KNOWN_VERSION = 'anim offsets vanilla', 1
 #: What a record worker commits, for the worker count (build_resources.pool_workers).
 RECORD_WORKER_BYTES = 256 << 20
 #: A record worker's event spellings (_start).
@@ -85,26 +88,41 @@ class Race:
 class Known:
     """What vanilla's offsets know: each event name (lower case) as they spell it, and each clip path's record; the
     records this run computed, by clip path (lower case); the work cache's records table, read once per run
-    (compute), and whether this run added to it (save)."""
+    (compute), and whether this run added to it (save); each clip record packed this run, {id: (clip, bytes)}."""
     spelled: dict = field(default_factory=dict)
     records: dict = field(default_factory=dict)
     computed: dict = field(default_factory=dict)
     table: 'dict | None' = None
     unsaved: bool = False
+    packed: dict = field(default_factory=dict)
+
+    def pack_clip(self, clip: anim_offsets.Clip) -> bytes:
+        """anim_offsets.pack_clip(`clip`), packed once per run."""
+        if id(clip) not in self.packed:
+            self.packed[id(clip)] = clip, anim_offsets.pack_clip(clip)
+        return self.packed[id(clip)][1]
 
 
 def known(vanilla: Vanilla) -> Known:
-    """Every vanilla offsets file's event spellings (the most common) and clip records (the first)."""
-    counts, out = {}, Known()
+    """Every vanilla offsets file's event spellings (the most common) and clip records (the first), kept in the
+    work cache while vanilla's archives (Vanilla.stamp) are unchanged."""
+    if not vanilla.stamp:
+        return Known(*_vanilla_known(vanilla))
+    return Known(*work_cache.cached(KNOWN_SITE, __name__, (KNOWN_VERSION, vanilla.stamp),
+                                    functools.partial(_vanilla_known, vanilla)))
+
+
+def _vanilla_known(vanilla: Vanilla) -> tuple:
+    """(event spellings, clip records) of vanilla's offsets files (known)."""
+    counts, records = {}, {}
     for (kind, _), reader in sorted(vanilla.files.items()):
         if kind != 'animationoffsets':
             continue
         for clip in anim_offsets.parse(reader()).clips:
-            out.records.setdefault(clip.path.lower(), clip)
+            records.setdefault(clip.path.lower(), clip)
             for _, text in clip.events:
                 counts.setdefault(text.lower(), Counter())[text] += 1
-    out.spelled = {name: spellings.most_common(1)[0][0] for name, spellings in counts.items()}
-    return out
+    return {name: spellings.most_common(1)[0][0] for name, spellings in counts.items()}, records
 
 
 def compute(paths: list, read, k: Known) -> None:
@@ -113,7 +131,9 @@ def compute(paths: list, read, k: Known) -> None:
     worker processes; vanilla's record when the clip can't be read, else None.
     See: docs/fork/research/anim_text_data.md#ours
     """
-    todo = {path.lower(): path for path in paths if path.lower() not in k.computed}
+    todo = {key: path for path in paths if (key := path.lower()) not in k.computed}
+    if not todo:
+        return
     raws = {key: raw for key, path in todo.items() if (raw := read(path + '.hkx'))}
     keys = {key: (key, hashlib.sha1(raw).hexdigest()) for key, raw in raws.items()}
     if k.table is None and keys:
@@ -165,7 +185,7 @@ def offsets(graph: str, names: dict, read, k: Known) -> bytes:
     compute([path for _, path in out.names], read, k)
     records = {path.lower(): k.computed[path.lower()] for _, path in out.names}
     out.clips = [clip for clip in records.values() if clip]
-    return anim_offsets.pack(out)
+    return anim_offsets.pack(out, k.pack_clip)
 
 
 # ---------------------------------------------------------------------------
@@ -454,7 +474,8 @@ def file_data_names(text: str) -> dict:
     each named by its file stem (the first wins)."""
     names = {}
     for line in text.splitlines()[4:]:
-        if line.lower().endswith('.hkx') and '\\behaviors\\' not in line.lower():
+        low = line.lower()
+        if low.endswith('.hkx') and '\\behaviors\\' not in low:
             names.setdefault(_stem(line), line[:-4])
     return names
 
@@ -486,21 +507,29 @@ def sync_data(plugin: str) -> dict:
 # Writing
 # ---------------------------------------------------------------------------
 
-def reader(*data_dirs):
-    """read(path under Meshes, backslashes) -> bytes or None: the first of `data_dirs` holding it (data_file) or an
-    Archives over the game's."""
+def reader(*data_dirs, log: 'dict | None' = None):
+    """read(path under Meshes, backslashes) -> bytes or None: the first of `data_dirs` holding it (data_reader,
+    each folder's archives listed now) or an Archives over the game's; each read put in `log` when given, as
+    {rel: (index of the place that had it or None, its SHA-1 or None)} (anim_text_skip)."""
+    places = [place if isinstance(place, Archives) else data_reader(place) for place in data_dirs]
+
     def read(rel: str) -> 'bytes | None':
         """The file at Meshes path `rel`."""
-        return next((found for place in data_dirs if (found := _read(place, rel)) is not None), None)
+        at, found = next(((i, found) for i, place in enumerate(places)
+                          if (found := read_in(place, rel)) is not None), (None, None))
+        if log is not None:
+            log[rel] = at, None if found is None else hashlib.sha1(found).digest()
+        return found
     return read
 
 
-def _read(place, rel: str) -> 'bytes | None':
-    """Meshes path `rel` from a data folder (loose or its archives) or an Archives; None when it lacks it."""
+def read_in(place, rel: str) -> 'bytes | None':
+    """Meshes path `rel` from a data folder's data_reader (loose or its archives) or an Archives; None when it
+    lacks it."""
     if isinstance(place, Archives):
         key = f'meshes\\{rel}'.lower()
         return place.read(key) if key in place.by_name else None
-    return data_file(place, f'Meshes/{_posix(rel)}')
+    return place(f'Meshes/{_posix(rel)}')
 
 
 def _posix(rel: str) -> str:
@@ -520,10 +549,15 @@ def write(data_dir: Path, files: dict) -> list:
 def prune(data_dir: Path, written: list) -> int:
     """Remove `data_dir`'s AnimTextData files of the kinds the build writes (OWNED) that this run did not write:
     entries gone since, and what the Creation Kit left; how many."""
-    keep, gone = {Path(p).resolve() for p in written}, 0
+    keep, gone = {_same(p) for p in written}, 0
     for kind in OWNED:
         for path in (data_dir / ANIM_TEXT / kind).glob('*.txt'):
-            if path.name != PERSISTENT.name and path.resolve() not in keep:
+            if path.name != PERSISTENT.name and _same(path) not in keep:
                 path.unlink()
                 gone += 1
     return gone
+
+
+def _same(path) -> str:
+    """`path` absolute and case-folded, to compare with another path."""
+    return os.path.normcase(os.path.abspath(path))

@@ -17,10 +17,17 @@ QUEST = {'FormID': '00012345', 'Objective[0].Index': '10', 'Objective[0].Text': 
 def test_a_target_keeps_its_alias_id_whichever_targets_are_built():
     """C is alias first+2 whether A is built or not; an unbuilt target leaves its id unused."""
     every = Q.objectives(QUEST, {'0000000A': 1, '0000000B': 2, '0000000C': 3}, first=1)
-    assert every == ([(10, 'Find A', [1, 2]), (20, '', [2, 3])],
+    assert every == ([(10, 'Find A', [(1, b''), (2, b'')]), (20, '', [(2, b''), (3, b'')])],
                      [(1, 'Target0000000A', 1), (2, 'Target0000000B', 2), (3, 'Target0000000C', 3)])
     some = Q.objectives(QUEST, {'0000000C': 3}, first=1)
-    assert some == ([(10, 'Find A', []), (20, '', [3])], [(3, 'Target0000000C', 3)])
+    assert some == ([(10, 'Find A', []), (20, '', [(3, b'')])], [(3, 'Target0000000C', 3)])
+
+
+def test_a_target_carries_its_own_conditions():
+    """Each target's conditions are packed from its own prefix, after its QSTA."""
+    seen = []
+    goals, _ = Q.objectives(QUEST, {'0000000A': 1}, conditions=lambda at: seen.append(at) or b'C')
+    assert seen == ['Objective[0].Target[0].'] and goals[0][2] == [(0, b'C')]
 
 
 def test_a_mod_plugin_mirrors_what_its_masters_conditions_test(monkeypatch):
@@ -40,6 +47,7 @@ def test_a_mod_plugin_mirrors_what_its_masters_conditions_test(monkeypatch):
     monkeypatch.setattr(context_setup, 'load_records', lambda d, sigs: {s: master.get(s, []) for s in sigs})
     monkeypatch.setattr(pipeline, 'export_is_fallout', lambda d: True)
     monkeypatch.setattr(target, 'is_fallout4', lambda: True)
-    objectives, quest_vars = pipeline._mirrors('mod', {'INFO': [], 'QUST': []})
+    own = {'INFO': [], 'QUST': []}
+    objectives, quest_vars = pipeline._mirrors('mod', own, pipeline._master_chain('mod', own))
     assert objectives == {('vmqtops', 10): {'Done': 'TES4ObjDone_VMQTops_10'}}
     assert quest_vars == {('vmqtops', 'bmet'): 'TES4QVar_VMQTops_bMet', ('vmqtopsscript', 'bmet'): 'TES4QVar_VMQTops_bMet'}

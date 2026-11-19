@@ -71,6 +71,23 @@ basis still serves; a female tint recalibration
 (`sculpt_calibration --what tints --female`) brings it in line, and the
 calibration template now drops FTST too.
 
+## <a id="texel-projection"></a>Blocky old faces: texels took a sample point's UV (2026-11-16, not yet played)
+
+**Code:** `fo4_import/face/texture.py` (`texel_map`, `projected`).
+
+In play, FO3's older characters looked burned or scarred rather than aged.
+Their baked `_d` (Old Lady Palmer, and FNV's `VFSGrannyGanger2` alike) is
+patchy in blocks of about 16 texels. `texel_map` gave each FO4 face texel
+the FNV UV of the nearest point of `bake.surface` (21 points per FNV
+triangle, `SURFACE_DENSITY` 6), so over the large forehead and cheek
+triangles a whole patch of texels read one FNV texel. A young face adds
+only the smooth `.egt` offset through it, so it hid; an old race adds its
+wrinkled skin minus the stock skin ([race skin](#race-skin)), whose detail
+came out as blocks. Each texel is now projected onto the nearest point's
+triangle and takes that projection's barycentric UV (clamped inside), so
+the race skin is sampled continuously. The rear head goes through the
+same map.
+
 ## <a id="direct"></a>Revisited: characters from their own data and assets
 
 Revisited 2026-11-10 after Willow. The phases below stay; this section

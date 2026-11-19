@@ -17,7 +17,7 @@ from fo4_import.nif import collision as CO
 from fo4_import.nif import elric as E
 from fo4_import.nif import file as F
 from fo4_import.nif.blocks import NONE
-from fo4_import.nif.convert_static import IDENTITY
+from fo4_import.nif.convert_static import IDENTITY, Converted
 from fo4_import.nif.file import NifFile
 from fo4_import.pipeline import elric_cache as EC
 from fo4_import.pipeline import export_index as X
@@ -175,6 +175,13 @@ def test_a_creature_whose_body_faults_keeps_its_targets_skin(monkeypatch):
     monkeypatch.setattr(creatures, '_mesh', _faulty)
     assert creatures._skin(1, SimpleNamespace(edid='Dog')) is None and creatures.skins == {1: None}
     assert creatures.builder.counts["creatures on their target's skin (a source fault)"] == 1
+
+
+def test_a_creature_parts_body_key_ignores_its_texture_sets_order():
+    """_part_key: texture sets filled in another order key alike; another set apart."""
+    keys = [CR._part_key(Converted(NifFile(), {'m.bgsm': {'a': 1}}, set(order)))
+            for order in (['x', 'y', 'z'], ['z', 'y', 'x'], ['x', 'y'])]
+    assert keys[0] == keys[1] != keys[2]
 
 
 def test_a_talking_machine_part_that_faults_is_left_out(tmp_path, monkeypatch):

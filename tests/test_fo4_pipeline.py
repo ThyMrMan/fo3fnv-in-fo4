@@ -265,10 +265,12 @@ def test_a_build_with_scripts_converts_them_first(monkeypatch):
 
 
 def test_the_first_world_takes_the_rectangle_and_the_rest_are_whole(monkeypatch):
-    """--world A B: A's cells in --region plus its edited cells, B's all."""
-    monkeypatch.setattr(RUN, 'edited_cells', lambda export, world: frozenset({(5, 5)}))
-    args = SimpleNamespace(export=None, world=['A', 'B'], region=[0, 0, 1, 1], whole=False)
-    assert RUN.exteriors(args) == (('A', (0, 0), (1, 1), frozenset({(5, 5)})), ('B', None, None))
+    """--world A B C: A's cells in --region plus its edited cells, B's all (none edited), C's edited ones only."""
+    edits = {'A': frozenset({(5, 5)}), 'B': frozenset(), 'C': frozenset({(3, 4), (2, 9)})}
+    monkeypatch.setattr(RUN, 'edited_cells', lambda export, world: edits[world])
+    args = SimpleNamespace(export=None, world=['A', 'B', 'C'], region=[0, 0, 1, 1], whole=False)
+    assert RUN.exteriors(args) == (('A', (0, 0), (1, 1), edits['A']), ('B', None, None),
+                                   ('C', (2, 9), (2, 9), edits['C']))
     assert RUN.exteriors(SimpleNamespace(export=None, world=[], region=None, whole=False)) == ()
 
 

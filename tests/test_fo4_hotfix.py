@@ -48,3 +48,30 @@ def test_a_hotfix_replaces_its_last_and_a_later_build_clears_it(tmp_path):
     assert fo4_deploy.clear_hotfix(mod, 'FalloutNV.esm', 150.0) == 0
     assert fo4_deploy.clear_hotfix(mod, 'FalloutNV.esm', 250.0) == 1
     assert not (mod / 'Scripts' / 'B.pex').exists() and fo4_deploy.read_manifest(mod) == {}
+
+
+def test_a_property_a_record_would_fill_needs_a_build(tmp_path):
+    """An object property added or retyped is refused; a variable, a defaulted one or a new script ship."""
+    scripts, stage = tmp_path / 'scripts', tmp_path / 'stage'
+    scripts.mkdir()
+    stage.mkdir()
+    (stage / 'Q.psc').write_text('ScriptName Q extends Quest\nQuest Property VCG01 Auto\nActor Property Doc Auto\n')
+    (scripts / 'Q.psc').write_text('ScriptName Q extends Quest\nQuest Property VCG01 Auto\nObjectReference Property '
+                                   'Doc Auto\nArmor Property PipBoy Auto\nInt Property bRun Auto Conditional\n'
+                                   'Float Property Delay = 0.1 Auto Hidden\n')
+    (scripts / 'New.psc').write_text('Armor Property PipBoy Auto\n')
+    reasons = fo4_hotfix.needs_build([scripts / 'Q.psc', scripts / 'New.psc'], stage)
+    assert reasons == ['Q: property doc (objectreference) retyped', 'Q: property pipboy (armor) added']
+
+
+def test_each_source_game_has_its_own_hotfix_mod(tmp_path):
+    """A Fallout 3 build's hotfix goes to FO3's mod, a New Vegas build's (or one with no stamp) to FNV's."""
+    mods = tmp_path / 'mods'
+    for name in ('Fallout3.esm', 'FalloutNV.esm'):
+        export = tmp_path / 'export' / name
+        export.mkdir(parents=True)
+        command = f'fo4_import.pipeline.run --export {export.as_posix()} --out x'
+        (tmp_path / f'{name}.build.json').write_text(json.dumps({'command': command}))
+    assert fo4_deploy.hotfix_mod(mods, tmp_path / 'Fallout3.esm') == mods / 'F3NV - Fallout 3 Hotfix'
+    assert fo4_deploy.hotfix_mod(mods, tmp_path / 'FalloutNV.esm') == mods / 'F3NV - Hotfix'
+    assert fo4_deploy.hotfix_mod(mods, tmp_path / 'Other.esm') == mods / 'F3NV - Hotfix'

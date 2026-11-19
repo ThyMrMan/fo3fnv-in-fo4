@@ -1376,6 +1376,54 @@ than file calls.
   any build used within 14 days still stays. `write_new` stats its target
   once.
 
+<a id="creature-bodies"></a>**A worn creature's body is kept (2026-11-15, not
+yet in a build).** The people stage took 20–77 s per plugin in the
+2026-11-15 chain (43.9 s for FalloutNV.esm). Its last profile (2026-11-13)
+predates the rig caches, so it was not re-used; a scratch harness timed
+`Creatures._mesh`'s steps on FalloutNV.esm's 44 distinct worn bodies
+instead: `creature_mesh` 27.0 s, `skin_texture` 4.9 s, `cached_convert`
+1.7 s, `skeleton_parents` 1.0 s, nothing of it kept between builds.
+`Creatures._body` (fit, bare skin texture, `creature_mesh`) is now a work
+cache entry (site `creature_body`), keyed by each part's converted form
+(`_part_key`: its written NIF plus the other fields, the texture set sorted,
+since a set's order differs between processes), both FNV skeleton paths'
+bytes and the FO4 pair's body and skeleton bytes, with the code that ran.
+The parts' conversions stay outside it (`cached_convert`, its own cache),
+so their result is in the key rather than their code.
+
+Measured (scratch harness, two processes, a chain build running at the
+same time): 33.2 s cold (writing into an empty folder), 2.2 s warm, no
+body made the second time, and the written bodies' bytes the same.
+
+<a id="gun-cache"></a>**A gun's build is kept (2026-11-15, not yet in a
+build).** The whole-map WEAP stage still took 51.8 s, most of it parsing the
+same NIFs every build: in its profile, `read_tri_shape` was 21.8 s of
+41.6 s, under `placement` and `gun` (15 s together), `pieces` (5 s) and
+`fnv_layout` (3.9 s), all pure functions of bytes. `gun.built` (placement
+then the gun mesh), `gun.kept_pieces` and `gun.kept_layout` keep their
+values in the work cache (sites `gun_built`, `gun_pieces`, `gun_layout`),
+keyed by the converted FNV mesh's bytes, the receiver's bytes and the FNV
+node positions (as their float bytes), with the code that ran. `guns.py`
+and the two gun tools (`gun_quick_convert`, `fnv_convert_check`) call
+`gun.built`, so placing and building a gun is written once.
+- **Measured** (scratch harness, 11 FNV guns on the hunting rifle
+  receiver, a build running at the same time): `built`, both `pieces` and
+  the layout took 1.04 s cold and 0.04 s warm.
+- **The clip key must not move.** `GunClips.key` pickles the receiver's
+  bones, the placement and both pieces lists in one pickle. Arrays loaded
+  from the work cache share a dtype object of their own load, not numpy's,
+  so pickle's memo writes them differently beside fresh arrays, and every
+  gun clip key would change (the `gun_clip_files` cache, about 150,000
+  entries, missed). `gun._shared` rebuilds each loaded array on numpy's
+  own dtype. On the 11 guns the key's bytes then match the uncached
+  code's, cold and warm.
+
+A one-struct vertex reader (`struct.iter_unpack` per shape) was tried and
+dropped: the same values on 1,354 vanilla shapes, but only 1.5x faster
+(1.89 s to 1.28 s), and `read_tri_shape` is in the code record of every
+sampled `elric_finish`, `own_face` and `shape_materials` entry, so the edit
+would have redone all of those.
+
 The NIF block readers themselves (`Reader.take`, `read_tri_shape`,
 `read_vertex`) were left alone, though vectorizing them is the bigger win.
 They are in the code records of the FaceGen, Elric-finish and shape-material
@@ -1533,6 +1581,77 @@ changes, on 300 (seed 1) and 600 (seed 2) meshes: none differ.
 - Profiled, 300 meshes: 31.2 s → 9.2 s. No single stage now passes 1.2 s:
   collision about 3 s in all (the stair pass 1.2, the collision soup 0.9),
   the specular scans 0.9, `_geometry` 1.1, `emit` 1.1.
+
+### <a id="chain-fixed-costs-2026-11-14"></a>What every chain build pays again (2026-11-14)
+
+The 2026-11-14 chain (`temp/fo4_chain/chain.log`, 64 builds: the base game,
+then 4.2 h of DLCs and mods) spent, summed over all builds:
+
+| Stage | Seconds |
+|---|---|
+| item WEAP | 8,088 |
+| people | 2,469 |
+| animation data | 2,046 |
+| closing records | 746 |
+| main archive | 708 |
+| script compile | 634 |
+| script conversion | 555 |
+
+WEAP is 50–100 s even in a mod build with few guns: each build places every
+converted gun clip file again and parses the gun meshes. Animation data
+repeats the same work in every build, since it depends on the races, not on
+the area built.
+
+<a id="clip-files"></a>**Clip files placed without the cache copy.** About
+27,000 kept clip files (`gun_clip_files`) were read from the work cache, then
+compared with the loose copy a build restores, then touched: two reads each.
+`elric_cache.write_stored` checks the loose copy first and reads the cache
+only when it differs. A copy whose size and time match the stamp the last
+build kept (`gun_clip_stamps.json` beside the data folder's archive staging,
+saved when the gun race is written) is not read at all; the Main archive's
+pack record trusts size and time the same way. A file with no matching
+stamp is hashed. Touching stays: stale-file pruning keeps what the build
+dated (`stale_files`). `gun_clips.is_kept` (which guns the pool converts) now
+asks only whether the gun's entry is current, not whether each file's cached
+copy is (two `stat`s a file, 8.8 s). A file gone from both the cache and the
+data folder makes `placed()` miss, and that gun converts in the main
+process. Cache copies a build finds already in place are not marked used,
+so `prune` drops them after 14 days. Only a build with a fresh data folder
+after that converts those guns again.
+
+**Animation data.**
+- Vanilla's 3,154 offsets files are parsed once and kept in the work cache
+  under their archives' names, sizes and times (`anim_text.known`): 5.2 s → 0.
+- Each clip record is packed once per run (`Known.pack_clip`), not once per
+  entry naming it (9,851 entries).
+- A template file is read once per run (`Vanilla.read`).
+- `anim_text.prune` compares normalized paths, not `resolve()`d ones (49,377
+  files): 5.2 s → 0.2 s.
+- `ba2_pack.data_reader` lists a data folder's archives once per reader, not
+  per missing file.
+
+The stage still writes 49,377 files (about 3 GB: gun offsets and speed info
+copied from vanilla templates, about 120 KB each) and compares each with
+the restored loose copy.
+
+**Measured** on the spike block (`--region -19 -1 -17 1`, warm, no journal),
+the plugin byte-identical to the baseline each time:
+
+| | Before | After |
+|---|---|---|
+| total | 259.5 s | 189.4 s |
+| item WEAP | 31.5–50.2 s | 25.5 s |
+| animation data | 58.2–63.2 s | 37.6 s |
+| `GunClips.convert`, profiled | 25.4 s | 13.7 s hashed, 2.4 s stamped |
+| item WEAP, profiled | 65.7 s | 30.9 s |
+
+**What WEAP still pays.** Before the first gun converts, `_warm_clips`
+predicts every gun the plugin owns (90 in the base game, whatever the area
+built): mesh conversion, receiver choice, the FO4 gun NIF and the clip key
+(`_guess`, 24.8 s profiled). Most of that is 562 NIF parses. Unprofiled they
+cost about 15 ms each (40 of the largest built gun NIFs: 0.60 s), so about
+7 s a build. A pickled parse loads in about a quarter of that; a cross-build
+parse cache would save about 5 s for about 150 MB of cache.
 
 ## <a id="open"></a>Open questions
 

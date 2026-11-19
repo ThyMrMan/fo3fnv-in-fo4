@@ -21,6 +21,7 @@ from fo4_import.nif import headgear as H
 from fo4_import.spike import equipment as E
 from fo4_import.spike import guns as G
 from fo4_import.spike import items as I
+from fo4_import.spike import npcs as N
 from fo4_import.spike import replacements as RP
 from fo4_import.spike.gun_choice import Choice
 from fo4_import.spike.weapon_mods import ZOOMS
@@ -95,6 +96,50 @@ def test_a_leveled_list_past_255_entries_lists_equal_parts():
     assert items.item(0x20) == 0x03000020
     counts = [sum(1 for tag, _ in subrecords(rec[24:]) if tag == b'LVLO') for rec in builder.written]
     assert counts == [135, 135, 2]
+
+
+def _leveled(fid: int, flags: int, chance_none: int, *entries: tuple) -> tuple:
+    """An index() LVLI entry of `entries` [(FormID, count)]."""
+    rec = {'FormID': f'{fid:08X}', 'EditorID': f'List{fid:X}', 'LVLF.Flags': str(flags),
+           'LVLD.ChanceNone': str(chance_none)}
+    for i, (form, count) in enumerate(entries):
+        rec.update({f'Entry[{i}].Level': '1', f'Entry[{i}].FormID': f'{form:08X}', f'Entry[{i}].Count': str(count)})
+    return 'LVLI', rec
+
+
+def test_a_use_all_list_gives_its_entries_and_a_random_or_chancy_list_itself(monkeypatch):
+    """FO3's security list (Use All: a nested Use All list of armor and baton, a helmet): its entries, counts
+    multiplied, an entry's own condition else the list entry's; a random list or one with chance none is itself.
+    See: docs/fork/fo4_pipeline.md#outfit-slots"""
+    monkeypatch.setattr(I, 'condition_of', lambda fnv, i: 0.6 if (fnv, i) == (0x21, 0) else None)
+    records = {0x10: ('ARMO', {}), 0x11: ('WEAP', {}), 0x12: ('ARMO', {}),
+               0x20: _leveled(0x20, I.USE_ALL, 0, (0x21, 1), (0x12, 1)),
+               0x21: _leveled(0x21, I.USE_ALL, 0, (0x10, 1), (0x11, 2)),
+               0x22: _leveled(0x22, 0, 0, (0x10, 1), (0x11, 1)), 0x23: _leveled(0x23, I.USE_ALL, 25, (0x10, 1))}
+    items = I.Items(_list_builder(), records, {})
+    assert items.given(0x20, 2, 0.3) == [(0x10, 2, 0.6), (0x11, 4, 0.3), (0x12, 2, 0.3)]
+    assert items.given(0x22, 1, None) == [(0x22, 1, None)] and items.given(0x23, 1, None) == [(0x23, 1, None)]
+    assert not items.wearable(0x21) and all(items.wearable(f) for f in (0x10, 0x12))
+
+
+def test_an_npc_wears_the_armor_of_a_use_all_list_and_carries_the_rest(monkeypatch):
+    """Officer Mack's inventory, one Use All list of armor and a baton: the armor is his outfit, the baton carried.
+    See: docs/fork/fo4_pipeline.md#outfit-slots"""
+    for module in (I, N):
+        monkeypatch.setattr(module, 'condition_of', lambda fnv, i: None)
+    taken = {}
+    monkeypatch.setattr(N, 'with_inventory', lambda outfit, carried, keep=False: taken.update(o=outfit, c=carried))
+    records = {0x10: ('ARMO', {'FormID': '00000010', 'BMDT.BipedFlags': '4'}), 0x11: ('WEAP', {'FormID': '00000011'}),
+               0x21: _leveled(0x21, I.USE_ALL, 0, (0x10, 1), (0x11, 1))}
+    builder = _list_builder(equipment=SimpleNamespace(fnv={}))
+    made = {sig: (lambda fid, rec: 0x03000000 | fid) for sig in ('ARMO', 'WEAP')}
+    builder.items = I.Items(builder, records, {}, made)
+    npcs = N.Npcs.__new__(N.Npcs)
+    npcs.builder, npcs._outfit = builder, lambda fnv, worn: worn
+    npcs.source = lambda fnv, flag: {'FormID': '00000001', 'ItemCount': '1', 'Item[0].FormID': '00000021',
+                                     'Item[0].Count': '1'}
+    npcs._inventory(1)
+    assert taken == {'o': [0x03000010], 'c': [(0x03000011, 1, None)]}
 
 
 def test_a_form_list_whose_every_entry_drops_is_not_made_but_an_authored_empty_one_is():
@@ -197,6 +242,7 @@ def test_headgear_puts_fnvs_worn_alternate_textures_on_its_addon():
     eq.condition = SimpleNamespace(wire_armor=lambda fnv, fid, subs, fields: subs)
     taken = {}
     eq._on_head = lambda model, sex: (True, None)
+    eq._hair_kept = lambda slots, models, heads: slots
     eq._worn = lambda model, sex, slots, frame: f'{model}_{sex}'
     eq._worn_swaps = lambda fnv, rec, models: [0x0300AAAA, None]
     eq._addon = lambda fnv, rec, template, bod2, models, swaps: taken.update(models=models, swaps=swaps) or 7
@@ -257,9 +303,8 @@ def test_choosing_a_gun_writes_none_of_its_fnv_assets_and_building_on_it_does(tm
     guns, written = _guns(tmp_path), []
     monkeypatch.setattr(G, 'cached_convert', lambda path, root, pose, animated: SimpleNamespace(nif='nif'))
     monkeypatch.setattr(G, 'nif_file', SimpleNamespace(write=lambda nif: b'static'))
-    monkeypatch.setattr(G, 'gun', SimpleNamespace(fnv_nodes=lambda path: {}, fnv_layout=lambda static, nodes: {},
-                                                  placement=lambda static, nodes, receiver: np.eye(4),
-                                                  gun=lambda static, nodes, receiver, matrix: b'gun'))
+    monkeypatch.setattr(G, 'gun', SimpleNamespace(fnv_nodes=lambda path: {}, kept_layout=lambda static, nodes: {},
+                                                  built=lambda static, nodes, receiver: (np.eye(4), b'gun')))
     monkeypatch.setattr(G, 'write_assets', lambda root, model, data, animated: written.append(model) or (
         'fnv\\weapons\\pistol.nif', None))
     choice = Choice('10mm', (0x10,), 0x10, 'r.nif', {})
@@ -274,7 +319,14 @@ def test_choosing_a_gun_writes_none_of_its_fnv_assets_and_building_on_it_does(tm
     obts = struct.pack('<I', 1) + bytes(10) + b'\1' + b'\0' + bytes(2) + struct.pack('<I', 0x10) + bytes(3)
     guns.templates(0x1234, {'EditorID': 'WeapX'}, choice, [(b'FULL', b'Default\0'), (b'OBTS', obts)], chosen[2], False)
     assert written == ['Weapons\\Pistol.NIF']
-    assert (tmp_path / 'data' / 'Meshes' / 'fnv' / 'weapons' / 'pistol_gun.nif').read_bytes() == b'gun'
+    assert (tmp_path / 'data' / 'Meshes' / 'fnv' / 'weapons' / 'pistol_weapx_gun.nif').read_bytes() == b'gun'
+
+
+def test_guns_sharing_an_fnv_mesh_each_write_their_own_built_mesh():
+    """FO3's BB guns share one FNV mesh on three receivers: three files."""
+    edids = ('CG02WeapBBGun', 'WeapBBGun', 'WeapUniqueBlackBartsBBGun')
+    paths = [G.gun_mesh('fnv\\weapons\\2handrifle\\bbgun01.nif', edid) for edid in edids]
+    assert paths[0] == 'fnv\\weapons\\2handrifle\\bbgun01_cg02weapbbgun_gun.nif' and len(set(paths)) == 3
 
 
 def _guessing_guns(tmp_path, monkeypatch, calls: collections.Counter) -> 'G.Guns':
@@ -291,9 +343,9 @@ def _guessing_guns(tmp_path, monkeypatch, calls: collections.Counter) -> 'G.Guns
     monkeypatch.setattr(G, 'warm', lambda jobs, meshes: calls.update(jobs=len(jobs)) or 0)
     monkeypatch.setattr(G, 'nif_file', SimpleNamespace(write=lambda nif: b'static'))
     monkeypatch.setattr(G, 'gun', SimpleNamespace(
-        fnv_nodes=lambda path: {}, fnv_layout=lambda static, nodes: {}, receiver_bones=lambda receiver: {},
-        placement=lambda static, nodes, receiver: calls.update(['built']) or np.eye(4), pieces=lambda nif: (),
-        gun=lambda static, nodes, receiver, matrix: b'gun'))
+        fnv_nodes=lambda path: {}, kept_layout=lambda static, nodes: {}, receiver_bones=lambda receiver: {},
+        built=lambda static, nodes, receiver: calls.update(['built']) or (np.eye(4), b'gun'),
+        kept_pieces=lambda nif: ()))
     choice = Choice('10mm', (0x10,), 0x10, 'r.nif', {})
     guns.choices = SimpleNamespace(choose=lambda rec, layout, only=None: calls.update(['chosen']) or choice,
                                    weapons={'10mm': (1, [])}, clip_keywords=lambda subs, combo: ((), ()))
@@ -308,7 +360,7 @@ def test_a_guessed_gun_is_chosen_and_built_once_and_its_fault_counted_by_the_rea
     calls, taken = collections.Counter(), []
     monkeypatch.setattr(SF, 'FAULTS', {})
     guns = _guessing_guns(tmp_path, monkeypatch, calls)
-    good, bad = {'FormID': '1', 'Model.MODL': 'pistol.nif'}, {'FormID': '2', 'Model.MODL': 'bad.nif'}
+    good, bad = {'FormID': '1', 'EditorID': 'WeapA', 'Model.MODL': 'pistol.nif'}, {'FormID': '2', 'Model.MODL': 'bad.nif'}
     guns._predicted = lambda: [(1, good, None, ()), (2, bad, None, ())]
     guns._warm_clips()
     assert calls == {'convert': 2, 'chosen': 1, 'built': 1, 'key': 1, 'jobs': 1} and not SF.FAULTS

@@ -91,7 +91,7 @@ _NON_FORM_P1 = {14, 18, 36, 47, 50, 77, 80, 108, 109, 110, 125, 128, 130,
 #: Oblivion functions whose param1 prints even when it is 0.
 _ALWAYS_P1 = (72, 71, 58, 59, 56, 79, 53, 74, 67, 68, 69, 73)
 #: --names value -> xEdit definitions file.
-_XEDIT_DEFS = {'fo3': 'wbDefinitionsFO3.pas', 'fnv': 'wbDefinitionsFNV.pas',
+XEDIT_DEFS = {'fo3': 'wbDefinitionsFO3.pas', 'fnv': 'wbDefinitionsFNV.pas',
                'fo4': 'wbDefinitionsFO4.pas'}
 #: FO3/FNV INFO DATA flag bits (wbDefinitionsFNV.pas: Flags 1, then Flags 2).
 _INFO_FLAGS = ('Goodbye', 'Random', 'SayOnce', 'RunImmediately', 'InfoRefusal',
@@ -107,11 +107,12 @@ _DIAL_TYPES = ('Topic', 'Conversation', 'Combat', 'Persuasion', 'Detection',
 class FuncTable:
     """Condition function names and which params are FormIDs or actor values, for one game."""
 
-    def __init__(self, names: dict, form_slots: dict = None, av_slots: dict = None):
-        """Slots {func: {slot,...}} from xEdit; no form_slots: Oblivion heuristics."""
+    def __init__(self, names: dict, form_slots: dict = None, av_slots: dict = None, slots: dict = None):
+        """Slots {func: {slot,...}} from xEdit (`slots` every parameter's); no form_slots: Oblivion heuristics."""
         self.names = names
         self.form_slots = form_slots
         self.av_slots = av_slots or {}
+        self.slots = slots or {}
 
     def name(self, func: int) -> str:
         """The function's name, or Func<N>."""
@@ -137,7 +138,7 @@ class FuncTable:
 
 def xedit_table(game: str) -> FuncTable:
     """FuncTable read from xEdit's definitions for fo3, fnv or fo4."""
-    text = (_ROOT / 'references' / 'xEdit' / 'Core' / _XEDIT_DEFS[game]).read_text(
+    text = (_ROOT / 'references' / 'xEdit' / 'Core' / XEDIT_DEFS[game]).read_text(
         encoding='utf-8', errors='replace')
     form_types = formid_types(parse_enum(text))
     funcs = parse_functions(text)
@@ -145,7 +146,8 @@ def xedit_table(game: str) -> FuncTable:
                      {i: {s for s, t in params.items() if t in form_types}
                       for i, (_, params) in funcs.items()},
                      {i: {s for s, t in params.items() if t == ACTOR_VALUE_PARAM}
-                      for i, (_, params) in funcs.items()})
+                      for i, (_, params) in funcs.items()},
+                     {i: set(params) for i, (_, params) in funcs.items()})
 
 
 OBLIVION = FuncTable(FUNC_NAMES)
@@ -353,7 +355,7 @@ def main():
     """Parse the command line and run each requested view."""
     ap = argparse.ArgumentParser(description='Decode TES4/FO3/FNV CTDA conditions')
     ap.add_argument('--export', default=str(_ROOT / 'export' / 'Oblivion.esm'))
-    ap.add_argument('--names', choices=sorted(_XEDIT_DEFS),
+    ap.add_argument('--names', choices=sorted(XEDIT_DEFS),
                     help='Read function names from xEdit for this game (default: built-in Oblivion)')
     ap.add_argument('--dial', help='DIAL EditorID or FormID: dump all its INFOs')
     ap.add_argument('--info', help='One INFO FormID')

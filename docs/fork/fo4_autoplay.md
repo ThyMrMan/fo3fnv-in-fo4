@@ -170,8 +170,13 @@ Preference order, cheapest and most engine-native first:
 5. **Python outside the game:** process and window watch, screenshots of
    the game window (windowed mode, `bAlwaysActive`), log collection.
 
-Simulated mouse and keyboard from Python is ruled out: it needs the window
-in focus, breaks the moment anyone touches the PC, and checks nothing.
+Simulated mouse and keyboard from Python was ruled out here: it needs the
+window in focus and breaks the moment anyone touches the PC. The story
+cases now run on a dedicated test laptop, where neither holds, and they use
+real keys where the player's own input is what is tested: `press`, `type`,
+`answer`'s Enter and `choose`'s number key
+([story tests](fo4_story_tests.md#cases)). Story cases never set a stage;
+only the [stage sweep](fo4_test_layers_plan.md#l1) does.
 
 ## <a id="checks"></a>Checks per run
 
@@ -232,7 +237,9 @@ stages in order, and per stage how the source game sets it.
 Stages are run on a fresh start per quest group (a quest line), from a save
 made after its first stage, so one broken quest does not poison the next.
 The result is "this stage's machinery works", not "a player can get
-there": the natural route stays [manual](#manual).
+there". Playing a quest's route as a player does, with its lines and the
+actors' behavior checked, is the [story runs plan](fo4_story_tests.md#gap),
+which also moves these runs onto a hidden test instance.
 
 ### <a id="check-dialogue"></a>Dialogue
 
