@@ -1142,22 +1142,21 @@ def faction_reaction(ctx, call) -> str:
 
 @command('getincell')
 def get_in_cell(ctx, call) -> str:
-    """`<ref>.GetInCell <cell>` -- is the reference in that cell?
+    """`<ref>.GetInCell <cell>`: is the reference in that cell?
 
-    TES4 matched the operand as a PREFIX over cell EditorIDs: `GetInCell
-    Chorrol` is true anywhere in Chorrol, across all 86 of its cells.  A single
-    `GetParentCell() == X` therefore under-tests a family name, so a prefix
-    that names more than one cell becomes a generated `TES4_IsIn<Name>()`
-    helper (see `_register_cell_family`).
-
-    Exteriors cannot be Cell properties -- a Papyrus `Cell` binds only to an
-    interior, and all 43 of vanilla Skyrim's Cell properties name interiors --
-    so the helper compares those by worldspace and grid instead.
+    TES4 matches the operand as a PREFIX over cell EditorIDs, so a name with
+    more than one cell becomes a generated `TES4_IsIn<Name>()` helper
+    (`_register_cell_family`); a Papyrus Cell binds only interiors, so the
+    helper tests exteriors by worldspace and grid. With no subject (a bare
+    call in a quest) the call fails and reads 0: False.
+    See: docs/commentary/script_convert.md#quest-script-has-no-reference
     """
     name = call.source(0).strip().strip('"')
     if not name:
         return None
     ref = ctx._resolve_objref_ref(call.ref, call.extends)
+    if ref == 'None':
+        return 'False'
 
     interiors, exteriors = ((ctx.xref.split_cell_family(name))
                             if ctx.xref else ([], []))

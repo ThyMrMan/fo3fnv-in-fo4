@@ -1,10 +1,1205 @@
 {
  "version": 1,
  "entries": {
+  "behavior|Fallout3.esm|no-package|CG03Stanley": {
+   "status": "ok",
+   "note": "its one package sits in the cut Vault101Demo cell",
+   "date": "2026-11-19"
+  },
+  "build|Fallout3.esm|previous-removed|STAT": {
+   "status": "ok",
+   "note": "WeapNukaCocktail was placed as a static; it now builds as the weapon (2 refs keep their ids)",
+   "date": "2026-11-19"
+  },
+  "build|Fallout3.esm|removed|STAT": {
+   "status": "ok",
+   "note": "WeapNukaCocktail was placed as a static; it now builds as the weapon (2 refs keep their ids)",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02025DBC": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0202E20F": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0202E31B": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0202F55A": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0202F7A3": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0202FA22": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0202FB19": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020302B7": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020307BB": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02031E19": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02031E1A": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020320EB": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020320EC": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02032F67": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02032F68": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02033146": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020377DD": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020381D7": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02038317": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0203A563": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0203DBAA": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0203FC64": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02040692": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02040C45": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02040EF1": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02040EF2": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0204569E": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020458B5": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020458B6": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0204654F": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0204E139": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0204EDFC": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0204EDFD": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0204F770": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02058034": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02058040": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02058041": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020648FA": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02064E1C": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02069B81": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02069B82": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0206BB2B": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0206C5BF": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0206F571": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0206F583": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0206F6EA": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0206F6F3": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0206F82B": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0206F82C": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0206F92C": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|0206F92D": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02079FF1": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020908F3": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|02099773": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020A5397": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020A7B1B": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020A7B1C": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020AEDE5": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020AF41D": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020C4795": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020C47A2": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020C4968": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020C58F9": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020C5CE9": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020C5CEA": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020CA02C": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "packages|Fallout3.esm|navmesh|020CA02D": {
+   "status": "ok",
+   "note": "FFEncounterWorld staging cell: Fallout3.esm has no navmesh there either",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|*|*.TES4Scene_*": {
+   "status": "bug",
+   "note": "Say <topic> 1 <speaker> (a line said as another actor, e.g. through an intercom) converts to SpeakAs + a TES4Scene_ property, a scene only the Skyrim importer builds: the line is never said",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|*|FALLOUT3_Vault87TrapGasSCRIPT.FlamerMagicEffect": {
+   "status": "ok",
+   "note": "MagicEffect property declared from the SCRO table; the test reads the TES4FX_ keyword",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_ArlingtonLibraryBathroom_5DEA.FakeForce100r25": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_BannonScript.RCVote1": {
+   "status": "ok",
+   "note": "topic has no INFO in Fallout3.esm: saying it says nothing in FO3 either",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_BannonScript.RCVote2": {
+   "status": "ok",
+   "note": "topic has no INFO in Fallout3.esm: saying it says nothing in FO3 either",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_CG04MaryHoldenScript.Vault101Demo": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_CG04RadroachSpawnerSCRIPT.CG04RadroachSpawn": {
+   "status": "bug",
+   "note": "ActorBase property filled before the people stage (build count: 5), left None: PlaceAtMe and GetDeadCount on it do nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_CG04RadroachSpawnerSCRIPT.Vault101Demo": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_CG04RadroachSpawnerSCRIPT.Vault101Reactor": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_CG04Script.Vault101Demo": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_CG04TomHoldenScript.Vault101Demo": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_DialogueLittleLamplightSCRIPT.LLArmory": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_DialogueLittleLamplightSCRIPT.LLSpelunkerRestaurant": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_DialogueLittleLamplightSCRIPT.LLWomensRestroom": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_DoctorLiScript.RCMotion": {
+   "status": "ok",
+   "note": "topic has no INFO in Fallout3.esm: saying it says nothing in FO3 either",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_DoctorLiScript.RCVote1": {
+   "status": "ok",
+   "note": "topic has no INFO in Fallout3.esm: saying it says nothing in FO3 either",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_DoctorLiScript.RCVote2": {
+   "status": "ok",
+   "note": "topic has no INFO in Fallout3.esm: saying it says nothing in FO3 either",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_FFBaseballSCRIPT.FakeForceBall1000": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_FFBaseballSCRIPT.GrenadeFragProjectile": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_FFChurchSniperSCRIPT.FakeForceBall250": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_GenericScript.AddictRedAGMorphine": {
+   "status": "ok",
+   "note": "MagicEffect property declared from the SCRO table; the test reads the TES4FX_ keyword",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_GeorgetownWildWestExplos_BD72.FakeForce100r1000": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_GlowingOneBurstScript.GlowingOneBurstExplode": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_HD01QuestScript.NeoClassDefaultImageSpace": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_HD01QuestScript.TenpennyImageSpace": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_HD01QuestScript.UrbanImageSpace01": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_HD01QuestScript.VaultImageSpace01": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_HD02QuestScript.NeoClassDefaultImageSpace": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_HD02QuestScript.TenpennyImageSpace": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_HD02QuestScript.UrbanImageSpace01": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_HD02QuestScript.VaultImageSpace01": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_HarknessScript.RCMotion": {
+   "status": "ok",
+   "note": "topic has no INFO in Fallout3.esm: saying it says nothing in FO3 either",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_HarknessScript.RCVote1": {
+   "status": "ok",
+   "note": "topic has no INFO in Fallout3.esm: saying it says nothing in FO3 either",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_HarknessScript.RCVote2": {
+   "status": "ok",
+   "note": "topic has no INFO in Fallout3.esm: saying it says nothing in FO3 either",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_LLLMayorMacCreadyScript.LLArmory": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_LLLMayorMacCreadyScript.LLLMacCreadyBackDoorLine": {
+   "status": "ok",
+   "note": "topic has no INFO in Fallout3.esm: saying it says nothing in FO3 either",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_LLLMayorMacCreadyScript.LLSpelunkerRestaurant": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_LLLMayorMacCreadyScript.LLWomensRestroom": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MQ03Script.RC": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MQ05Script.DefaultBattle": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MQ05Script.DefaultExplore": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MQ05Script.PPurity": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MQ05TaftCheckpointAttack_43A8.MQ05TaftGhouls": {
+   "status": "bug",
+   "note": "ActorBase property filled before the people stage (build count: 5), left None: PlaceAtMe and GetDeadCount on it do nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MQ05TaftEnclaveBark01SCRIPT.MQ05TaftDialogue": {
+   "status": "ok",
+   "note": "topic has no INFO in Fallout3.esm: saying it says nothing in FO3 either",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MQ11CitCraneTriggerScript.Tension": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MQ11LDMasterTriggerSCRIPT.LibertyPrimeLaser": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MQ11LDMasterTriggerSCRIPT.LibertyPrimeWeapBomb": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MQ11LDPentagonFlybyTrig0_418B.LibertyPrimeLaser": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MQ11Script.DefaultBattle": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MS01MutantTrigger2Script.GermPoliceHQ": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MS06Script.TempleOftheUnionZone": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MS09ArefuArrivalTriggerScript.FakeMediumExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MS14PowerArmorScript.MorphineEffect": {
+   "status": "ok",
+   "note": "MagicEffect property declared from the SCRO table; the test reads the TES4FX_ keyword",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MS14Script.FortC0": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MS14Script.Underworld": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MS17QuestScript.Vault92": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MegatonDialogueScript.MegatonAbandonedHouseDummyCell": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MisterCrowleyScript.FortC0": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_MisterCrowleyScript.FortConstantineExterior": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_PF__0008EFC9.LibertyPrimeLaser": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_PF__0009D412.ParadiseFallsZone": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_PennyScript.LLArmory": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_PennyScript.LLSpelunkerRestaurant": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_PennyScript.LLWomensRestroom": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_QF_MQ01LD.FakeMediumExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_QF_MS01.GermPoliceHQ": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_QF_MS11.Megaton": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_QF_MS11.MegatonAbandonedHouseDummyCell": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_QF_MS16.Vault101": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_RavenRockExteriorStage1T_7190.MQ08Fawkes": {
+   "status": "bug",
+   "note": "ActorBase property filled before the people stage (build count: 5), left None: PlaceAtMe and GetDeadCount on it do nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_RavenRockTurretCeiling02_D977.Turret03Laser2HR": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_RedScript.GermPoliceHQZone": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_SammyScript.LLArmory": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_SammyScript.LLSpelunkerRestaurant": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_SammyScript.LLWomensRestroom": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_SquirrelScript.LLArmory": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_SquirrelScript.LLSpelunkerRestaurant": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_SquirrelScript.LLWomensRestroom": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_StatesmanHotelRoofTrigge_DF44.GrenadeFragExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_TIF__0003A88D.LLZipFollowsPlayer2": {
+   "status": "ok",
+   "note": "topic has no INFO in Fallout3.esm: saying it says nothing in FO3 either",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_TRAPPitchingMachineScript.TrapBaseball": {
+   "status": "ok",
+   "note": "named only inside a `;NE: TODO` note of an unconverted command (SetCellImageSpace, GetInZone, PlayMusic, UseWeapon, FireWeapon): never read",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_VictoriaWattsScript.Megaton": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_VictoriaWattsScript.MegatonAbandonedHouseDummyCell": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|fnv-form|FALLOUT3_YaoGuaiDenAmbusherScript.FakeForce700r100": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|helper|*.TES4WalkTrigger": {
+   "status": "ok",
+   "note": "SayTo package with no Trigger Location (no PLD2): WalkUp gets place -1 and never reads the trigger",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|helper|F3NV_DialoguePackage.TES4DayDone": {
+   "status": "ok",
+   "note": "set only on quest-gated Once Per Day chats (daily); PackageDone returns on None",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|helper|F3NV_RadioPlaylist.NPCReceiver": {
+   "status": "ok",
+   "note": "made only for a station a script names with SetNPCRadio; the playlist script checks for None",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|helper|F3NV_RadioStation.Playlist": {
+   "status": "ok",
+   "note": "Set at run time: each station's F3NV_RadioPlaylist names itself on its transmitter at quest start",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|helper|F3NV_ReputationTab.Title*": {
+   "status": "ok",
+   "note": "FO3 has no reputations and no UIRepGood/UIRepBad sounds",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|no-fnv-form|FALLOUT3_Forge03ElevatorTriggerSCRIPT.target": {
+   "status": "ok",
+   "note": "an FO3 ref script variable that starts empty in FO3 too and is set (or never read) at run time",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|no-fnv-form|FALLOUT3_MQ11GenericVertibirdLand_5240.linkedRef": {
+   "status": "ok",
+   "note": "an FO3 ref script variable that starts empty in FO3 too and is set (or never read) at run time",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|no-fnv-form|FALLOUT3_TrapGrenadeBunchSCRIPT.grenade": {
+   "status": "ok",
+   "note": "an FO3 ref script variable that starts empty in FO3 too and is set (or never read) at run time",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|no-fnv-form|FALLOUT3_Vault106AmataHallSCRIPT.triggerRef": {
+   "status": "ok",
+   "note": "an FO3 ref script variable that starts empty in FO3 too and is set (or never read) at run time",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|no-fnv-form|FALLOUT3_Vault87GasTrapKillSCRIPT.mySelf": {
+   "status": "ok",
+   "note": "an FO3 ref script variable that starts empty in FO3 too and is set (or never read) at run time",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_BannonScript.RCMotion": {
+   "status": "ok",
+   "note": "topic has no INFO in Fallout3.esm: saying it says nothing in FO3 either",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_BettyScript.GrenadePulseExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_ButtonGwinnettScript.MediumExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_CG04Script.CG04EmergencyBroadcast": {
+   "status": "bug",
+   "note": "radio topic of the Vault 101 Emergency Frequency, one of the 4 FO3 stations given no frequency (radio.FREQUENCIES)",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_CG04Script.Vault101": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_CG04Script.Vault101Reactor": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_CJYoungScript.CJYoungRunAway": {
+   "status": "bug",
+   "note": "package left out by the behavior audit (Find target not furniture, or an unwritable condition: GetInCellParam, HasMagicEffect); fills once the package converts",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_CRBrahminScript.Loose3rdPBrahminPush": {
+   "status": "bug",
+   "note": "clip starts crouched; HumanClips.seated reads thighs level and pelvis low at frame 0 as seated, so idles leaves it out",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_ColonelAutumnScript.MQ05Explosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_Dunwich02MoverTrig01SCRIPT.DunwichFakeForceBallMedium": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_Dunwich02MoverTrig01SCRIPT.DunwichFakeForceBallSmall": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_EndingBinksScript.AfricanAmerican": {
+   "status": "bug",
+   "note": "FO4 has one human race and no fill for Race properties: no GetRace test passes, so no closing epilogue movie (B19-B26) plays",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_EndingBinksScript.Asian": {
+   "status": "bug",
+   "note": "FO4 has one human race and no fill for Race properties: no GetRace test passes, so no closing epilogue movie (B19-B26) plays",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_EndingBinksScript.Caucasian": {
+   "status": "bug",
+   "note": "FO4 has one human race and no fill for Race properties: no GetRace test passes, so no closing epilogue movie (B19-B26) plays",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_EndingBinksScript.Hispanic": {
+   "status": "bug",
+   "note": "FO4 has one human race and no fill for Race properties: no GetRace test passes, so no closing epilogue movie (B19-B26) plays",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_FFDCAdamsMorganPreacherSCRIPT.FatManNukeExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_FFDCAdamsMorganPreacherSCRIPT.LargeExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_FFERepeatASCRIPT.FakeForceBall1000": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_FFEUniqueAQuestSCRIPT.FakeForceBall1000": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_FFEUniqueAQuestSCRIPT.FakeForceBall250": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_FatherCliffordScript.FatherCliffordFindDiego": {
+   "status": "bug",
+   "note": "package left out by the behavior audit (Find target not furniture, or an unwritable condition: GetInCellParam, HasMagicEffect); fills once the package converts",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_FollowersHireFawkesEncla_D913.LargeExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_Forge01EmergencyPulseCon_4452.Forge01PulseExplosion01": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_ForgeProtectronPod01Script.DunwichFakeForceBallSmall": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_ForgeProtectronPod04Script.DunwichFakeForceBallSmall": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_ForgeProtectronPod05Script.DunwichFakeForceBallSmall": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_FortCBunkerLaunchScript.FortCLaunchComputerExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_FreeformParadiseFallsScript.TES4Movers_pfallslockandload": {
+   "status": "bug",
+   "note": "fo4_import has no ResetInterior movers list (tes5_import/dialogue/reset_interior.py is Skyrim only)",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_GenericScript.TES4FX_concussion": {
+   "status": "ok",
+   "note": "no FO4 concussion effect; PlayerConcussed recast each pass refreshes (its Perception test now kept)",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_LDScientistBomb01SCRIPT.LDScientistExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MQ01BehemothSCRIPT.BMTStretch": {
+   "status": "ok",
+   "note": "behemoth is a Fallout4.esm stand-in (EncSMBehemoth01Template) with no own rig; an FO3 clip cannot play on it",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MQ04MabelOvenScript.MQ04OvenExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MQ04PlayerContainerScript.PipBoyGlove": {
+   "status": "ok",
+   "note": "FO4's Pip-Boy item is device and arm in one; the glove has no counterpart and mapping it would give the player a second Pip-Boy",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MQ04Script.PipBoyGlove": {
+   "status": "ok",
+   "note": "FO4's Pip-Boy item is device and arm in one; the glove has no counterpart and mapping it would give the player a second Pip-Boy",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MQ05FloodControlPumpScript.GREETING": {
+   "status": "bug",
+   "note": "Say GREETING: FO4 greeting topic only opens the greeting scene, so GREETING is not built as a scripted topic (fo4_pipeline.md, known gap)",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MQ05FuseBoxScript.GREETING": {
+   "status": "bug",
+   "note": "Say GREETING: FO4 greeting topic only opens the greeting scene, so GREETING is not built as a scripted topic (fo4_pipeline.md, known gap)",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MQ05MainframeControlScript.GREETING": {
+   "status": "bug",
+   "note": "Say GREETING: FO4 greeting topic only opens the greeting scene, so GREETING is not built as a scripted topic (fo4_pipeline.md, known gap)",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MQ05ldEnclaveWaveSCRIPT.MQ05EnclaveWaveLower": {
+   "status": "bug",
+   "note": "ActorBase property filled before the people stage (build count: 5), left None: PlaceAtMe and GetDeadCount on it do nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MQ05ldEnclaveWaveSCRIPT.MQ05EnclaveWaveUpper": {
+   "status": "bug",
+   "note": "ActorBase property filled before the people stage (build count: 5), left None: PlaceAtMe and GetDeadCount on it do nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MQ08GECKScript.FXGeckActivate01": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MQ11PPurityControlPanelScript.MQ05Explosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MS01QuestScript.BigTown": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MS01QuestScript.GREETING": {
+   "status": "bug",
+   "note": "Say GREETING: FO4 greeting topic only opens the greeting scene, so GREETING is not built as a scripted topic (fo4_pipeline.md, known gap)",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MS09EwersDoorScript.GREETING": {
+   "status": "bug",
+   "note": "Say GREETING: FO4 greeting topic only opens the greeting scene, so GREETING is not built as a scripted topic (fo4_pipeline.md, known gap)",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MS10HaroldsHeartScript.HaroldLiniment": {
+   "status": "bug",
+   "note": "no data/effect_shaders.json entry (build counts EffectShader not mapped)",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MS10HaroldsHeartScript.HaroldSap": {
+   "status": "bug",
+   "note": "no data/effect_shaders.json entry (build counts EffectShader not mapped)",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MS11DetonatorSCRIPT.FakeForceBall4000": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MS11DetonatorSCRIPT.MegatonNuke": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MS12QuestScript.MS12KillSusanLancasterTravelShoot": {
+   "status": "bug",
+   "note": "package left out by the behavior audit (Find target not furniture, or an unwritable condition: GetInCellParam, HasMagicEffect); fills once the package converts",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MS13MezzedScript.MS13MezzedPackage": {
+   "status": "bug",
+   "note": "package left out by the behavior audit (Find target not furniture, or an unwritable condition: GetInCellParam, HasMagicEffect); fills once the package converts",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MS15BackupProtectronScript.MediumExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MS16TerminalSCRIPT.FortCLaunchComputerExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MegatonDialogueScript.Megaton": {
+   "status": "ok",
+   "note": "interior not in the build because nothing reaches it: an empty GetInCell prefix cell, or the cut Vault101Reactor/Vault101Demo/Little Lamplight armory; nobody can be in it, as in FO3",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_MisterCrowleyScript.MS14CrowleyGetArmor": {
+   "status": "bug",
+   "note": "package left out by the behavior audit (Find target not furniture, or an unwritable condition: GetInCellParam, HasMagicEffect); fills once the package converts",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_PennAveExplosion01Trigge_757D.PAAveFragExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_RavenRockExteriorControl_AE37.FakeForceBallNudge": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_RavenRockExteriorControl_AE37.GrenadeFragExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_RavenRockExteriorControl_AE37.RavRockExplo02": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_RavenRockPlasmaGrenadeEx_666B.RavenRockPlasmaExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_SimoneCameronScript.SimoneCameronCloseGate": {
+   "status": "bug",
+   "note": "package left out by the behavior audit (Find target not furniture, or an unwritable condition: GetInCellParam, HasMagicEffect); fills once the package converts",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_StatesmanHotelRoofTrigge_DF44.StatesmanHotelExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_TakomaFactoryExplosionsT_23EF.GrenadeFragExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_TakomaFactoryExplosionsT_23EF.TakomaFactoryExplosion03REF": {
+   "status": "bug",
+   "note": "reference to placeable water (PWAT), which cell._part_refs splits into tile refs on hashed ids; the FO3 ref id never exists",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_TheMallExplosionsTrigger_63EC.TheMallMediumExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_TheMallExplosionsTrigger_85E6.TheMallMediumExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_TheMallTrenchExplosionTr_3018.GrenadeFragExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_TrapComputerSCRIPT.GrenadeFragExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_TrapComputerSCRIPT.GrenadePlasmaExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_TrapComputerSCRIPT.GrenadePulseExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_TrapCorpseSCRIPT.GrenadeFragExplosion": {
+   "status": "bug",
+   "note": "no on-demand maker for an EXPL a script property names (attach._made covers items and placed bases only): PlaceAtMe of the explosion does nothing",
+   "date": "2026-11-19"
+  },
+  "properties|Fallout3.esm|timer|FALLOUT3_VictoriaWattsScript.MS08RailroadFindPlayer": {
+   "status": "bug",
+   "note": "package left out by the behavior audit (Find target not furniture, or an unwritable condition: GetInCellParam, HasMagicEffect); fills once the package converts",
+   "date": "2026-11-19"
+  },
   "properties|FalloutNV.esm|helper|F3NV_RadioStation.Playlist": {
    "status": "ok",
    "note": "Set at run time: each station's F3NV_RadioPlaylist names itself on its transmitter at quest start (fo4_radio.md#start-radio-conversation).",
    "date": "2026-11-07"
+  },
+  "quest|Fallout3.esm|CG04|1[12]0": {
+   "status": "ok",
+   "note": "CG04ReactorSwitchSCRIPT sits in the cut Vault101Reactor cell (no door leads in; CG04Script names it only in a comment)",
+   "date": "2026-11-19"
+  },
+  "quest|Fallout3.esm|MQ01|58": {
+   "status": "bug",
+   "note": "FO4 dialogue ignores LinkFrom (4,352 FO3 lines, 645 FNV use it): a topic reached only that way is never played",
+   "date": "2026-11-19"
+  },
+  "quest|Fallout3.esm|MS16|10": {
+   "status": "bug",
+   "note": "the station gets no frequency: FO3 has 20 Pip-Boy stations and FO4 has 14 free slots (radio.FREQUENCIES, FormID order), so Vault 101 Emergency Frequency, MS18RadioSignal, Agatha (MS17) and FFRadioSignal02 are not built; its silent stage-setting line now converts once it is",
+   "date": "2026-11-19"
+  },
+  "quest|Fallout3.esm|MS18|5": {
+   "status": "bug",
+   "note": "the station gets no frequency: FO3 has 20 Pip-Boy stations and FO4 has 14 free slots (radio.FREQUENCIES, FormID order), so Vault 101 Emergency Frequency, MS18RadioSignal, Agatha (MS17) and FFRadioSignal02 are not built; its silent stage-setting line now converts once it is",
+   "date": "2026-11-19"
   },
   "quest|FalloutNV.esm|VCG00|14": {
    "status": "ok",
@@ -25,6 +1220,76 @@
    "status": "ok",
    "note": "Vault 74 is the GECK tutorial vault, cut from FNV: no door leads into Vault74a",
    "date": "2026-11-08"
+  },
+  "targets|Fallout3.esm|actor|CrMisterGutsy": {
+   "status": "bug",
+   "note": "the MS14 power armor voice: a speak-as identity, never placed (see the TES4Scene_ speak-as finding)",
+   "date": "2026-11-19"
+  },
+  "targets|Fallout3.esm|stage|FFEUniqueA|255": {
+   "status": "ok",
+   "note": "the stage is absent in Fallout3.esm too: a vanilla reference to a stage it never authored",
+   "date": "2026-11-19"
+  },
+  "targets|Fallout3.esm|stage|FFEUniqueB|59": {
+   "status": "ok",
+   "note": "the stage is absent in Fallout3.esm too: a vanilla reference to a stage it never authored",
+   "date": "2026-11-19"
+  },
+  "targets|Fallout3.esm|stage|FFEUniqueB|60": {
+   "status": "ok",
+   "note": "the stage is absent in Fallout3.esm too: a vanilla reference to a stage it never authored",
+   "date": "2026-11-19"
+  },
+  "targets|Fallout3.esm|stage|MQ01|106": {
+   "status": "ok",
+   "note": "the stage is absent in Fallout3.esm too: a vanilla reference to a stage it never authored",
+   "date": "2026-11-19"
+  },
+  "targets|Fallout3.esm|stage|MQ05|71": {
+   "status": "ok",
+   "note": "the stage is absent in Fallout3.esm too: a vanilla reference to a stage it never authored",
+   "date": "2026-11-19"
+  },
+  "targets|Fallout3.esm|stage|MQ06|70": {
+   "status": "ok",
+   "note": "the stage is absent in Fallout3.esm too: a vanilla reference to a stage it never authored",
+   "date": "2026-11-19"
+  },
+  "targets|Fallout3.esm|stage|MQ08|500": {
+   "status": "ok",
+   "note": "the stage is absent in Fallout3.esm too: a vanilla reference to a stage it never authored",
+   "date": "2026-11-19"
+  },
+  "targets|Fallout3.esm|stage|MQ11LD|25": {
+   "status": "ok",
+   "note": "the stage is absent in Fallout3.esm too: a vanilla reference to a stage it never authored",
+   "date": "2026-11-19"
+  },
+  "targets|Fallout3.esm|stage|MS01|666": {
+   "status": "ok",
+   "note": "the stage is absent in Fallout3.esm too: a vanilla reference to a stage it never authored",
+   "date": "2026-11-19"
+  },
+  "targets|Fallout3.esm|stage|MS15|600": {
+   "status": "ok",
+   "note": "the stage is absent in Fallout3.esm too: a vanilla reference to a stage it never authored",
+   "date": "2026-11-19"
+  },
+  "targets|Fallout3.esm|stage|MS16|162": {
+   "status": "ok",
+   "note": "the stage is absent in Fallout3.esm too: a vanilla reference to a stage it never authored",
+   "date": "2026-11-19"
+  },
+  "targets|Fallout3.esm|stage|MS16|164": {
+   "status": "ok",
+   "note": "the stage is absent in Fallout3.esm too: a vanilla reference to a stage it never authored",
+   "date": "2026-11-19"
+  },
+  "targets|Fallout3.esm|stage|MS16|182": {
+   "status": "ok",
+   "note": "the stage is absent in Fallout3.esm too: a vanilla reference to a stage it never authored",
+   "date": "2026-11-19"
   }
  }
 }

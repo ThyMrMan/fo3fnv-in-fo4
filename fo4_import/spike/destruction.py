@@ -37,6 +37,14 @@ STAND_INS = {
     'GasTrapFireBurst': 'ExplosionTrapGas', 'V22GasTrapFireBurst': 'ExplosionTrapGas',
     'ExplosionFlamerCritEffect': 'ExplosionTrapGas', 'BloatFlyExplosion': 'GoreInsectSmallExplosion',
 }
+#: FNV explosion art (lower-case Model.MODL, '/') -> the Fallout4.esm explosion standing in after name and STAND_INS.
+MODEL_STAND_INS = {
+    'effects/fxnullexplosionart.nif': 'FakeForce100Explosion', 'effects/explosiongrenadefrag.nif': 'fragGrenadeExplosion',
+    'effects/explosiongenericl01.nif': 'CarExplosion', 'effects/explosionlarge01.nif': 'FatManExplosion',
+    'effects/fxpulseexplosion01.nif': 'pulseGrenadeExplosion', 'effects/fxexplosionplasma.nif': 'plasmaGrenadeExplosion',
+    'effects/fxglowingonesburst.nif': 'GlowingOneResurrectExplosion', 'effects/fxmegatonnuke01.nif': 'CGPrewarNuke',
+    'effects/fxravenrockexplosion01.nif': 'CarExplosion', 'effects/fxflashbangexplosion.nif': 'fragGrenadeExplosion',
+}
 
 
 def fo4_names(fo4: bytes, sig: bytes) -> dict:
@@ -81,13 +89,16 @@ class Destruction:
         """FNV DSTD `data` with FO4's explosion and debris (unmapped: none, count 0)."""
         *head, explosion, debris, count = STAGE.unpack(data)
         debris = self._debris(debris)
-        return STAGE.pack(*head, self._explosion(explosion), debris, count if debris else 0)
+        return STAGE.pack(*head, self.explosion(explosion), debris, count if debris else 0)
 
-    def _explosion(self, fnv: int) -> int:
-        """The FO4 explosion for FNV explosion `fnv`: a copy of its stand-in with FNV's numbers; 0 for none."""
+    def explosion(self, fnv: int) -> int:
+        """The FO4 explosion for FNV explosion `fnv`: a copy of its stand-in (same name, STAND_INS, else its art's
+        MODEL_STAND_INS) with FNV's numbers; 0 for none."""
         copies = self.builder.projectiles.copies
-        name = copies.explosions.get(fnv, {}).get('EditorID', '')
-        stand_in = self.explosions.get(name) or self.explosions.get(STAND_INS.get(name, ''))
+        rec = copies.explosions.get(fnv, {})
+        name, art = rec.get('EditorID', ''), rec.get('Model.MODL', '').replace(chr(92), '/').lower()
+        stand_in = (self.explosions.get(name) or self.explosions.get(STAND_INS.get(name, ''))
+                    or self.explosions.get(MODEL_STAND_INS.get(art, '')))
         if fnv and not stand_in:
             self.builder.counts[f'destruction explosion left out ({name or f"{fnv:08X}"})'] += 1
         return copies.explosion(stand_in, fnv) if stand_in else 0

@@ -5,6 +5,7 @@ See: docs/fork/fo4_hknp_writer.md#constraints
 """
 
 import struct
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -15,7 +16,7 @@ from fo4_import.nif import collision
 from fo4_import.nif import file as nif_file
 from fo4_import.nif import hknp_constraint, hknp_ragdoll, hknp_write
 from fo4_import.nif.blocks import NONE
-from fo4_import.nif.convert_static import IDENTITY
+from fo4_import.nif.convert_static import IDENTITY, convert
 from fo4_import.nif.file import NifFile
 from fo4_import.nif.hknp_convex import quaternion
 from fo4_import.nif.hknp_write import GAME_PER_HAVOK, MASS, MOTION
@@ -174,6 +175,19 @@ def test_ragdoll_constraint_atoms_carry_elrics_constants():
     assert (atoms['coneLimit']['minAngle'], atoms['coneLimit']['maxAngle']) == (-100.0, pytest.approx(0.5))
     assert {atoms[k]['angularLimitsTauFactor'] for k in ('twistLimit', 'coneLimit', 'planesLimit')} == {0.8}
     assert atoms['angFriction']['numFrictionAxes'] == 3
+
+
+CORPSE = (Path(__file__).resolve().parents[1] / 'export' / 'Fallout3.esm' / 'meshes' / 'clutter' / 'skeleton'
+          / 'westfathercorpse.nif')
+
+
+@pytest.mark.skipif(not CORPSE.exists(), reason='needs the FO3 export')
+def test_a_skinned_jointed_mesh_keeps_its_skins_bones():
+    """FO3's jointed West corpse, skinned to unbodied bones, converts skinned.
+    See: docs/fork/fo4_pipeline.md#skin-bones-kept
+    """
+    converted = convert(str(CORPSE))
+    assert any(kind == 'BSSkin::Instance' for kind, _ in converted.nif.blocks)
 
 
 def test_a_constraint_to_a_body_outside_the_system_is_none():

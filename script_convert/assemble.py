@@ -1382,7 +1382,7 @@ def _guarded(conv, block, body: list) -> list:
     """
     btype = block.btype.lower()
     guard = block_filter_guard(conv, btype, block.filter or '')
-    state = type_guard(btype)
+    state = type_guard(conv, btype)
     if state and guard is not None:
         guard = f'{state} && {guard}' if guard else state
 

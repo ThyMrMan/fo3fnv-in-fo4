@@ -125,7 +125,7 @@ Findings:
 | Writer missing | An FNV write with no build write of the same fact and value. The quest audit already does this for stages; this extends it to every fact |
 | Writer moved | Same write on a different trigger: the other half of a line, MenuMode on the game-mode timer, a stage fragment instead of the line |
 | Writer extra | The build writes a fact where FNV does not: Choice reveals, derived stage reveals, a static script's write |
-| Block dropped | An FNV block with code and no handler or comment in the build (`OnFire` ×3) |
+| Block dropped | An FNV block with code and no handler or comment in the build (`OnFire` ×3). A `Begin OnPackageDone <package>` block (also Start, End, Change) runs in the `TES4_<block>_<package>` function the package's fragment calls (`package_events.function_name`), which counts as its handler |
 | Guard differs | The `if` tests on the path to a write differ between the two scripts |
 
 Guards come last ([phase 4](#phases)). They need a reader for the `if` chain

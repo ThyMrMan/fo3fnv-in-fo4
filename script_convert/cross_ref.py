@@ -79,6 +79,7 @@ def _new_scan_out() -> dict:
         # BOOK, so a property typed from the source signature would not bind.
         'enchanted_books': set(),
         'voice_notes': set(),
+        'trigger_bases': set(),
         'trigger_blocks': {},
         'script_vars': {},
     }
@@ -126,7 +127,7 @@ def _rekey_scan(out: dict, remap: dict) -> dict:
         out[name] = {fid(key): value for key, value in out[name].items()}
     for name in ('edid_to_formid', 'record_scri', 'record_base'):
         out[name] = {key: fid(value) for key, value in out[name].items()}
-    for name in ('npc_formids', 'enchanted_books', 'voice_notes'):
+    for name in ('npc_formids', 'enchanted_books', 'voice_notes', 'trigger_bases'):
         out[name] = {fid(value) for value in out[name]}
     out['actor_packages'] = {key: [fid(p) for p in packs] for key, packs in out['actor_packages'].items()}
     out['cell_geom'] = {key: (geom[0], fid(geom[1]), *geom[2:]) for key, geom in out['cell_geom'].items()}
@@ -233,6 +234,9 @@ _UDF_BLOCK_RE = re.compile(r'(?:^|\\n)(?:\s|\\t)*begin\s+function\b', re.I | re.
 #: A trigger block header (OnTriggerEnter or OnTrigger) in raw or export-escaped SCTX text.
 _TRIGGER_BLOCK_RE = re.compile(r'(?:^|\\n)(?:\s|\\t)*begin\s+(ontriggerenter|ontrigger)\b', re.I | re.M)
 
+#: The export key of a reference's primitive, which makes it a trigger box.
+TRIGGER_BOUND = 'XPRM.BoundX'
+
 #: SCHR.Type of a quest script.
 QUEST_SCRIPT_TYPE = 1
 
@@ -337,6 +341,8 @@ def _scan_record_lines(sig: str, lines: list, out: dict):
         out['record_scri'][formid] = rec['SCRI']
     if rec.get('NAME') and sig in PLACED_REF_SIGS:
         out['record_base'][formid] = rec['NAME']
+        if TRIGGER_BOUND in rec:
+            out['trigger_bases'].add(rec['NAME'])
     out['record_type'][formid] = sig
 
 
@@ -413,6 +419,8 @@ class CrossRefGraph:
         self.enchanted_books: set[str] = set()
         #: NOTE FormIDs of voice notes, which Fallout 4 builds as holotapes.
         self.voice_notes: set[str] = set()
+        #: Base FormIDs placed as a trigger box: a reference with a primitive (XPRM).
+        self.trigger_bases: set[str] = set()
         #: script EditorID (lower) -> the trigger blocks it authors ('ontriggerenter', 'ontrigger').
         self.trigger_blocks: dict[str, frozenset] = {}
         self.record_base: dict[str, str] = {}  # placed ref FormID -> base record FormID (NAME)
@@ -538,6 +546,7 @@ class CrossRefGraph:
         self.cell_geom.update(out['cell_geom'])
         self.enchanted_books.update(out['enchanted_books'])
         self.voice_notes.update(out['voice_notes'])
+        self.trigger_bases.update(out['trigger_bases'])
         self.trigger_blocks.update(out['trigger_blocks'])
         self.script_vars.update(out['script_vars'])
         self.quest_edids.update(out['quest_edids'])

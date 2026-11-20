@@ -502,6 +502,11 @@ def safe_property_name(name: str) -> str:
     return safe
 
 
+def source_name(prop: str) -> str:
+    """The name safe_property_name made `prop` from: `myMS14` is MS14."""
+    return prop[2:] if prop.startswith('my') and prop[2:].lower() in papyrus_reserved() else prop
+
+
 def mgef_family_keyword_name(effect_edid: str) -> str:
     """EditorID and script property name of the KYWD every copy of one MGEF carries.
 

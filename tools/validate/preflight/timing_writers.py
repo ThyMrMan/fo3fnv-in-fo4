@@ -15,6 +15,7 @@ from pathlib import Path
 
 from fo4_import.pipeline.export_index import export_records
 from script_convert.constants import papyrus_script_name
+from script_convert.package_events import function_name
 from script_convert.weapon_hits import EFFECT
 from tools.validate.preflight.quest_converted import strip_papyrus_comment
 from tools.validate.preflight.quest_progression import converted_name, fragment_scope
@@ -57,8 +58,10 @@ BLOCK_EVENTS = {
     'onadd': ('oncontainerchanged',), 'ondrop': ('oncontainerchanged',), 'onequip': ('onequipped',),
     'onunequip': ('onunequipped',), 'saytodone': ('tes4_saytodone',), 'onopen': ('onopen',), 'onclose': ('onclose',),
     'ondestructionstagechange': ('ondestructionstagechanged',), 'scripteffectstart': ('oneffectstart',),
-    'scripteffectfinish': ('oneffectfinish',), 'onpackagestart': ('onpackagestart',),
-    'onpackagedone': ('onpackageend',), 'onpackageend': ('onpackageend',), 'onpackagechange': ('onpackagechange',),
+    'scripteffectfinish': ('oneffectfinish',),
+    **{kind: (event, function_name(kind, '').lower()) for kind, event in (
+        ('onpackagestart', 'onpackagestart'), ('onpackagedone', 'onpackageend'), ('onpackageend', 'onpackageend'),
+        ('onpackagechange', 'onpackagechange'))},
     'ongrab': ('ongrab',), 'onrelease': ('onrelease',), 'onmagiceffecthit': ('onmagiceffectapply',),
     'onfire': ('onanimationevent',), 'onactorequip': ('onitemequipped',),
 }

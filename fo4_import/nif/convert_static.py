@@ -1060,11 +1060,14 @@ def _bsx(data, added: bool, joined: bool, animated) -> int:
 
 
 def _bones(root, bones: list, found: list) -> list:
-    """`bones` and the nodes FNV particle systems `found` hang under or name, with their parents, parents first."""
-    if not found:
-        return bones
-    keep = {id(n) for n in bones} | wanted_nodes(root, found)
-    return with_parents(root, lambda node: id(node) in keep)
+    """`bones` and the nodes FNV particle systems `found` hang under or name, with their parents, parents first;
+    when any is kept, every skinned shape's bones too, as _shapes skins to them.
+    See: docs/fork/fo4_pipeline.md#skin-bones-kept
+    """
+    given = {id(n) for n in bones}
+    keep = given | (wanted_nodes(root, found) if found else set())
+    keep |= {id(b) for g in _visible_shapes(root) if g.skin_instance for b in g.skin_instance.bones} if keep else set()
+    return bones if keep == given else with_parents(root, lambda node: id(node) in keep)
 
 
 def _particles(nif: NifFile, root, found: list, nodes: dict, out: Converted, texture_root) -> dict:

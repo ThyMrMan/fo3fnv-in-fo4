@@ -134,7 +134,7 @@ class PlaceableWater:
         if fnv_water in self.types:
             return self.types[fnv_water]
         fnv = self.fnv[fnv_water]
-        colors = _colors(fnv[b'DNAM'], FNV_COLORS)
+        colors = _colors(visual_data(fnv), FNV_COLORS)
         nearest = min(self.fo4, key=lambda w: np.abs(_colors(first_sub(self.fo4[w], b'DNAM'), FO4_COLORS)
                                                     - colors).sum())
         spell = struct.unpack('<I', fnv[b'XNAM'])[0] if b'XNAM' in fnv else 0
@@ -145,6 +145,13 @@ class PlaceableWater:
         self.builder.writer.add_record('WATR', pack_fo4_record('WATR', fid, 0, retyped(self.fo4[nearest], edid, spells)))
         self.types[fnv_water] = fid
         return fid
+
+
+def visual_data(water: dict) -> bytes:
+    """FNV WATR `water`'s visual data: DNAM, else its older form, DATA.
+    See: docs/fork/fo4_pipeline.md#water-visual-data
+    """
+    return water.get(b'DNAM') or water[b'DATA']
 
 
 def retyped(body: bytes, edid: str, spells: tuple) -> bytes:

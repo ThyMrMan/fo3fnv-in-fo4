@@ -301,6 +301,15 @@ frequency outside the Pip-Boy's band (`LOUNGE_FREQUENCIES`, 5.0 to 14.5,
 lists them; a placed radio naming one (RNAM) is a receiver on its
 frequency. None is in the Goodsprings to Primm region.
 
+<a id="silent-script-lines"></a>**Silent lines with a result script (built
+2026-11-19, not played).** A line with no recording and no song was left
+out, since Fallout 4 ends a line without audio at once. Some of those exist
+only for their script: FO3's RadioGoodbye "Message repeats." lines set the
+stage that starts the quest when the player hears the station (MS16 stage 10
+for Agatha's, MS18 stage 5 for the Rangers' signal). A silent line is now
+kept when it has a converted result script; it ends at once after the
+script runs.
+
 <a id="heard"></a>**Messages only when heard (built 2026-10-21, not yet
 played).** FNV plays a station's lines, and runs their result scripts,
 only while the player listens. FO4's station scenes say every line

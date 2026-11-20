@@ -322,5 +322,8 @@ checks and play test are not reported yet.
   `projectiles.json` names the FNV explosions whose copy shows FNV's own
   model, converted with its particles like a static (`builder.mesh`): gas,
   the ghost gas bomb (`fxgastrapblast.nif`), stun (`explosionfireextiquisher01.nif`)
-  and flashbang (`fxflashbangexplosion.nif`). To check in game: the cloud's
+  and flashbang (`fxflashbangexplosion.nif`). FO3's `MQ08FlashBangExplosion`
+  (same art, 0 damage) is placed only by a script, so it reaches the copy
+  through `destruction.MODEL_STAND_INS`, which maps that art to
+  `fragGrenadeExplosion` too. To check in game: the cloud's
   size and how long it lasts, which come from FNV's mesh.

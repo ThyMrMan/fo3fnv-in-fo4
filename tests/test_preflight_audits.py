@@ -214,6 +214,15 @@ def test_a_required_alias_on_a_deleted_reference_blocks_its_quest():
     assert f.severity == 'error' and 'cannot start' in f.summary and 'deleted' in f.detail[0]
 
 
+def test_a_required_alias_filled_from_its_story_event_is_judged_filled():
+    """A required alias filled from the quest's Story Manager event (ALFE) needs no review; one with no fill does."""
+    head = [('ALST', struct.pack('<I', 0)), ('ALID', zs('Speaker')), ('FNAM', struct.pack('<I', 0))]
+    event = PluginIndex([rec('QUST', 0x100, [('EDID', zs('Q'))] + head + [('ALFE', b'ADIA'), ('ALED', b'')])])
+    unknown = PluginIndex([rec('QUST', 0x100, [('EDID', zs('Q'))] + head + [('ALED', b'')])])
+    assert quest_start.alias_findings('G', event) == []
+    assert [f.severity for f in quest_start.alias_findings('G', unknown)] == ['review']
+
+
 def test_inert_findings_group_only_quest_moving_commands(tmp_path):
     """A `;NE:` KillActor is reported by command; a `;NE:` SetCombatStyle is not."""
     (tmp_path / 'A.psc').write_text('  ;NE: TODO: bossRef.KillActor\n  ;NE: SetCombatStyle x\n')

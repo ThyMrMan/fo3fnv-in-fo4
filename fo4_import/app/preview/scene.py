@@ -2,7 +2,7 @@
 
 Shapes are BSTriShape and the types that start with its fields (BSSubIndexTriShape, BSMeshLODTriShape); a
 skinned shape shows in its bind pose. Each node's transform is composed down the tree (rotations act on column
-vectors, as fo4_import.nif.outfit.fo4_joints composes them). BSDynamicTriShape (heads) and particles carry no
+vectors, as fo4_import.nif.outfit.fo4_frames composes them). BSDynamicTriShape (heads) and particles carry no
 vertices here and are left out.
 
 See: docs/fork/fo4_gui.md#preview

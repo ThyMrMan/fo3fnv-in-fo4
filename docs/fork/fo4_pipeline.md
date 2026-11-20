@@ -3567,6 +3567,59 @@ its light but no flame).
   damage stages.
 - The node is written as vanilla's: a NiNode, the index, a flags byte 0.
 
+<a id="script-explosions"></a>**Explosions a script places (2026-11-19, not
+played).** A script property naming an FNV/FO3 explosion (`PlaceAtMe
+MegatonNuke`, the FakeForce pushes, traps) stayed None: properties were made
+only for items and placed bases. It now gets the damage stages' explosion
+copy (`Destruction.explosion`): a copy of a Fallout4.esm stand-in with the
+source's force, damage and radius. The stand-in is the same-named explosion,
+else `STAND_INS`, else the one for the source explosion's art
+(`MODEL_STAND_INS`): null art to `FakeForce100Explosion`, frag to
+`fragGrenadeExplosion`, Fat Man to `FatManExplosion`, pulse, plasma, the
+glowing one's burst, the Megaton nuke to `CGPrewarNuke`. The art table also
+covers damage stages whose explosion had no stand-in. Raven Rock's own art
+shows `CarExplosion`'s look; art with no entry (`FXGeckActivate01`, a flash
+with no force or damage) is still left out. The FO3 whole-map build named 29
+explosions.
+
+<a id="effect-family-stand-ins"></a>**Effect families of replaced items
+(2026-11-19, not played).** A converted `HasMagicEffect` tests a `TES4FX_`
+family keyword, which only copies of script effects carried. FO3/FNV
+addictions and morphine are not script effects: the player takes FO4's own
+chems (`replacements.json`), so the family reads the keyword FO4's matching
+effect carries (`script_effects.FAMILY_STAND_INS`). Every FO4 addiction
+effect carries `AddictionEffect` (the per-chem `AddictionKeyword*` are on
+the chem items, not the effects, and FO4's own doctors test
+`AddictionEffect`), so each addiction family reads that. GenericScript only
+asks whether the player has any addiction, so its `Addicted`, which the
+doctors' cure lines read, is exact. `MorphineEffect` reads Med-X's
+`StackMedXDamageResist`. Concussion has no FO4 effect and stays None, so
+GenericScript recasts `PlayerConcussed` each pass; the same spell refreshes
+rather than stacks.
+
+<a id="item-own-script"></a>**An item's script naming the item
+(2026-11-19, not played).** `MQ04RollingPinScript` names `MQ04RollingPin`,
+the record it rides on; so do the slasher knife, the slasher mask and the
+prototype medic power armor. `Items.item` marks an item None while making
+it, so its own script's fill read None. `Items.writing` now gives it the
+FormID it is being written as before its script fills (equipment's
+`SITES` hash, the items' `fnv_id`).
+
+<a id="neck-items"></a>**Neck items (2026-11-19, not played).** FO3's slave
+collar (biped Choker, skinned to `Bip01 Neck1` alone) was never built: no
+armor rule covered the neck slots and the headgear path is head-only.
+Vanilla FO4 has no human neck-only item (slot 50 appears only on dog
+collars and inside outfits and helmets). An item whose biped flags are all
+Necklace or Choker now takes the `_rules.armor` neck rule
+(`ClothesEyeGlasses`, which has no armor-type keywords) and goes through
+the outfit path (`Equipment._outfit`), written in slot 50 alone on both
+the armor and its addon, third person only. A shape FNV weights to its
+neck bones alone (`outfit.on_neck`) keeps the body fit's placement but is
+weighted fully to FO4's `Neck` (`outfit.neck_skin`), as FNV weights it to
+`Neck1`. The body's nearest-surface weights would tie its upper rim to
+the neck base, which FO4's head mesh rises past, and the rim would cut
+into the neck when the head turns.
+
 <a id="damage-stages"></a>**Damage stages** (burning cars: `car03`'s six
 fires sit under `BSDamageStage` nodes). FNV and FO4 destroy an object the
 same way, on the mesh and on the record.
@@ -3621,7 +3674,12 @@ apart:
 - a MOPP inside a list converts its triangles through the same winding
   repair as a whole body's;
 - a `bhkTransformShape` in a list becomes a convex transform over a
-  convex shape, or is baked into a mesh's triangles.
+  convex shape, or is baked into a mesh's triangles;
+- a bare mesh in a list (`bhkPackedNiTriStripsShape` or
+  `bhkNiTriStripsShape` with no MOPP over it) converts as a MOPP inside a
+  list does. FO3's `vehicles\truckarmy01.nif` has one and stopped the first
+  whole FO3 build (2026-11-19); of the FO3 export's 109 meshes with a list
+  shape, it is the only one with a bare mesh in it.
 
 Elric turns each into a compound (`hknpDynamicCompoundShape`). The
 stove's children match its render bounds: hull −41…41 × 21…95 × 0…91,
@@ -3684,6 +3742,16 @@ were converted and the joints between them dropped.
   right leg, and the left leg and Skull01 as root nodes.
 - Elric's output now has `hkpLimitedHingeConstraintData` and
   `hkpRagdollConstraintData`, as vanilla's skeleton does.
+- <a id="skin-bones-kept"></a>**A skinned jointed mesh keeps its skin's
+  bones too** (2026-11-19). The first whole FO3 build stopped on FO3's
+  `clutter\skeleton\westfathercorpse.nif` and `westmothercorpse.nif`: a
+  skinned corpse whose skin also names bones with no rigid body. Only the
+  bodied bones were kept, and skinning looked up a bone that was not
+  (`KeyError` in `animation.skin`). Whenever a mesh keeps any node (animated,
+  jointed or holding particles), `convert_static._bones` now keeps every
+  skinned shape's bones as well. Of the FO3 export's 73 meshes with a skin and
+  a constraint, particles or a controller manager, only these two failed;
+  every mesh that converted before keeps the same nodes.
 
 <a id="locks"></a>**Locks and keys** (everything open; the maintenance key on a table
 could not be taken).
@@ -4116,7 +4184,14 @@ each limb by 100).
   ([Hardcore](fo4_hardcore.md#built)). HasPerk is written as FO4's on
   the effect, on the perk's first rank (2026-10-21: 129 tests in the region;
   a perk the build lacks counts as not held). See
-  [perks](fo4_perks.md#hasperk).
+  [perks](fo4_perks.md#hasperk). GetActorValue is written as FO4's
+  GetValue of the same-named actor value (2026-11-19). Before that it was
+  dropped, so Fallout3.esm's `PlayerConcussed` (Perception -4 while
+  `PerceptionCondition <= 0`, a crippled head), which GenericScript casts
+  on the player, cost every FO3 player 4 Perception for good. A value FO4
+  lacks, or one compared to a global, is still dropped and counted
+  (`effect test dropped`), as are the other functions (FO3 food's
+  GetItemCount: 41 items, FNV's GetEquipped on enchantments).
 - An item left with no effect carries `FortifyHealth` at magnitude 0 and
   duration 0, as vanilla's `VRWorkshopShared_MutfruitFake` (and
   `HC_SippableWater`, `DamageRadiationChem` at 0). xEdit requires one
@@ -4574,6 +4649,48 @@ EditorID's form, not a variable. The script's own variables stay `Auto`:
 - value types (Int, Float, Bool) carry `Conditional`, so conditions can
   read them (GetVMScriptVariable);
 - a Float starts at 0.0, because an unset Float property is None.
+
+Fragment scripts (quest stages, packages, terminals, topic infos) declare
+through `symbols.property_declarations`, which kept writing plain `Auto`
+until 2026-11-19, so a later build's fill never reached a save that had
+run them. Vanilla declares all 12,021 of its quest fragment properties
+`Auto Const`. Fragment form properties and their `GlobalVariable`s now use
+`symbols.form_property`: `Auto Const` on Fallout 4 (5,567 FO3 scripts, all
+compiled). It does not fix the None properties of a stopped and restarted
+quest ([stopped-quest-fragments](fo4_test_layers_plan.md#stopped-quest-fragments)).
+
+## <a id="onload-disabled"></a>OnLoad skips a disabled reference; Activate needs an action ref (2026-11-20, sweep on the test laptop)
+
+FO3's and FNV's `OnLoad` runs when the 3D loads, so never on a disabled
+object, except a disabled trigger box, which has no regular 3D (GECK wiki,
+OnLoad). Fallout 4's `OnLoad` also fires on a disabled object as it enters
+the loaded area, and again when it is enabled (FO4 CK wiki,
+OnLoad - ObjectReference). CG04's three radroaches in Vault 101 start
+disabled until stage 18. On every load their `OnLoad` ran `StartCombat`,
+and the game answered "Actor has no AI process" (`GetDisabled` 1 on all
+three, in the kept game).
+
+A converted `OnLoad` body is now wrapped in `If !IsDisabled()`
+(`blocks.FALLOUT4_GUARDS`); the enable's own `OnLoad` runs it. A script
+placed on a trigger box (`cross_ref.trigger_bases`: a base with a
+reference carrying XPRM) keeps the unguarded body, as the source runs it;
+the exemption is per script, so a script also placed on a plain reference
+keeps the unguarded body there too. FO3: 142 scripts with a source
+`OnLoad`, 130 guarded, 12 trigger scripts not.
+Census of the placed references whose script has an `OnLoad`: FO3 has 21
+disabled ones, 3 of them triggers (two vertibird landings and
+`MQ11Vertibird01DummySCRIPT`); FNV has 641, 1 a trigger
+(`VNelsonBattlefieldSCRIPT`).
+
+The same sweep's other start-up error: a bare `Activate` with no action
+ref. The GECK's Activate uses the caller's own action ref, and "if the
+calling reference doesn't have an ActionRef, the object won't be
+activated". `GenericProtectronSCRIPT`'s `OnPackageEnd ProtectronNotActive`
+runs one on every Protectron before anyone activated it, and the
+conversion passed the empty `TES4_LastActivator` to the native, which
+raised "Action ref cannot be None" (4 per load).
+`TES4_TwoStateActivator.DefaultActivate`, which every converted default
+`Activate` goes through, now does nothing without an action ref.
 
 ## <a id="script-casts"></a>DLC scripts that did not compile (fixed 2026-11-04, not yet played)
 
@@ -5299,6 +5416,11 @@ with it. FNV's meshes are 512 squares, 512-wide strips (1×2 to 1×4), a
   the bathtub three overlapping 46-unit tiles.
 - The water type is a copy of the Fallout4.esm placeable water type nearest
   in shallow and deep color (FNV WATR DNAM bytes 40 and 44, FO4's 4 and 8).
+  <a id="water-visual-data"></a>An older water type keeps its visual data
+  in `DATA` instead (xEdit's FNV union; the fields before the colors are the
+  same): FO3 has 11 such types (42 in `DNAM`), FNV 8 (70). The first whole
+  FO3 build stopped on one (`KeyError: DNAM`); `placeable_water.visual_data`
+  now reads either.
   The copy takes FNV's drinking effect: clean (`WaterFountainCleanDrinking`,
   no contact spell) for FNV's Purified water, else irradiated
   (`WaterRadiationDrinking`, `WaterRadiationHazard`). This is the same test
@@ -8362,6 +8484,14 @@ now gets that base's FO4 record (`ObjectScripts._base`), made if nothing
 placed it yet. A base whose own script names it while it is written gets
 its FNV-derived FormID (`CellBuilder.base`). Bases keep their FormIDs; the
 build counts `base made for a script property`.
+
+A base no reference places at all, only a script's `PlaceAtMe` (FO3's
+Vertibird encounters, `FXArtilleryStrike01`, `FXFlyingRocks01`, the toxic
+barrel and shotgun trap MSTTs), was missed: the name index read only
+`cell.placed_bases`. It now reads every base of a placed type
+(`converters.base_records`), and a base found that way joins
+`builder.bases` before it is made (2026-11-19 preflight: 12 timer
+properties).
 
 Build 1107e made 15 bases this way. Preflight's unfilled-property errors
 fell from 128 to 125, and the Nero couch property is no longer reported.

@@ -64,7 +64,7 @@ from script_convert.say_to_done import (fragment_calls, held_says, say_to_done_h
                                         say_to_done_topics, settled_says)
 from script_convert.scro_refs import (preload_scro_refs, resolve_scro_aliases,
                                       scro_list)
-from script_convert.symbols import property_declarations, IMPLICIT_NAMES
+from script_convert.symbols import form_property, property_declarations, IMPLICIT_NAMES
 from script_convert.tes5.blocks import Kind, classify
 from tes5_import.base.objectives_falloutnv import objective_script_globals
 from script_convert import atomic_adds as _adds, quest_var_mirrors as _quest_vars, trace_points as _trace
@@ -869,7 +869,7 @@ def _info_psc(rec: dict, xref: CrossRefGraph, reveals: list, service_kind: str,
     out_lines = [f'ScriptName {script_name} extends TopicInfo Hidden', '']
     globals_set = list(reveals) + (list(NEED_GLOBALS) if speech else [])
     declared = {gname.lower() for gname in globals_set}
-    out_lines += [f'GlobalVariable Property {gname} Auto' for gname in globals_set]
+    out_lines += [form_property('GlobalVariable', gname) for gname in globals_set]
     if conv and conv.sc.property_refs:
         out_lines += property_declarations(dict(conv.sc.property_refs), declared)
     if declared:

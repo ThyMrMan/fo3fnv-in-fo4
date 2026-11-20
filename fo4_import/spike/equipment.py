@@ -96,6 +96,8 @@ ADDON_RACES = (b'RNAM', b'MODL')
 SEXES = ('male', 'female')
 #: FNV biped flag of the upper body (an outfit).
 UPPER_BODY = 0x4
+#: FNV biped flags of the neck (Necklace, Choker) and FO4's neck slot: a neck-only item goes on the body (_outfit).
+NECK, NECK_SLOTS = 0x100 | 0x8000, (50,)
 #: FO4 armor addon model subrecords: third person male, female; first person male, female.
 THIRD_PERSON, FIRST_PERSON = (b'MOD2', b'MOD3'), (b'MOD4', b'MOD5')
 #: FNV ARMO alternate textures: male worn, male world, female worn model.
@@ -271,9 +273,11 @@ class Equipment:
         script, which its enchantment runs (_hit_effect).
         See: docs/fork/fo4_pipeline.md#disguises
         """
-        if self._on_hit(rec):
+        if self._on_hit(rec) or not rec.get('SCRI'):
             return []
-        vmad = self.builder.scripts.vmad(int(rec['SCRI'], 16)) if rec.get('SCRI') else b''
+        fnv = int(rec['FormID'], 16)
+        self.builder.items.writing(fnv, self.builder.writer.derive_formid(SITES[rec['Signature']], fnv))
+        vmad = self.builder.scripts.vmad(int(rec['SCRI'], 16))
         return [(b'VMAD', vmad)] if vmad else []
 
     def _on_hit(self, rec: dict) -> 'str | None':
@@ -582,20 +586,27 @@ class Equipment:
         return path, headgear.worn(static, self._fit(sex), slots, frame)
 
     def _outfit(self, fnv: int, rec: dict, template: dict) -> 'dict | None':
-        """{sig: body} putting FNV outfit `rec` (upper body, skinned) on its own meshes moved onto FO4's body
-        and its own armor addon, with the template addon's slots; None when it is not one (nif.outfit)."""
-        worn = rec.get('Male.BipedModel.MODL')
-        if not (int(rec.get('BMDT.BipedFlags', 0)) & UPPER_BODY and worn) or _rigid(self._fnv_path(worn)):
+        """{sig: body} putting FNV outfit `rec` (upper body, or neck only; skinned) on its own meshes moved onto
+        FO4's body and its own armor addon, with the template addon's slots (a neck item: NECK_SLOTS, third person
+        only); None when it is not one (nif.outfit).
+        See: docs/fork/fo4_pipeline.md#neck-items
+        """
+        worn, flags = rec.get('Male.BipedModel.MODL'), int(rec.get('BMDT.BipedFlags', 0))
+        neck = bool(flags) and not flags & ~NECK
+        if not (flags & UPPER_BODY or neck) or not worn or _rigid(self._fnv_path(worn)):
             return None
         models, sexes = {}, {sex: rec.get(f'{sex.title()}.BipedModel.MODL') or worn for sex in SEXES}
         for sex, third, first in zip(SEXES, THIRD_PERSON, FIRST_PERSON):
             models[third], models[first] = self._body_worn(sexes[sex], sex)
+        kept = THIRD_PERSON if neck else THIRD_PERSON + FIRST_PERSON
+        models = {sig: path for sig, path in models.items() if sig in kept}
         swaps = {SWAP_OF[sig]: swap for third, first, swap in zip(THIRD_PERSON, FIRST_PERSON,
                                                                    self._worn_swaps(fnv, rec, sexes))
-                 for sig in (third, first) if swap}
+                 for sig in (third, first) if swap and sig in kept}
         vanilla = struct.unpack('<I', template[b'MODL'])[0]
-        bod2 = dict(self.addons[vanilla])[b'BOD2']
-        return self._world(fnv, rec, self._addon(fnv, rec, vanilla, bod2, models, swaps))
+        bod2 = _bod2(NECK_SLOTS) if neck else dict(self.addons[vanilla])[b'BOD2']
+        world = self._world(fnv, rec, self._addon(fnv, rec, vanilla, bod2, models, swaps))
+        return {b'BOD2': bod2, **world} if neck else world
 
     def _swap(self, fnv: int, rec: dict, sig: bytes, static: bytes, model: str) -> 'int | None':
         """The MSWP (made once) putting FNV ARMO `rec`'s alternate textures `sig` on converted `model` (its

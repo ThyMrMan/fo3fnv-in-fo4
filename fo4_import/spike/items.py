@@ -186,9 +186,16 @@ class Items:
             return None
         return maker(rec)
 
+    def writing(self, fnv: int, fid: int) -> None:
+        """FNV item `fnv` reads as `fid` while written (its own script names it).
+        See: docs/fork/fo4_pipeline.md#item-own-script
+        """
+        self.made[fnv] = fid
+
     def _write(self, sig: str, record_of, rec: dict) -> int:
         """Add the record `record_of(FormID)` of type `sig` made from FNV `rec`; its FormID (FNV's)."""
         fid = self.builder.fnv_id(rec['FormID'])
+        self.writing(int(rec['FormID'], 16), fid)
         self.builder.writer.add_record(sig, record_of(fid))
         self.builder.counts[sig] += 1
         return fid

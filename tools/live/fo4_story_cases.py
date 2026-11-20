@@ -9,6 +9,7 @@ A case file holds cases in order; each passing case can be checkpointed
 
     case cg02_intercom
     until 1200 GetStage FNV_CG02 >= 35     # poll a console query until it holds
+    alone 30 GetStageDone FNV_CG04 141 == 1   # ... leaving any talk that opens meanwhile
     hear Dad 00031D43                      # the trace logs Dad beginning that source INFO
     heard Dad 00031D43                     # ... and ending it, its result script run
     expect GetStage FNV_CG02 < 40          # one console query, now
@@ -54,6 +55,8 @@ OPS = {'<': operator.lt, '<=': operator.le, '>': operator.gt, '>=': operator.ge,
        '==': operator.eq, '!=': operator.ne}
 #: Seconds a `hear` waits when the case names none.
 HEAR_SECONDS = 300
+#: The console's reply to a command it ignores while the player is in no cell; seconds `run` retries it.
+IGNORED, RUN_SECONDS = 'please start the game or go into a cell first', 30
 #: Seconds a message box has to close after each key `answer` presses.
 PRESS_SECONDS = 3
 #: The keys `answer` accepts a box with, in turn: Fallout 4's Accept is Enter and E.
@@ -179,12 +182,14 @@ def condition(rest: str) -> tuple:
     return ' '.join(words[:-2]), OPS[words[-2]], float(words[-1])
 
 
-def until(bridge: Bridge, rest: str) -> None:
-    """Polls `<seconds> <query> <op> <value>` once a second until it holds."""
+def until(bridge: Bridge, rest: str, each=None) -> None:
+    """Polls `<seconds> <query> <op> <value>` once a second until it holds, calling `each` (when given) first."""
     seconds, _, rest = rest.partition(' ')
     text, compare, value = condition(rest)
     deadline, last = time.time() + float(seconds), None
     while time.time() < deadline:
+        if each:
+            each()
         try:
             last = query(bridge, text)
         except CaseFailed as err:
@@ -313,6 +318,19 @@ def press(rest: str, front) -> None:
     hidden_launch.tap_key(scan, float(held[0]) if held else hidden_launch.TAP_SECONDS)
 
 
+def run(bridge: Bridge, rest: str) -> None:
+    """Sends console command `rest` and prints its reply, sending it again each second for up to RUN_SECONDS while
+    the console ignores it (`IGNORED`: the player between cells, as a stage moves them).
+    See: docs/fork/fo4_test_layers_plan.md#unmet-waits
+    """
+    end = time.time() + RUN_SECONDS
+    reply = T.send(bridge, rest)
+    while IGNORED in reply and time.time() < end:
+        time.sleep(1)
+        reply = T.send(bridge, rest)
+    print('    %s -> %r' % (rest, reply.strip()), flush=True)
+
+
 def ready(bridge: Bridge, rest: str) -> None:
     """Waits up to `[seconds]` (default 180) for a loaded cell with no loading menu."""
     T.wait_status(bridge, lambda s: s['cell'] and 'LoadingMenu' not in s['menus'], float(rest or 180))
@@ -344,13 +362,29 @@ def paced_until(game: Game, rest: str) -> None:
         T.send(game.bridge, 'sgtm 1')
 
 
+def alone(game: Game, rest: str) -> None:
+    """`until`, leaving each talk that opens meanwhile (a force greet), at most one Tab every PRESS_WAIT seconds:
+    an open talk holds every quest script's poll as a menu held GameMode.
+    See: docs/fork/fo4_test_layers_plan.md#unmet-waits
+    """
+    last = [0.0]
+
+    def leave():
+        """One Tab in an open talk, unless the last was under PRESS_WAIT seconds ago."""
+        if time.time() - last[0] >= talk.PRESS_WAIT and talk.leave(game.bridge, game.front):
+            last[0] = time.time()
+
+    until(game.bridge, rest, leave)
+
+
 def run_step(game: Game, verb: str, rest: str) -> None:
     """Runs one step, its source records (`{Plugin.esm:id}`) filled in; raises CaseFailed when it does not hold."""
     bridge, front = game.bridge, game.front
     rest = rest if verb in WRAPPERS else game.refs.fill(rest)
-    steps = {'run': lambda: print('    %s -> %r' % (rest, T.send(bridge, rest).strip()), flush=True),
+    steps = {'run': lambda: run(bridge, rest),
              'wait': lambda: time.sleep(float(rest)),
-             'until': lambda: paced_until(game, rest), 'expect': lambda: expect(bridge, rest),
+             'until': lambda: paced_until(game, rest), 'alone': lambda: alone(game, rest),
+             'expect': lambda: expect(bridge, rest),
              'unless': lambda: unless(game, rest, run_step),
              'hear': lambda: hear(game.trace, rest), 'heard': lambda: hear(game.trace, rest, 'End'),
              'ready': lambda: ready(bridge, rest),

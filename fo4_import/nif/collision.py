@@ -232,6 +232,14 @@ class _Blocks:
         """A MOPP over a list: the list; one inside a list: its repaired mesh."""
         return self.shape(s.shape) if not is_mesh(s) else self._nested_mesh(s, None)
 
+    def _bhkPackedNiTriStripsShape(self, s) -> int:
+        """A bare mesh inside a list (no MOPP over it): its repaired mesh.
+        See: docs/fork/fo4_pipeline.md#mixed-collision
+        """
+        return self._nested_mesh(s, None)
+
+    _bhkNiTriStripsShape = _bhkPackedNiTriStripsShape
+
     def _bhkTransformShape(self, s) -> int:
         """A transform inside a list: over a convex shape a bhkConvexTransformShape, over a mesh baked into it."""
         if not is_mesh(s.shape):

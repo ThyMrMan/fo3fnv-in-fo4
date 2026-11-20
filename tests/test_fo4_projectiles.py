@@ -222,3 +222,20 @@ def test_an_explosion_enchantment_is_laid_out_as_vanillas():
     subs = subrecords(pack_explosion_ench(0x800, 'FNV_X', b'')[24:])
     assert [t for t, _ in subs] == [b'EDID', b'OBND', b'ENIT'] and dict(subs)[b'ENIT'] == ENIT_EXPLOSION
     assert ENIT_EXPLOSION.hex() == '000000000000000001000000000000000100000006000000' + '00' * 12
+
+
+def test_a_script_named_explosion_takes_the_stand_in_for_its_art():
+    """An explosion with no namesake or STAND_INS entry copies its art's stand-in; a script property finds it."""
+    from fo4_import.spike import attach as A
+    from fo4_import.spike.destruction import Destruction
+    made = []
+    nuke = {'EditorID': 'MegatonNuke', 'Model.MODL': 'Effects' + chr(92) + 'FXMegatonNuke01.NIF'}
+    copies = SimpleNamespace(explosions={0x51: nuke}, explosion=lambda stand_in, fnv: made.append((stand_in, fnv)) or 0x900)
+    builder = SimpleNamespace(projectiles=SimpleNamespace(copies=copies), counts=Counter())
+    dest = Destruction.__new__(Destruction)
+    dest.builder, dest.explosions = builder, {'CGPrewarNuke': 0x70}
+    builder.destruction = dest
+    scripts = A.ObjectScripts.__new__(A.ObjectScripts)
+    scripts.builder, scripts.explosion_names = builder, None
+    assert scripts._explosion('megatonnuke') == 0x900 and made == [(0x70, 0x51)]
+    assert scripts._explosion('NoSuchExplosion') is None

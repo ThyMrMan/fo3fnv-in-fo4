@@ -132,7 +132,7 @@ def _alias_finding(game: str, quest: str, name: str, subs: dict, problem: str):
                        (problem,))
     if problem:
         return Finding('start', key, 'review', f'{quest} alias {name} never fills', (problem,))
-    if not optional and not (subs['ALFR'] or subs['ALUA']):
+    if not optional and not (subs['ALFR'] or subs['ALUA'] or subs['ALFE']):
         return Finding('start', key, 'review',
                        f'{quest} requires alias {name}, filled in a way the audit cannot evaluate')
     return None

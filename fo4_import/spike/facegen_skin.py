@@ -2,8 +2,8 @@
 the miss of the CK's first export, then its skin (face.npc_skin) and skin tone, both patched into the plugin where
 they lie (fixed sizes, one pass).
 
-A fitted NPC is a converted one with sculpt regions (FMRI); its own face set (FTST) marks a race with its own
-skin. Records and assets resolve through MO2's selected profile, as the CK sees them, without FaceGen test
+A fitted NPC is a converted one with sculpt regions (FMRI); a face set (FTST) in the plugin's own load slot marks
+a race with its own skin (Fallout4.esm's old face set marks only an old race). Records and assets resolve through MO2's selected profile, as the CK sees them, without FaceGen test
 plugins (description starting TEST_DESCRIPTION) or the mod folders holding them.
 
 See: docs/fork/fo4_facegen_plan.md#build-faces
@@ -19,7 +19,7 @@ import numpy as np
 
 from core.build_resources import pool_workers
 from core.process_job import join_pool_job
-from fo4_import.base.install import FALLOUT4_ESM
+from fo4_import.base.install import FALLOUT4_ESM, masters_of
 from fo4_import.face import facegeom, npc_skin, own_facegen, sculpt, slider_fit, tint
 from fo4_import.face.bake import face_shape
 from fo4_import.pipeline import creation_kit
@@ -54,15 +54,17 @@ def fitted_faces(data_dir: Path, plugin: str, export_dir: Path) -> list:
     to refit or skin to.
     See: docs/fork/fo4_facegen_plan.md#own-stage
     """
-    out, geom = [], data_dir / own_facegen.GEOM_DIR / plugin
+    out, geom, data = [], data_dir / own_facegen.GEOM_DIR / plugin, (data_dir / plugin).read_bytes()
     npcs = {own_facegen.FNV_PREFIX + r['EditorID'] for r in export_records(export_dir, 'NPC_') if 'EditorID' in r}
-    for rec, _ in walk((data_dir / plugin).read_bytes(), b'NPC_'):
+    slot = len(masters_of(data))
+    for rec, _ in walk(data, b'NPC_'):
         subs = dict(subrecords(rec.body))
         edid = facegeom.zstr(subs.get(b'EDID', b'\0'))
         has_geom = (geom / f'{rec.form_id & 0xFFFFFF:08X}.nif').is_file()
         if b'FMRI' in subs and edid in npcs and has_geom:
             female = bool(struct.unpack_from('<I', subs[b'ACBS'])[0] & FEMALE)
-            out.append(Face(rec.form_id & 0xFFFFFF, edid[len(own_facegen.FNV_PREFIX):], female, b'FTST' in subs))
+            own = b'FTST' in subs and struct.unpack('<I', subs[b'FTST'])[0] >> 24 == slot
+            out.append(Face(rec.form_id & 0xFFFFFF, edid[len(own_facegen.FNV_PREFIX):], female, own))
     return sorted(out, key=lambda f: f.form_id)
 
 

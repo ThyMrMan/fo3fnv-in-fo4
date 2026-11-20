@@ -107,7 +107,7 @@ from fo4_import.pipeline.stage_timer import charged, timed
 from fo4_import.spike.build_finish import VOICE_CACHE, finish
 from fo4_import.pipeline import master_copies
 from fo4_import.pipeline.light_choice import Choice
-from fo4_import.pipeline.converters import PLACED, placed_types
+from fo4_import.pipeline.converters import PLACED, base_records, placed_types
 from fo4_import.pipeline.export_index import (Layered, asset_root, export_file, export_records, held_types,
                                               own_records, plugin_sources)
 from script_convert.constants import FALLOUT4_HELPER_PLUGIN, PLACED_REF_SIGS, formid_property_name
@@ -531,14 +531,8 @@ def find_cell(export_dir: Path, edid: str) -> dict:
 
 
 def placed_bases(export_dir: Path, used: set) -> dict:
-    """{FNV FormID: (type, record)} of the used bases this spike converts (items are found through _item_base)."""
-    out = {}
-    for sig in (s for s in placed_types() if PLACED[s] != 'item'):
-        for rec in export_records(export_dir, sig):
-            fid = int(rec['FormID'], 16)
-            if fid in used:
-                out[fid] = (sig, rec)
-    return out
+    """{FNV FormID: (type, record)} of the `used` base_records."""
+    return {fid: (sig, rec) for fid, sig, rec in base_records(export_dir) if fid in used}
 
 
 def _linked(door_refs: list, ids: dict) -> dict:

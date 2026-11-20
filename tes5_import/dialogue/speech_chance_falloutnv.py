@@ -18,6 +18,9 @@ CHALLENGE_FLAG = 0x80
 #: One threshold global per DNAM difficulty, None (0) to Very Hard (5).
 NEED_GLOBALS = tuple(f'TES4SpeechNeed{i}' for i in range(6))
 
+#: The roll a new game's thresholds start from, the middle of 0 to 99.
+FIRST_ROLL = 49
+
 #: Each difficulty's setting and Fallout3.exe's default; None has no setting and reads -1.
 _DIFFICULTIES = (('', -1.0), ('iSpeechChallengeDifficultyVeryEasy', 0.0),
                  ('iSpeechChallengeDifficultyEasy', 25.0), ('iSpeechChallengeDifficultyAverage', 50.0),
@@ -53,6 +56,12 @@ def auto_point(settings: dict) -> float:
 def roll_point(roll: int, settings: dict) -> float:
     """The chance a roll of 0-99 needs, capped where every roll succeeds."""
     return min((roll + 0.5) / 100.0, auto_point(settings))
+
+
+def first_needs(settings: dict) -> dict:
+    """{threshold global: the Speech FIRST_ROLL needs at its difficulty}."""
+    point = roll_point(FIRST_ROLL, settings)
+    return {name: speech_needed(point, d, settings) for name, d in zip(NEED_GLOBALS, difficulties(settings))}
 
 
 def speech_needed(point: float, difficulty: float, settings: dict) -> float:

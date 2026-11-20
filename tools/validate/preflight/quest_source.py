@@ -24,6 +24,8 @@ SETSTAGE = re.compile(r'\bsetstage\s*[\s,]\s*(\w+)\s*[\s,]\s*([^\s;,]+)', re.I)
 STARTQUEST = re.compile(r'\bstartquest\s*[\s,]\s*(\w+)', re.I)
 
 COMPLETEQUEST = re.compile(r'\bcompletequest\s*[\s,]\s*(\w+)', re.I)
+#: `StopQuest Quest`.
+STOPQUEST = re.compile(r'\bstopquest\s*[\s,]\s*(\w+)', re.I)
 ENABLE = re.compile(r'\b(\w+)\.enable\b', re.I)
 SETOBJECTIVE = re.compile(r'\bsetobjective(completed|displayed)\s*[\s,]\s*(\w+)\s*[\s,]\s*(\d+)(?:\s*[\s,]\s*(\d+))?',
                           re.I)
@@ -331,6 +333,7 @@ class SourceGame:
                 self.start_enabled.add(edid.lower())
         self.packages = {rec['FormID'].upper(): rec for rec in _records(export_dir, 'PACK')}
         self.setters, self.completers, self.enable_sites, self.texts = [], [], [], []
+        self.stops = set()
         self.objective_sites, self.say_sites, self.fighting_sites = [], [], []
         self.variable_sites, self.variables = [], {}
         self.dials, self.infos = {}, {}
@@ -469,7 +472,7 @@ class SourceGame:
 
     def _read_quest(self, rec: dict) -> None:
         """Record one quest's stage list, its conditions (which gate all its lines), each stage's log flags (OR'd:
-        COMPLETE_QUEST, FAIL_QUEST) and the setters in every stage result script."""
+        COMPLETE_QUEST, FAIL_QUEST), the setters in every stage result script and the stages it stops (stops)."""
         edid = get_str(rec, 'EditorID')
         if rec.get('SCRI'):
             self.quest_scri[edid.lower()] = int(rec['SCRI'], 16)
@@ -483,6 +486,8 @@ class SourceGame:
                 self.stage_flags[(edid.lower(), stage)] |= get_int(rec, f'Stage[{i}].Log[{j}].Flags')
                 text = rec.get(f'Stage[{i}].Log[{j}].ResultScript', '')
                 self._add('stage', f'{edid}|{stage}', str(j), text)
+                if any(q.lower() == edid.lower() for code, _, _ in coded_lines(text) for q in STOPQUEST.findall(code)):
+                    self.stops.add((edid.lower(), stage))
 
     def _read_info(self, rec: dict) -> None:
         """Record one INFO's setters, dialogue links and conditions."""

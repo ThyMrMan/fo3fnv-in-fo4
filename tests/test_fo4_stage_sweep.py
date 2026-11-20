@@ -20,13 +20,13 @@ DATA.Flags=1
 StageCount=3
 Stage[0].Index=10
 Stage[0].LogCount=1
-Stage[0].Log[0].ResultScript=SetStage MQ01 20
+Stage[0].Log[0].ResultScript=SetStage MQ01 20 ; StopQuest MQ01
 Stage[1].Index=20
 Stage[1].LogCount=0
 Stage[2].Index=30
 Stage[2].LogCount=1
 Stage[2].Log[0].Flags=1
-Stage[2].Log[0].ResultScript=CompleteQuest MQ02\\r\\nTrudyRef.Enable ; the saloon
+Stage[2].Log[0].ResultScript=CompleteQuest MQ02\\r\\nTrudyRef.Enable ; the saloon\\r\\nStopQuest MQ01
 ---RECORD_END---
 
 ---RECORD_BEGIN---
@@ -100,6 +100,7 @@ def test_the_plan_names_each_stage_setter_and_what_was_built(plan):
                                                                                'MQ01')
     assert stages[30]['reached'] and not stages[20]['reached']
     assert [s['ends'] for s in stages.values()] == ['', '', 'complete']
+    assert [s['stops'] for s in stages.values()] == [False, False, True]
     assert [(s['kind'], s['stage']) for s in mq02['completes']] == [('stage', 30)] and not mq01['completes']
 
 
@@ -109,9 +110,23 @@ def test_a_quest_case_waits_for_stages_that_follow_on_their_own(plan):
     text = '\n'.join(W.case_lines(quest, quest['stages'][:2], 'f3nvtest_start'))
     steps = [s[1:] for s in C.parse(text, {})[0].steps]
     assert steps[:2] == [('load', 'f3nvtest_start'), ('run', 'startquest FNV_MQ01')]
-    assert ('check', "until 10 GetStageDone FNV_MQ01 20 == 1 | FNV_MQ01 stage 20: not set by MQ01 stage 10's "
+    assert ('check', "alone 10 GetStageDone FNV_MQ01 20 == 1 | FNV_MQ01 stage 20: not set by MQ01 stage 10's "
                      'result script') in steps
-    assert [v for v, _ in steps].count('run') == 3 and {v for v, _ in steps} == {'load', 'run', 'check'}
+    assert ('unless', 'GetStageDone FNV_MQ01 20 == 1 | run setstage FNV_MQ01 20') in steps
+    assert [v for v, _ in steps].count('run') == 2 and {v for v, _ in steps} == {'load', 'run', 'check', 'unless'}
+
+
+def test_a_stage_that_stops_its_quest_sends_the_next_back_to_the_start_save():
+    """An alternative ending after one whose script stops the quest starts from the start save again, and the
+    stopped run's stages no longer count as done; without a save nothing reloads."""
+    quest = {'fo4': 'FNV_MS03', 'source': 'MS03', 'start_enabled': False, 'started': True, 'stages': []}
+    stages = [{'stage': s, 'setters': [], 'stops': s == 210} for s in (100, 210, 215)]
+    before = {('ms03', 5)}
+    steps = [s[1:] for s in C.parse('\n'.join(W.case_lines(quest, stages, 'start', before=before)), {})[0].steps]
+    loads = [i for i, step in enumerate(steps) if step == ('load', 'start')]
+    assert len(loads) == 2 and loads[1] > steps.index(('run', 'setstage FNV_MS03 210'))
+    assert steps[loads[1] + 1] == ('run', 'startquest FNV_MS03') and ('ms03', 5) not in before
+    assert ('load', 'start') not in [s[1:] for s in C.parse('\n'.join(W.case_lines(quest, stages, '')), {})[0].steps]
 
 
 def test_the_sweep_writes_built_quests_and_the_report_last(plan, tmp_path):
@@ -249,3 +264,68 @@ def test_load_queues_again_when_the_game_drops_it(monkeypatch):
     bridge = Dropper()
     S.queue_load(bridge, 'f3nvtest_start')
     assert bridge.asked == 2
+
+
+def test_a_timer_lasts_its_longest_authored_run():
+    """A countdown lasts the largest number set to it, its own or another script's `set quest.var`; a count up
+    the number it is compared with."""
+    down = ('set timer to timer - GetSecondsPassed\\r\\nset timer to 2\\r\\nset other to 99\\r\\nif timer <= 0\\r\\n'
+            'SetStage MQ01 30\\r\\nendif')
+    lengths = P.timer_lengths(SimpleNamespace(texts=['set MQ01.timer to 15 ; guard yells', 'set MQ02.timer to 50']))
+    assert P.timer_seconds('MQ01', down, lengths, 'SetStage MQ01 30') == 15
+    up = 'set t to t + GetSecondsPassed\\r\\nif t >= 60\\r\\nSetStage MQ01 30\\r\\nendif'
+    assert P.timer_seconds('MQ01', up, {}, 'SetStage MQ01 30') == 60
+    assert P.timer_seconds('MQ01', 'set t to 4\\r\\nSetStage MQ01 30', {}, 'SetStage MQ01 30') == 0
+
+
+def test_a_setter_is_timed_by_the_timer_its_conditions_name():
+    """MS10's stage 150 waits on BirchDoneTimer (3 s), not the script's 600 s BlasphemyTimer."""
+    text = ('set BlasphemyTimer to 600\\r\\nif BlasphemyTimer > 0\\r\\nset BlasphemyTimer to BlasphemyTimer - '
+            'GetSecondsPassed\\r\\nendif\\r\\nif ( BirchDoneTimer > 0 )\\r\\nset BirchDoneTimer to ( BirchDoneTimer'
+            ' - GetSecondsPassed )\\r\\nelseif ( BirchDoneTimer <= 0 )\\r\\nSetStage MS10 150\\r\\nendif')
+    lengths = {('ms10', 'birchdonetimer'): 3.0}
+    assert P.timer_seconds('MS10', text, lengths, 'SetStage MS10 150') == 3
+    assert P.timer_seconds('MS10', text + '\\r\\nif InFlames\\r\\nSetStage MS10 100\\r\\nendif', lengths,
+                           'SetStage MS10 100') == 0
+
+
+def test_a_timer_wait_gives_the_timer_its_authored_length(plan):
+    """MQ01Script counts to 5: the wait is the floor, TIMER_SECONDS; a 60 s failsafe gets 60 and the margin."""
+    quest = plan['quests'][0]
+    entry = next(s for s in quest['stages'] if s['stage'] == 30)
+    assert entry['setters'][0]['seconds'] == 5
+    assert W.automatic(quest, entry, set())[0] == W.TIMER_SECONDS
+    entry['setters'][0]['seconds'] = 60
+    assert W.automatic(quest, entry, set())[0] == 60 + W.TIMER_MARGIN
+
+
+class Talker:
+    """A bridge whose dialogue menu stays open until Tab is pressed, and whose stage is done once it closes."""
+
+    def __init__(self):
+        """A talk open."""
+        self.menus = ['DialogueMenu']
+
+    def status(self):
+        """The open menus."""
+        return {'menus': list(self.menus), 'cell': 'Vault'}
+
+
+def test_alone_leaves_a_talk_that_holds_the_wait(monkeypatch):
+    """A force greet's talk holds the quest's poll; `alone` leaves it with Tab and the stage then comes."""
+    bridge = Talker()
+    monkeypatch.setattr(C.time, 'sleep', lambda s: None)
+    monkeypatch.setattr(C.talk.hidden_launch, 'tap_key', lambda scan: bridge.menus.clear())
+    monkeypatch.setattr(C, 'query', lambda b, text: 0.0 if b.menus else 1.0)
+    C.alone(C.Game(bridge, None, lambda: None, None), '5 GetStageDone FNV_CG04 141 == 1')
+    assert bridge.menus == []
+
+
+def test_run_sends_again_a_command_the_console_ignored_between_cells(monkeypatch, capsys):
+    """A setstage the console ignores while the player is between cells goes again until it takes."""
+    replies = ['SetStage ignored - %s' % C.IGNORED, 'SetStage ignored - %s' % C.IGNORED, '']
+    sent = []
+    monkeypatch.setattr(C.time, 'sleep', lambda s: None)
+    monkeypatch.setattr(C.T, 'send', lambda b, text: sent.append(text) or replies.pop(0))
+    C.run(None, 'setstage FNV_CG01 10')
+    assert sent == ['setstage FNV_CG01 10'] * 3 and "-> ''" in capsys.readouterr().out

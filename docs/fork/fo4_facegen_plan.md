@@ -71,6 +71,30 @@ basis still serves; a female tint recalibration
 (`sculpt_calibration --what tints --female`) brings it in line, and the
 calibration template now drops FTST too.
 
+## <a id="age-face-set"></a>Old faces drawn on a young face set (2026-11-19, not yet played)
+
+Old NPCs looked far too young. A fitted copy drops its body's `FTST`
+([body skin](#body-skin)), so every converted face used HumanRace's default
+set (`SkinHeadFemaleHero`, `SkinHeadHeroMale`). The skin stage writes the face's
+diffuse itself, wrinkles included, but the Creation Kit bakes the face's
+normal and specular maps from the face set's `TX01`/`TX07`: a smooth, young
+skin under an old face. Vanilla grades age by face set: 123 NPCs wear
+`SkinHeadOldMale` (`128C59`) and 36 `SkinHeadFemaleOld` (`03C655`), besides
+the women's MidAge and Weathered sets.
+
+The authored age is the race's links (`RACE ONAM` Older, `YNAM` Younger, now
+exported for FO3/FNV): an adult race has both, a child race only Older, and
+the Old and OldAged races only Younger, pointing back at the adult race (FO3:
+`CaucasianOld` and `CaucasianOldAged` both name `Caucasian`). A fitted NPC on
+such a race gets the old set of its sex (`npcs.Npcs._aged`); an own face set
+([own heads](#own-heads)) still replaces it. The links cannot tell Old from
+OldAged, so both get the old set; FaceGen's own age control would, but the
+converter does not read FaceGen's control file yet.
+
+The skin stage took any `FTST` as an own face set; it now takes only one in
+the plugin's own load slot (`facegen_skin.fitted_faces`), so an old NPC keeps
+the base NPC's T1 skin.
+
 ## <a id="texel-projection"></a>Blocky old faces: texels took a sample point's UV (2026-11-16, not yet played)
 
 **Code:** `fo4_import/face/texture.py` (`texel_map`, `projected`).

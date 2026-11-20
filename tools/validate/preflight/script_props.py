@@ -20,6 +20,7 @@ from fo4_import.spike.script import declared_properties
 from tools.validate.fo4_audit import Plugin, check_properties, fnv_names, source
 from tools.validate.preflight.build_diff import sample
 from tools.validate.preflight.findings import Finding
+from tools.validate.preflight.quest_converted import strip_papyrus_comment
 
 #: The OnTimer event of a Papyrus script.
 TIMER = re.compile(r'^Event OnTimer\(.*?^EndEvent', re.MULTILINE | re.DOTALL | re.IGNORECASE)
@@ -33,9 +34,10 @@ KINDS = {'timer': ('error', 'its OnTimer pass uses it, so every pass fails'),
 
 
 def timer_uses(text: str, prop: str) -> bool:
-    """Whether `prop` appears in the OnTimer event of script source `text`."""
+    """Whether the OnTimer code (not comments) of source `text` names `prop`."""
     block = TIMER.search(text)
-    return bool(block) and re.search(rf'\b{re.escape(prop)}\b', block.group(0), re.IGNORECASE) is not None
+    code = '\n'.join(strip_papyrus_comment(line) for line in block.group(0).splitlines()) if block else ''
+    return re.search(rf'\b{re.escape(prop)}\b', code, re.IGNORECASE) is not None
 
 
 def kind_of(script: str, prop: str, text: str, names: set) -> str:

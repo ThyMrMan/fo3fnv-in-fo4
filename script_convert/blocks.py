@@ -29,7 +29,7 @@ from script_convert.package_events import SECTIONS as PACKAGE_BLOCKS
 from script_convert.package_events import block_header as package_header
 from script_convert.say_to_done import BLOCK_TYPE as SAY_TO_DONE_BLOCK
 from script_convert.say_to_done import block_header as say_to_done_header
-from script_convert.target import is_fallout4
+from script_convert.target import is_fallout4, on_trigger
 
 BLOCK_MAP = {
     'gamemode':           ('Event OnUpdate()', 'EndEvent'),
@@ -111,7 +111,7 @@ FALLOUT4_BLOCK_MAP = {
 
 #: Fallout 4 filters and guards of FALLOUT4_BLOCK_MAP's events.
 FALLOUT4_FILTER_PARAM = {'onactorequip': ('akBaseObject', 'Form')}
-FALLOUT4_GUARDS = {'onfire': f'asEventName == "{WEAPON_FIRE}"'}
+FALLOUT4_GUARDS = {'onfire': f'asEventName == "{WEAPON_FIRE}"', 'onload': '!IsDisabled()'}
 
 
 def runs_from_package(block_type: str, block_filter: str) -> bool:
@@ -135,8 +135,12 @@ def block_header(block) -> 'tuple | None':
     return BLOCK_MAP.get(btype)
 
 
-def type_guard(btype: str) -> 'str | None':
-    """The test narrowing a block type's event to the TES4 block, or None."""
+def type_guard(conv, btype: str) -> 'str | None':
+    """The test narrowing a block type's event to the TES4 block, or None; a trigger box's OnLoad runs disabled.
+    See: docs/fork/fo4_pipeline.md#onload-disabled
+    """
+    if btype == 'onload' and on_trigger(conv):
+        return None
     return FALLOUT4_GUARDS.get(btype) if is_fallout4() and btype in FALLOUT4_GUARDS else BLOCK_TYPE_GUARDS.get(btype)
 
 

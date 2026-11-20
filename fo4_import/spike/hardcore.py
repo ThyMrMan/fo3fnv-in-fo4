@@ -166,7 +166,7 @@ class Hardcore:
         rec = spells[spell]
         tests = range_tests(self.avs[need], low, high)
         pairs = b''.join(effect_pair(fid, value, area, LONG) + tests
-                         for edid, magnitude, area, _, av, _, _ in fnv_effects(rec)
+                         for edid, magnitude, area, _, av, *_ in fnv_effects(rec)
                          for fid, value in effects.targets(edid, av, magnitude))
         fid = self.builder.writer.derive_formid(SITE, rec['EditorID'])
         body = pack_string_subrecord('EDID', f'FNV_{rec["EditorID"]}') + pack_subrecord('OBND', bytes(12))

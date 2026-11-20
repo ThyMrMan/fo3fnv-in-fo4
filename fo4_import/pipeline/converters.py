@@ -8,6 +8,10 @@ a converter of its own; its route (record_routes) names where it belongs.
 See: docs/fork/fo4_pipeline.md#converters
 """
 
+from collections.abc import Iterator
+
+from fo4_import.pipeline.export_index import export_records
+
 #: FNV base type -> the CellBuilder method making a placed base of it, in the order bases are read.
 PLACED = {
     'STAT': 'record', 'MSTT': 'record', 'SCOL': 'record', 'ALCH': 'pickup', 'WEAP': 'pickup', 'ARMO': 'pickup',
@@ -23,3 +27,10 @@ STATIC_STAND_INS = frozenset()
 def placed_types(*methods: str) -> tuple:
     """Placed types `methods` make (all when none named), in PLACED's order."""
     return tuple(sig for sig, method in PLACED.items() if not methods or method in methods)
+
+
+def base_records(export_dir) -> Iterator:
+    """(FNV FormID, type, record) of each base of a non-item placed type."""
+    for sig in (s for s in placed_types() if PLACED[s] != 'item'):
+        for rec in export_records(export_dir, sig):
+            yield int(rec['FormID'], 16), sig, rec

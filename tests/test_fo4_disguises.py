@@ -9,6 +9,7 @@ import struct
 from types import SimpleNamespace
 
 from fo4_import.spike import equipment as E
+from fo4_import.spike import items as IT
 from fo4_import.spike import quest_scope as QS
 from fo4_import.spike import replacements as RP
 from fo4_import.spike import script_effects as SE
@@ -30,10 +31,11 @@ def test_an_outfit_copy_carries_fnv_s_own_script_after_its_editor_id():
     dnam[E.DNAM_ANIM] = 1
     template = [(b'EDID', b'BaseballBat\0'), (b'VMAD', b'theirs'), (b'FULL', struct.pack('<I', 1)),
                 (b'DNAM', bytes(dnam))]
-    written, attached = [], []
-    scripts = SimpleNamespace(vmad=lambda scpt: attached.append(scpt) or b'ours')
+    written, attached, marked = [], [], []
+    scripts = SimpleNamespace(vmad=lambda scpt: attached.append((scpt, list(marked))) or b'ours', name=lambda s: None)
     builder = SimpleNamespace(counts=collections.Counter(), type_keywords=SimpleNamespace(of=lambda fnv: []),
-                              writer=_writer(written), scripts=scripts)
+                              writer=_writer(written), scripts=scripts,
+                              items=SimpleNamespace(writing=lambda fnv, fid: marked.append((fnv, fid))))
     eq = E.Equipment.__new__(E.Equipment)
     eq.builder, eq.fnv, eq.vanilla, eq.by_anim, eq.strings = builder, {}, {'BaseballBat': template}, {}, {1: b'Bat'}
     eq.table = {'WeapScripted': RP.Replacement('Fallout4.esm', 'BaseballBat', 'stats')}
@@ -42,10 +44,20 @@ def test_an_outfit_copy_carries_fnv_s_own_script_after_its_editor_id():
     eq.fired = {}
     eq.vats = SimpleNamespace(apply=lambda rec, dnam, template: template.get(b"CRDT", b""))
     eq.guns = SimpleNamespace(default_only=lambda subs: None)
-    eq.weap(1, {'EditorID': 'WeapScripted', 'FULL': 'Bat', 'SCRI': '0012B03C'})
+    eq.weap(1, {'EditorID': 'WeapScripted', 'FULL': 'Bat', 'SCRI': '0012B03C', 'FormID': '00000001',
+                'Signature': 'WEAP'})
     subs = list(subrecords(written[0][1][24:]))
     assert [s for s, _ in subs][:2] == [b'EDID', b'VMAD'] and dict(subs)[b'VMAD'] == b'ours'
-    assert attached == [0x12B03C]
+    assert attached == [(0x12B03C, [(1, 0x01000001)])]
+
+
+def test_an_item_s_own_script_names_the_item_while_it_is_written():
+    """MQ04RollingPinScript names MQ04RollingPin: the fill reads the FormID the item is being written as."""
+    written, seen = [], []
+    builder = SimpleNamespace(counts=collections.Counter(), writer=_writer(written), fnv_id=lambda fid: 0x0200002A)
+    items = IT.Items(builder, {0x2A: ('MISC', {'EditorID': 'Pin', 'FormID': '0000002A'})}, {})
+    items.makers = {'MISC': lambda fnv, rec: items._write('MISC', lambda fid: seen.append(items.item(0x2A)), rec)}
+    assert items.item(0x2A) == 0x0200002A and seen == [0x0200002A]
 
 
 def test_quest_scope_follows_what_actors_and_containers_carry():
@@ -65,7 +77,7 @@ def test_quest_scope_follows_what_actors_and_containers_carry():
 def _effects(builder) -> SE.ScriptEffects:
     """ScriptEffects over FNV's disguise pulse (DisguiseFactionPulseActorEffect) and a non-script effect."""
     fx = SE.ScriptEffects.__new__(SE.ScriptEffects)
-    fx.builder, fx.made, fx.made_effects, fx.families = builder, {}, {}, {}
+    fx.builder, fx.made, fx.made_effects, fx.families, fx.stand_in_families = builder, {}, {}, {}, None
     fx.templates = ({b'DATA': bytes(152), b'ETYP': b'\x44\x3f\x01\x00'}, {b'ETYP': b'\x44\x3f\x01\x00'})
     fx.effects = {'DisguiseFactionPulseEffect': {'EditorID': 'DisguiseFactionPulseEffect', 'FormID': '001411A2',
                                                  'DATA.Flags': '7', 'DATA.AssocItem': '001411A4', 'FULL': 'Pulse'}}
@@ -117,6 +129,14 @@ def test_a_spell_with_another_effect_converts_as_a_consumables_unless_an_ability
     assert fx.spell('RestoreHealth') == 0x021413D1 and written[-1][1].endswith(b'EFIDheal')
     spit = written[-1][1][written[-1][1].index(b'SPIT') + 6:][:36]
     assert struct.unpack('<IIIfII', spit[:24])[4:] == (SE.FIRE_AND_FORGET, SE.DELIVERY['Self'])
+
+
+def test_an_effect_fo4_replaces_tests_the_keyword_fo4_s_own_effect_carries(monkeypatch):
+    """GenericScript's addiction tests read AddictionEffect, MS14's morphine test Med-X's; others stay None."""
+    monkeypatch.setattr(SE, 'fo4_names', lambda fo4, sig: {'AddictionEffect': 0x10, 'StackMedXDamageResist': 0x20})
+    fx = _effects(SimpleNamespace(fo4=b'', scripts=SimpleNamespace(name=lambda scpt: None)))
+    assert fx.family_named('TES4FX_addictredagjet') == fx.family_named('TES4FX_AddictRedCHTobacco') == 0x10
+    assert fx.family_named('TES4FX_morphineeffect') == 0x20 and fx.family_named('TES4FX_concussion') is None
 
 
 def test_dropme_drops_the_scripted_item():

@@ -21,6 +21,7 @@ from pathlib import Path
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.consumable_effects import effect_pair
+from fo4_import.spike.destruction import fo4_names
 from fo4_import.spike.perks import pack_spell
 from fo4_import.spike.records import pack_keywords, pack_kywd
 from script_convert.constants import mgef_family_keyword_name
@@ -43,6 +44,14 @@ FLAGS_AT, CAST_AT = 0x00, 0x50
 SITE = 'FNV script effect'
 #: derive_formid site of an effect's family keyword (key: FNV EditorID, lower case).
 FAMILY_SITE = 'FNV effect family'
+#: FNV effect -> Fallout4.esm keyword on FO4's effect of the item standing in for its source (effect-family-stand-ins).
+FAMILY_STAND_INS = {
+    **dict.fromkeys(('AddictRedAGAlcohol', 'AddictRedAGJet', 'AddictRedAGMorphine', 'AddictRedAGPsycho',
+                     'AddictRedAGSteady', 'AddictRedAGTurbo', 'AddictRedCHQuantum', 'AddictRedCHRebound',
+                     'AddictRedCHTobacco', 'AddictRedENBuffout', 'AddictRedENHydra', 'AddictRedPEMentats',
+                     'AddictRedSTAntNectar'), 'AddictionEffect'),
+    'MorphineEffect': 'StackMedXDamageResist',
+}
 #: Export keys of one FNV spell effect.
 EFFECT_KEYS = ('EFID', 'Magnitude', 'Area', 'Duration', 'Type', 'ConditionCount')
 
@@ -70,7 +79,7 @@ class ScriptEffects:
         self.spells = {r['EditorID'].lower(): r for r in export_records(export_dir, 'SPEL') if r.get('EditorID')}
         self.ids = {int(r['FormID'], 16): edid for edid, r in self.spells.items()}
         self.by_family = {mgef_family_keyword_name(edid).lower(): r for edid, r in self.effects.items()}
-        self.families = {}
+        self.families, self.stand_in_families = {}, None
 
     def spell(self, edid: str) -> 'int | None':
         """The FO4 spell of FNV spell `edid` (any case), written once; None for another name or one left out."""
@@ -102,12 +111,22 @@ class ScriptEffects:
         return self.families[name]
 
     def family_named(self, prop: str) -> 'int | None':
-        """family() of the FNV script effect a `TES4FX_<effect>` property names; None for another effect or one
-        whose script did not convert (no copy can carry it)."""
+        """family() of the FNV script effect a `TES4FX_<effect>` property names, else its FAMILY_STAND_INS keyword;
+        None for another effect or a script effect whose script did not convert (no copy can carry it)."""
         rec = self.by_family.get(prop.lower())
         if rec is None or not self.builder.scripts.name(int(rec['DATA.AssocItem'], 16)):
-            return None
+            return self._stand_in_family(prop.lower())
         return self.family(rec['EditorID'])
+
+    def _stand_in_family(self, prop: str) -> 'int | None':
+        """The Fallout4.esm keyword FAMILY_STAND_INS gives the effect `prop` (lower case) names; None for another.
+        See: docs/fork/fo4_pipeline.md#effect-family-stand-ins
+        """
+        if self.stand_in_families is None:
+            keywords = fo4_names(self.builder.fo4, b'KYWD')
+            self.stand_in_families = {mgef_family_keyword_name(edid).lower(): keywords[kw]
+                                      for edid, kw in FAMILY_STAND_INS.items()}
+        return self.stand_in_families.get(prop)
 
     def consumed(self, edid: str) -> 'int | None':
         """effect() of FNV effect `edid` on a consumable: fire and forget, on self."""

@@ -509,5 +509,13 @@ def property_declarations(property_refs, declared) -> list:
         if safe.lower() in declared:
             continue
         declared.add(safe.lower())
-        out.append('%s Property %s Auto' % (ptype, safe))
+        out.append(form_property(ptype, safe))
     return out
+
+
+def form_property(ptype: str, name: str) -> str:
+    """`Type Property Name Auto`, `Auto Const` for a Fallout 4 form.
+    See: docs/fork/fo4_pipeline.md#const-properties
+    """
+    const = is_fallout4() and ptype not in ('Int', 'Float', 'Bool', 'String')
+    return '%s Property %s Auto%s' % (ptype, name, ' Const' if const else '')

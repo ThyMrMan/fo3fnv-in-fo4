@@ -25,8 +25,10 @@ from tools.live import fo4_route_steps as route_steps
 STAGE_SECONDS = 10
 #: Seconds an earlier stage's result script has to set a stage.
 AUTO_SECONDS = 10
-#: Seconds a quest script's timer has to set a stage.
+#: Seconds a quest script's timer has to set a stage, at least.
 TIMER_SECONDS = 30
+#: Seconds a timer wait gives past the timer's authored length (its poll's interval, the stage before's own wait).
+TIMER_MARGIN = 10
 #: Seconds a started quest has to report running.
 START_SECONDS = 10
 #: Setters a stage's comment names before the rest are left out.
@@ -55,7 +57,8 @@ def how(setter: dict) -> str:
 
 def automatic(quest: dict, entry: dict, before: set) -> tuple:
     """(seconds, setter) when stage `entry` follows on its own: the result script of an earlier swept stage of the
-    quest (`before`: (quest lower, stage)) or the quest's timer sets it; else (0, '')."""
+    quest (`before`: (quest lower, stage)) or the quest's timer sets it; else (0, ''). A timer is given its
+    longest authored length and TIMER_MARGIN, at least TIMER_SECONDS."""
     own = quest['source'].lower()
     live = [s for s in entry['setters'] if s['live'] and s.get('quest', '').lower() == own]
     by_stage = [s for s in live if s['kind'] == 'stage' and (own, s['stage']) in before]
@@ -63,22 +66,25 @@ def automatic(quest: dict, entry: dict, before: set) -> tuple:
         return AUTO_SECONDS, "%s stage %d's result script" % (by_stage[0]['quest'], by_stage[0]['stage'])
     timers = [s for s in live if s['kind'] == 'timer']
     if timers:
-        return TIMER_SECONDS, "%s's %s timer" % (timers[0]['script'], timers[0]['block'])
+        seconds = max(TIMER_SECONDS, max(s.get('seconds', 0) for s in timers) + TIMER_MARGIN)
+        return round(seconds), "%s's %s timer" % (timers[0]['script'], timers[0]['block'])
     return 0, ''
 
 
 def stage_steps(quest: dict, entry: dict, before: set) -> list:
     """The case lines for one stage: a comment naming its setters, the wait when it follows on its own, the
-    setstage and its checks."""
+    setstage (skipped when the wait saw the stage set, as a second run would meet a stopped quest) and its checks."""
     fo4, stage = quest['fo4'], entry['stage']
-    note = '%s stage %d' % (fo4, stage)
+    note, done = '%s stage %d' % (fo4, stage), 'GetStageDone %s %d == 1' % (fo4, stage)
     setters = '; '.join(how(s) for s in entry['setters'][:SHOWN]) or 'no setter in the source'
     more = ' and %d more' % (len(entry['setters']) - SHOWN) if len(entry['setters']) > SHOWN else ''
     lines = ['# stage %d, set by %s%s' % (stage, setters, more)]
     seconds, by = automatic(quest, entry, before)
+    setstage = 'run setstage %s %d' % (fo4, stage)
     if seconds:
-        lines.append('check until %d GetStageDone %s %d == 1 | %s: not set by %s' % (seconds, fo4, stage, note, by))
-    return lines + ['run setstage %s %d' % (fo4, stage),
+        lines.append('check alone %d %s | %s: not set by %s' % (seconds, done, note, by))
+        setstage = 'unless %s | %s' % (done, setstage)
+    return lines + [setstage,
                     'check until %d GetStageDone %s %d == 1 | %s' % (STAGE_SECONDS, fo4, stage, note),
                     'check errors | %s' % note]
 
@@ -103,18 +109,31 @@ def start_steps(quest: dict) -> list:
             'check errors | %s start' % fo4]
 
 
+def fresh_start(quest: dict, save: str, opening: tuple, game: str, before: set) -> list:
+    """Load `save` (when given) and take the `opening` lines, then start the quest if the source does.
+    See: docs/fork/fo4_test_layers_plan.md#stopped-quest-fragments
+    """
+    lines = ['load %s' % save, *opening] if save else []
+    if starts(quest):
+        lines += route_steps.start_lines(game, quest, before) if game else start_steps(quest)
+    return lines
+
+
 def case_lines(quest: dict, stages: list, save: str, game: str = '', before: 'set | None' = None,
                opening: tuple = ()) -> list:
     """One quest's case: load `save` (when given) and take the `opening` lines, start the quest if the source
     does, then each of `stages`; with `game` (the source plugin) each by its layer 2 route (fo4_route_steps), else
-    by setstage. `before`, the run's done stages and played lines, is shared by a chain's cases, and a chained
-    route case ends by completing the quest the way the source does."""
+    by setstage. After a stage whose source script stops the quest, the next starts from `save` again. `before`,
+    the run's done stages and played lines, is shared by a chain's cases, and a chained route case ends by
+    completing the quest the way the source does."""
     lines = ['# %s (source %s): %d stages' % (quest['fo4'], quest['source'], len(stages)), 'case %s' % quest['source']]
-    lines += ['load %s' % save, *opening] if save else []
     chained, before = before is not None, set() if before is None else before
-    if starts(quest):
-        lines += route_steps.start_lines(game, quest, before) if game else start_steps(quest)
-    for entry in stages:
+    lines += fresh_start(quest, save, opening, game, before)
+    for index, entry in enumerate(stages):
+        if save and index and stages[index - 1].get('stops'):
+            before -= {done for done in before if done[0] == quest['source'].lower()}
+            lines += ['# the stage before stopped the quest: from the start save again']
+            lines += fresh_start(quest, save, opening, game, before)
         lines += route_steps.stage_lines(game, quest, entry, before) if game else stage_steps(quest, entry, before)
         before.add((quest['source'].lower(), entry['stage']))
     if chained and game and quest.get('completes'):

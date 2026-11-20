@@ -98,6 +98,6 @@
   },
   "own_models": {
     "_about": "FNV explosions (EditorID) whose copy shows FNV's own model, not its stand-in's: effects that are not a blast (gas and smoke clouds, the stun grenade's spray, the flashbang), which the frag stand-in would draw as a short blast. See docs/fork/fo4_thrown_weapons.md#explosion-models.",
-    "explosions": ["GrenadeGasExplosion", "NVDLC01GhostGasBombExplosion", "GrenadeStunExplosion", "NVDLC04FlashBangExplosion"]
+    "explosions": ["GrenadeGasExplosion", "NVDLC01GhostGasBombExplosion", "GrenadeStunExplosion", "NVDLC04FlashBangExplosion", "MQ08FlashBangExplosion"]
   }
 }

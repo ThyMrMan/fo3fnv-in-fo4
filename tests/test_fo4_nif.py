@@ -371,6 +371,28 @@ def test_caps_are_fnvs_dismemberment_partitions():
     assert not O.is_cap(Shape([5000, 5, 3000, 3])) and not O.is_cap(Shape([0, 7, 10]))
 
 
+def test_a_collar_skinned_to_fnv_s_neck_alone_goes_fully_on_fo4_s_neck():
+    """FO3's slave collar (all Bip01 Neck1): one bone, a Neck node added under the root, bound at its inverse."""
+    assert O.on_neck([{'Bip01 Neck1': 1.0}, {'Bip01 Neck': 0.5, 'Bip01 Neck1': 0.5}])
+    assert not O.on_neck([{'Bip01 Neck1': 0.5, 'Bip01 Spine2': 0.5}]) and not O.on_neck([{}]) and not O.on_neck([])
+    nif = F.NifFile()
+    nif.blocks.append(('NiNode', {'name': nif.string('Root'), 'extra': [], 'controller': K.NONE, 'flags': 0xE,
+                                  'translation': (0.0, 0.0, 0.0), 'rotation': C.IDENTITY, 'scale': 1.0,
+                                  'collision': K.NONE, 'children': []}))
+    nif.blocks.append(None)
+    points = np.array([(0.0, 1.0, -7.0), (1.0, 0.0, -6.0)])
+    made = O.WornShape({'vertices': [{'weights': (0.5, 0.5, 0, 0), 'bones': (0, 1, 0, 0)} for _ in points]}, [],
+                       [3, 4], points, np.array([[0, 1, 0, 0]] * 2), np.array([[0.5, 0.5, 0, 0]] * 2))
+    fit = O.BodyFit.__new__(O.BodyFit)
+    fit.neck = (np.eye(3), np.array([0.0, -3.0, -7.5]))
+    skin = O.neck_skin(nif, fit, made)
+    node = nif.blocks[0][1]['children'][0]
+    assert nif.strings[nif.blocks[node][1]['name']] == O.NECK_BONE
+    assert struct.unpack('<iiIiI', nif.blocks[skin][1])[2:4] == (1, node)
+    assert struct.unpack_from('<3f', nif.blocks[skin + 1][1], 4 + 13 * 4) == (0.0, 3.0, 7.5)
+    assert all(v['weights'] == (1.0, 0.0, 0.0, 0.0) for v in made.fields['vertices'])
+
+
 def test_skin_tint_shader_round_trips():
     """A type-5 lighting shader keeps its skin tint colour through the reader and packer."""
     nif = F.NifFile()

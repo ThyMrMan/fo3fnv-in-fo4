@@ -511,6 +511,12 @@ def _emit_effect_deltas(lines: list, rec: Record):
 SUPERSEDED_IDLE_KEYS = ("ANAM.", "DATA.")
 
 
+def _emit_race_deltas(lines: list, rec: Record):
+    """RACE ONAM (Older) and YNAM (Younger): the race's older and younger forms."""
+    emit_formid(lines, "ONAM.Older", get_subrecord(rec, "ONAM"))
+    emit_formid(lines, "YNAM.Younger", get_subrecord(rec, "YNAM"))
+
+
 def _emit_idle_deltas(lines: list, rec: Record):
     """IDLE ANAM (Parent, Previous) and DATA (section, looping, delay, flags) in xEdit FNV order.
 
@@ -560,6 +566,7 @@ _DELTA_DISPATCH = {
     "CLAS": emit_class_deltas,
     "PACK": emit_package_deltas,
     "IDLE": _emit_idle_deltas,
+    "RACE": _emit_race_deltas,
     "CSTY": emit_combat_style_deltas,
 }
 

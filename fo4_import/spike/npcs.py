@@ -80,6 +80,8 @@ OUTFIT_SITE = 'FNV OTFT'
 FEMALE, PERSISTENT, NO_AI_ACQUIRE = 0x1, 0x400, 0x2000000
 #: FNV RACE DATA flag Child.
 CHILD_RACE = 0x4
+#: Fallout4.esm's old face texture set per sex (female?): SkinHeadFemaleOld, SkinHeadOldMale.
+OLD_FACE_SETS = {True: 0x03C655, False: 0x128C59}
 #: FNV ARMO biped flag Upper Body: a worn piece that clothes the body.
 UPPER_BODY = 0x4
 #: new_id keys of a converted NPC and its placed actor (the spike's, kept so no FormID moves).
@@ -264,6 +266,11 @@ def with_health(stats: dict, settings: dict, tables: StatTables):
     return lambda subs: merged_prps(subs, {HEALTH: health - added_health(subs, tables)})
 
 
+def old_races(races) -> set:
+    """FNV `races` (FormIDs) with a younger race and no older: Old, OldAged."""
+    return {int(r['FormID'], 16) for r in races if 'YNAM.Younger' in r and 'ONAM.Older' not in r}
+
+
 def composed(*edits):
     """One record edit applying `edits` (None skipped) in order; None when there are none."""
     present = [e for e in edits if e is not None]
@@ -350,6 +357,7 @@ class Npcs:
         races = export_records(export_dir, 'RACE')
         self.races = {int(r['FormID'], 16): r.get('EditorID', '') for r in races}
         self.child_races = {int(r['FormID'], 16) for r in races if int(r.get('DATA.Flags', 0)) & CHILD_RACE}
+        self.old_races = old_races(races)
         self.bodies = bodies(builder.fo4, builder.table.rules.body)
         self.assets, self.made, self.voices = None, {}, creatures.voices
         self.lists = {int(r['FormID'], 16): r for sig in ('LVLN', 'LVLC') for r in export_records(export_dir, sig)}
@@ -670,7 +678,17 @@ class Npcs:
         self.builder.counts['face fitted'] += 1
         swaps, worn, face, tinted = self.own_heads.of(npc, female, chosen, tinted, self.assets)
         return (sculpted or (b'',))[0], composed(_tint_edit(tinted, female, self.tone_layers), _preset_edit(sculpted),
-                                                 head_parts_edit(chosen, self.assets, swaps, worn), face)
+                                                 head_parts_edit(chosen, self.assets, swaps, worn),
+                                                 self._aged(npc, female), face)
+
+    def _aged(self, npc: dict, female: bool):
+        """with_face of the sex's old face set for FNV NPC `npc` on an old race (a younger race, no older); else None.
+        See: docs/fork/fo4_facegen_plan.md#age-face-set
+        """
+        if int(npc.get('RNAM.Race', '0'), 16) not in self.old_races:
+            return None
+        self.builder.counts['faces on an old face set'] += 1
+        return R.with_face(OLD_FACE_SETS[female])
 
     def warm_faces(self, fnvs: list, workers: int = 0) -> int:
         """Fit in `workers` processes (face_workers by default), each on one BLAS thread, the faces the bases of FNV

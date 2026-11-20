@@ -23,7 +23,7 @@ from script_convert.scro_refs import (
     resolve_scro_aliases,
     scro_list,
 )
-from script_convert.symbols import property_declarations
+from script_convert.symbols import form_property, property_declarations
 from script_convert.trace_points import items
 
 #: Stage log entry flag: finishing the stage completes the quest.
@@ -129,7 +129,7 @@ def _declarations(conv, quest_globals: list, chargen_latch: bool) -> list:
         out += property_declarations({n: t for n, t in merged.values()},
                                      {g.lower() for g in quest_globals})
         out.append('')
-    out += [f'GlobalVariable Property {g} Auto' for g in quest_globals]
+    out += [form_property('GlobalVariable', g) for g in quest_globals]
     if chargen_latch:
         out.append(_CHARGEN_LATCH)
     return out

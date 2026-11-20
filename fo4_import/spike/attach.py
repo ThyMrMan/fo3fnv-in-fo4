@@ -32,12 +32,14 @@ from script_convert.quest_var_mirrors import PREFIX as QVAR_PREFIX
 from fo4_import.spike.script import base_forms, declared_properties, fill, prefix
 from fo4_import.spike.script_effects import ScriptEffects
 from fo4_import.spike.type_tests import BIPED_SLOT_PREFIX, CREATURE_TYPE_PREFIX
+from fo4_import.pipeline.converters import base_records
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.writer import pack_string_subrecord
+from tes5_import.dialogue.speech_chance_falloutnv import NEED_GLOBALS, chance_settings, first_needs
 from tes5_import.record_types.crime_falloutnv import ENEMY_LIST_EDID
 from script_convert.constants import (FALLOUT4_CHAT_PREFIX, FALLOUT4_POSE_PREFIX, FALLOUT4_SCREEN_PREFIX,
                                       FALLOUT4_SWAP_PREFIX, FALLOUT4_TALK_PREFIX, FALLOUT4_WALK_PREFIX,
-                                      TALKING_LISTS_PROPERTY, papyrus_script_name)
+                                      TALKING_LISTS_PROPERTY, papyrus_script_name, source_name)
 
 #: The player reference, which converted scripts name `Player`.
 PLAYER = ('Player', 0x14)
@@ -61,9 +63,11 @@ RUNTIME_LISTS = (DESTROYED_LIST, ENEMY_LIST_EDID)
 OBJECTIVE_PREFIX = 'TES4Obj'
 OBJECTIVE_GLOBAL = re.compile(r'TES4Obj(Done|Shown)_(.+)_(\d+)$')
 #: Papyrus types of the item properties the cell's item converter fills by FNV name.
-ITEM_TYPES = frozenset({'Potion', 'MiscObject', 'LeveledItem', 'Weapon', 'Armor', 'Ammo', 'Book', 'Key'})
+ITEM_TYPES = frozenset({'Potion', 'MiscObject', 'LeveledItem', 'Weapon', 'Armor', 'Ammo', 'Book', 'Key', 'Holotape'})
 #: Papyrus types of placed bases a property may name by its FNV EditorID (VMS21NeroCouchScript's own couch).
 BASE_TYPES = frozenset({'Form', 'Activator', 'Furniture', 'Door', 'Light', 'Static', 'MovableStatic'})
+#: Papyrus types of a property that may name an FNV explosion (PlaceAtMe of one).
+EXPLOSION_TYPES = frozenset({'Form', 'Explosion'})
 #: Papyrus type -> (builder attribute, its method) that makes or finds a property's form from the property name.
 NAMED_MAKERS = {'ImageSpaceModifier': ('imods', 'modifier'), 'Package': ('packages', 'named'),
                 'Idle': ('idles', 'named'), 'EffectShader': ('effect_shaders', 'of'), 'Sound': ('sounds', 'named')}
@@ -132,6 +136,7 @@ class ObjectScripts:
         self.quest_ids = {r['EditorID'].lower(): r['FormID'] for r in export_records(export_dir, 'QUST')
                           if r.get('EditorID')}
         self.export_dir, self.actor_bases, self.base_names, self.unique_actors = export_dir, None, None, {}
+        self.speech_needs, self.explosion_names = None, None
 
     def name(self, scpt: int) -> 'str | None':
         """The converted script of FNV script `scpt`; None when it was not converted."""
@@ -143,7 +148,7 @@ class ObjectScripts:
 
         A `TES4Talk_<topic>` scene (TALK_PREFIXES) gets its FormID here, kept in `talks` for the conversation builder;
         material swaps, imagespace modifiers and poses are made on demand (_made). A name matches the build's
-        forms ignoring case, as FNV's script names do (SunnyREF is the reference SunnyRef).
+        forms ignoring case (SunnyREF is the reference SunnyRef) and under a renamed word's source (source_name).
         """
         declared = [(kind, prop) for kind, prop in declared_properties(
             (self.dir / f'{script}.psc').read_text(encoding='utf-8')) if only is None or prop in only]
@@ -151,10 +156,11 @@ class ObjectScripts:
         props = fill(declared, {**self.forms, 'Message': messages}, self.helper_index)
         talks = {prop: self.talk(prop) for kind, prop in declared if kind == 'Scene' and prop.startswith(TALK_PREFIXES)}
         made, named = {prop: self._made(kind, prop) for kind, prop in declared}, self.named_lower()
-        placed = {prop: self.unique_actors[prop.lower()] for kind, prop in declared
-                  if prop.lower() in self.unique_actors and _is_reference_type(kind)}
+        keys = {prop: source_name(prop).lower() for _, prop in declared}
+        placed = {prop: self.unique_actors[keys[prop]] for kind, prop in declared
+                  if keys[prop] in self.unique_actors and _is_reference_type(kind)}
         return {**props, **talks, **{p: f for p, f in made.items() if f},
-                **{prop: named[prop.lower()] for _, prop in declared if prop.lower() in named}, **placed}
+                **{prop: named[keys[prop]] for _, prop in declared if keys[prop] in named}, **placed}
 
     def named_lower(self) -> dict:
         """`named` keyed by lower-case name (NameMap.lower; read only)."""
@@ -171,18 +177,33 @@ class ObjectScripts:
             owner, maker = NAMED_MAKERS[kind]
             return getattr(getattr(self.builder, owner), maker)(prop)
         item = self.builder.items.by_name(prop) if kind in ITEM_TYPES or kind == 'Form' else None
-        return item or (self._base(prop) if kind in BASE_TYPES else None)
+        return item or (self._base(prop) if kind in BASE_TYPES else None) or (
+            self._explosion(prop) if kind in EXPLOSION_TYPES else None)
+
+    def _explosion(self, prop: str) -> 'int | None':
+        """The FO4 explosion for the FNV explosion named `prop` (any case): Destruction.explosion's stand-in copy.
+        See: docs/fork/fo4_pipeline.md#script-explosions
+        """
+        if self.explosion_names is None:
+            self.explosion_names = {r['EditorID'].lower(): fid for fid, r in
+                                    self.builder.projectiles.copies.explosions.items() if r.get('EditorID')}
+        fnv = self.explosion_names.get(prop.lower())
+        return (self.builder.destruction.explosion(fnv) or None) if fnv is not None else None
 
     def _base(self, prop: str) -> 'int | None':
-        """The FO4 base of the FNV placed base whose EditorID is `prop` (any case), made if need be (CellBuilder.base).
+        """The FO4 base of the FNV base whose EditorID is `prop` (any case), made if need be (CellBuilder.base); one
+        no reference places (a script spawns it) joins builder.bases first.
         See: docs/fork/fo4_pipeline.md#base-properties
         """
         if self.base_names is None:
-            self.base_names = {rec['EditorID'].lower(): fid for fid, (_sig, rec) in self.builder.bases.items()
-                               if rec.get('EditorID')}
-        fid = self.base_names.get(prop.lower())
-        if fid is None:
+            self.base_names = {}
+            for fid, sig, rec in base_records(self.export_dir):
+                if rec.get('EditorID'):
+                    self.base_names.setdefault(rec['EditorID'].lower(), (fid, sig, rec))
+        if prop.lower() not in self.base_names:
             return None
+        fid, sig, rec = self.base_names[prop.lower()]
+        self.builder.bases.setdefault(fid, (sig, rec))
         self.builder.counts['base made for a script property'] += fid not in self.builder.made
         return self.builder.base(fid)
 
@@ -207,10 +228,12 @@ class ObjectScripts:
         return self.builder.type_keywords.keyword(prop)
 
     def _global_form(self, prop: str) -> 'int | None':
-        """A GlobalVariable property: a dialogue global, a quest-variable or objective mirror, FNV's, else a tested
-        region's watch global (region_watch)."""
+        """A GlobalVariable property: a dialogue global, a speech challenge threshold (speech_need), a quest-variable
+        or objective mirror, FNV's, else a tested region's watch global (region_watch)."""
         if prop.startswith(DIALOGUE_GLOBALS):
             return self.global_(prop)
+        if prop in NEED_GLOBALS:
+            return self.speech_need(prop)
         mirror = self.mirror_global(prop) if prop.startswith((QVAR_PREFIX, OBJECTIVE_PREFIX)) else None
         watch = getattr(self.builder, 'region_watch', None)
         return mirror or self.builder.globals.get(self.global_names.get(prop)) or (watch and watch.global_of(prop))
@@ -262,13 +285,23 @@ class ObjectScripts:
         self.builder.counts['mirror GLOB of a quest not built'] += 1
         return fid
 
-    def global_(self, name: str) -> int:
-        """The dialogue global `name`, written once; its FormID hashed from the name."""
+    def global_(self, name: str, kind: str = 's', value: float = 0.0) -> int:
+        """The dialogue global `name` (type `kind`, starting at `value`), written once; its FormID hashed from the
+        name."""
         if name not in self.globals:
             self.globals[name] = fid = self.builder.writer.derive_formid(GLOBAL_SITE, name)
-            self.builder.writer.add_record('GLOB', pack_global(fid, name))
+            self.builder.writer.add_record('GLOB', pack_global(fid, name, kind, value))
             self.builder.counts['dialogue GLOB'] += 1
         return self.globals[name]
+
+    def speech_need(self, name: str) -> int:
+        """Speech challenge threshold global `name` (NEED_GLOBALS), a float starting where the Skyrim build's does
+        (first_needs, from the export's GMSTs); each challenge line's End fragment rerolls it.
+        See: docs/commentary/tes5_import_dialogue.md#fallout-speech-challenges
+        """
+        if self.speech_needs is None:
+            self.speech_needs = first_needs(chance_settings(export_records(self.export_dir, 'GMST')))
+        return self.global_(name, 'f', self.speech_needs[name])
 
     def form_list(self, name: str) -> 'int | None':
         """The helper FormList `name` (RUNTIME_LISTS), written once and empty, or the talking-as lists'

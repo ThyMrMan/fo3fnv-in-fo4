@@ -26,12 +26,20 @@ from tools.live.fo4_quest_routes import Routes
 from tools.validate.fo4_quest_readiness import RECORD_PREFIX
 from tools.validate.preflight.quest_progression import reached_stages, source_live
 from tools.validate.preflight.quest_source import (COMPLETE, COMPLETE_QUEST, FAIL_QUEST, START, VARIABLE, SourceGame,
-                                                   required_speakers)
+                                                   coded_lines, required_speakers)
 
 #: A script that waits on real time.
 TIMER = re.compile(r'\bgetsecondspassed\b', re.I)
 #: The script blocks a quest script's timer runs in.
 TIMER_BLOCKS = ('gamemode', 'menumode')
+#: A timer: `set t to t - GetSecondsPassed` (a countdown) or `+` (a count up): (variable, sign).
+COUNTED = re.compile(r'\bset\s+(\w+)\s+to\s+\(?\s*\1\s*([-+])\s*getsecondspassed', re.I)
+#: A count up's end: `t > 5` or `t >= 5`, a variable as `%s`.
+REACHES = r'\b%s\s*>=?\s*(\d+(?:\.\d+)?|\.\d+)'
+#: A number set to a variable on a code line, `set [quest.]var to 2.5`: (quest or '', var, number).
+NUMBER_SET = re.compile(r'\bset\s+(?:(\w+)\.)?(\w+)\s+to\s+(\d+(?:\.\d+)?|\.\d+)\s*$', re.I)
+#: The opener of an `if` frame, a branch of one, and its close, on a code line.
+IF, ELSEIF, ENDIF = re.compile(r'if\b', re.I), re.compile(r'elseif\b', re.I), re.compile(r'endif\b', re.I)
 #: Where the plan goes when --out is not given: under this, `<game>/quest_plan.json`.
 OUT_ROOT = Path('temp') / 'stage_sweep'
 
@@ -64,6 +72,53 @@ def source_reached(source) -> tuple:
 
 
 # ---------------------------------------------------------------------------
+#  Timers
+# ---------------------------------------------------------------------------
+
+def timer_lengths(source) -> dict:
+    """{(quest lower, variable lower): the largest number any source text sets it to by `set quest.var`}."""
+    out = {}
+    for text in source.texts:
+        for code, _line, _block in coded_lines(text):
+            for quest, var, number in NUMBER_SET.findall(code.strip()):
+                if quest:
+                    key = (quest.lower(), var.lower())
+                    out[key] = max(out.get(key, 0.0), float(number))
+    return out
+
+
+def guard_words(text: str, raw: str) -> set:
+    """Lower words of the conditions around the first line `raw` of script `text`: each enclosing `if`, and its
+    `elseif`s up to the line's branch."""
+    frames = []
+    for code, line, _block in coded_lines(text):
+        code = code.strip()
+        if ELSEIF.match(code) and frames:
+            frames[-1].append(code[6:])
+        elif IF.match(code):
+            frames.append([code[2:]])
+        elif ENDIF.match(code) and frames:
+            frames.pop()
+        if line == raw:
+            return {w.lower() for frame in frames for cond in frame for w in re.findall(r'\w+', cond)}
+    return set()
+
+
+def timer_seconds(quest: str, text: str, lengths: dict, raw: str = '') -> float:
+    """The longest authored run of the timers of script `text` that the conditions around line `raw` name, 0
+    when they name none or none is a number: the largest number set to a countdown (in `text`, or as
+    `quest.var` anywhere: `lengths`, timer_lengths()) or a count up is compared with."""
+    codes = [code.strip() for code, _line, _block in coded_lines(text)]
+    near = guard_words(text, raw)
+    timers = {v.lower(): sign for code in codes for v, sign in COUNTED.findall(code) if v.lower() in near}
+    down = {v for v, sign in timers.items() if sign == '-'}
+    up = {v for v, sign in timers.items() if sign == '+'}
+    own = [float(n) for code in codes for q, v, n in NUMBER_SET.findall(code) if not q and v.lower() in down]
+    own += [float(n) for code in codes for v in up for n in re.findall(REACHES % v, code, re.I)]
+    return max([*own, *(lengths.get((quest.lower(), v), 0.0) for v in down)], default=0.0)
+
+
+# ---------------------------------------------------------------------------
 #  Setters
 # ---------------------------------------------------------------------------
 
@@ -92,18 +147,24 @@ def info_fields(owner: str, source) -> dict:
             'speakers': [source.actor_names.get(fid) or '%08X' % fid for fid in speakers]}
 
 
-def script_fields(site, source, texts: dict) -> dict:
-    """A script setter: quest script, timer or object script, its block, and the quest a quest script runs in."""
+def script_fields(site, source, texts: dict, lengths: dict) -> dict:
+    """A script setter: quest script, timer (with its authored `seconds`, timer_seconds()) or object script, its
+    block, and the quest a quest script runs in; `lengths` is timer_lengths()."""
     quest = source.quest_script_of.get(site.owner.lower())
-    timed = site.part.lower().startswith(TIMER_BLOCKS) and TIMER.search(texts.get(site.owner.lower(), ''))
+    text = texts.get(site.owner.lower(), '')
+    timed = site.part.lower().startswith(TIMER_BLOCKS) and TIMER.search(text)
     kind = 'timer' if quest and timed else 'quest script' if quest else 'object script'
-    return {'kind': kind, 'script': site.owner, 'block': site.part} | ({'quest': source.quests[quest]} if quest else {})
+    out = {'kind': kind, 'script': site.owner, 'block': site.part} | ({'quest': source.quests[quest]} if quest else {})
+    if kind == 'timer':
+        out['seconds'] = timer_seconds(source.quests[quest], text, lengths, site.raw)
+    return out
 
 
-def setter(site, source, texts: dict, live, routes, depth: int = DEPTH) -> dict:
+def setter(site, source, texts: dict, live, routes, depth: int = DEPTH, lengths: 'dict | None' = None) -> dict:
     """One source setter as plan data: its kind, where it sits, its line, whether its container runs, and for a
     line or an object script how a player makes it run (`routes`, fo4_quest_routes), with what it waits on
-    (prerequisites()) while `depth` lasts."""
+    (prerequisites()) while `depth` lasts; `lengths` (timer_lengths()) times a timer."""
+    lengths = {} if lengths is None else lengths
     entry = {'kind': site.kind, 'line': site.raw, 'live': bool(live(site))}
     if site.kind == 'stage':
         quest, stage = site.owner.split('|')
@@ -113,12 +174,12 @@ def setter(site, source, texts: dict, live, routes, depth: int = DEPTH) -> dict:
     elif site.kind == 'package':
         entry.update(package=source.packages.get(site.owner, {}).get('EditorID', site.owner), section=site.part)
     else:
-        entry.update(script_fields(site, source, texts))
+        entry.update(script_fields(site, source, texts, lengths))
     if entry['kind'] == 'object script':
         entry['route'] = routes.script(site.owner, site.part)
     if 'route' in entry:
-        prerequisites(entry, lambda sites: [setter(s, source, texts, live, routes, depth - 1) for s in sites],
-                      source, depth)
+        prerequisites(entry, lambda sites: [setter(s, source, texts, live, routes, depth - 1, lengths)
+                                            for s in sites], source, depth)
     return entry
 
 
@@ -164,7 +225,7 @@ def build_plan(export_dir: Path, built: 'dict | None') -> dict:
     """The plan of every source quest in `export_dir` with stages or a start; `built` is built_stages() or None."""
     source = SourceGame(str(export_dir))
     reached, live = source_reached(source)
-    texts, routes = script_texts(export_dir), Routes(source, export_dir)
+    texts, routes, lengths = script_texts(export_dir), Routes(source, export_dir), timer_lengths(source)
     by_quest = {}
     for site in [*source.setters, *source.completers]:
         by_quest.setdefault(site.quest.lower(), {}).setdefault(site.stage, []).append(site)
@@ -174,10 +235,11 @@ def build_plan(export_dir: Path, built: 'dict | None') -> dict:
         if not (stages or START in sites or lower in source.start_enabled):
             continue
         entry = quest_entry(edid, stages, sites, reached, built,
-                            partial(setter, source=source, texts=texts, live=live, routes=routes))
+                            partial(setter, source=source, texts=texts, live=live, routes=routes, lengths=lengths))
         entry['start_enabled'] = lower in source.start_enabled
         for stage in entry['stages']:
             stage['ends'] = stage_end(source.stage_flags[(lower, stage['stage'])])
+            stage['stops'] = (lower, stage['stage']) in source.stops
         quests.append(entry)
     return {'game': Path(export_dir).name, 'prefix': RECORD_PREFIX, 'quests': quests}
 

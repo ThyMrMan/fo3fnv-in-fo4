@@ -67,6 +67,8 @@ NEEDS = {'RestoreDehydrationLevel': (0, -1), 'DamageDehydrationLevel': (0, 1),
          'RestoreStarvationLevel': (1, -1), 'DamageStarvationLevel': (1, 1),
          'RestoreSleepDeprivationLevel': (2, -1), 'DamageSleepDeprivationLevel': (2, 1)}
 PERK_TEST, HAS_PERK = 'HasPerk', C.FO4.index('HasPerk')
+#: FNV's actor value test, written as FO4's GetValue of the same-named actor value (HeadCrippleEffect's Perception).
+VALUE_TEST, GET_VALUE = 'GetActorValue', C.FO4.index('GetValue')
 #: A CTDA's comparison bits.
 COMPARE = 0xE0
 #: The effect an item with none left carries at magnitude 0, as vanilla's VRWorkshopShared_MutfruitFake.
@@ -82,7 +84,7 @@ WANTED = {*(e for fo4 in EFFECTS.values() for e in fo4), *(t for t, _ in RETARGE
 
 def fnv_effects(rec: dict) -> list:
     """[(FNV effect EditorID, magnitude, area, duration, actor value index, its HasPerk tests, its HARDCORE
-    tests)]."""
+    tests, its VALUE_TEST tests)]."""
     out = []
     for i in range(int(rec.get('EffectCount', 0))):
         key = f'Effect[{i}]'
@@ -90,7 +92,7 @@ def fnv_effects(rec: dict) -> list:
         conds = [C.parse(rec[f'{key}.Condition[{j}].Raw']) for j in range(int(rec.get(f'{key}.ConditionCount', 0)))]
         out.append((edid, float(rec[f'{key}.Magnitude']), int(rec[f'{key}.Area']),
                     int(rec[f'{key}.Duration']), int(rec[f'{key}.ActorValue']),
-                    [c for c in conds if c['func'] == PERK_TEST], [c for c in conds if c['func'] == HARDCORE]))
+                    *([c for c in conds if c['func'] == func] for func in (PERK_TEST, HARDCORE, VALUE_TEST))))
     return out
 
 
@@ -114,13 +116,13 @@ class Effects:
         """EFID/EFIT pairs (with Hardcore and perk tests) of the effects of FNV `rec` (a consumable, a spell) FO4
         carries; b'' when none does."""
         out = b''
-        for edid, magnitude, area, duration, av, perks, hardcore in fnv_effects(rec):
+        for edid, magnitude, area, duration, av, perks, hardcore, values in fnv_effects(rec):
             fo4 = self.targets(edid, av, magnitude)
             if not fo4:
                 self.builder.counts[f'effect dropped ({edid})'] += 1
             tests = self._hardcore_tests(hardcore)
             perk_tests = self._perk_tests(perks)
-            tests = None if tests is None or perk_tests is None else tests + perk_tests
+            tests = None if tests is None or perk_tests is None else tests + perk_tests + self._value_tests(values)
             if tests is None:
                 self.builder.counts['effect dropped (perk not in the build)'] += 1
                 continue
@@ -140,6 +142,18 @@ class Effects:
             joined = cond['op_flags'] & C.OR_NEXT if i < len(perks) - 1 else 0
             out += R.pack_ctda(cond['op_flags'] & COMPARE | joined, cond['value'], HAS_PERK, ids[cond['p1']])
         self.builder.counts['effect perk tests'] += len(perks)
+        return out
+
+    def _value_tests(self, conds: list) -> bytes:
+        """FO4 GetValue CTDAs of an effect's FNV actor value tests, ANDed; one FO4 lacks the value of, or compared
+        to a global, is dropped (counted) as the other tests this path cannot write."""
+        out = b''
+        for cond in conds:
+            av = actor_value_form(C.fnv_av_name(cond['p1']), self.helper_index)
+            if av is None or cond['op_flags'] & C.USE_GLOBAL:
+                self.builder.counts[f'effect test dropped ({VALUE_TEST} {C.fnv_av_name(cond["p1"])})'] += 1
+                continue
+            out += R.pack_ctda(cond['op_flags'] & COMPARE, cond['value'], GET_VALUE, av)
         return out
 
     def _hardcore_tests(self, conds: list) -> 'bytes | None':

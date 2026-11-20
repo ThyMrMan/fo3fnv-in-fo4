@@ -158,6 +158,7 @@ A dated sweep over a corpus, with counts. Frozen once written; a re-audit is a N
 | [package_conversion.md](audits/package_conversion.md) | PACK Conversion Audit — 2026-08-17 |
 | [quest.md](audits/quest.md) | Quest Completability Audit — Oblivion.esm conversion |
 | [quest_script_conversion.md](audits/quest_script_conversion.md) | Quest Script Conversion Audit |
+| [fo4_fo3_preflight_2026-11-19.md](audits/fo4_fo3_preflight_2026-11-19.md) | First preflight triage of the FO3 whole-map FO4 build: counts before and after, ten confirmed bug classes, three audit fixes, what is still open |
 | [fo4_fnv_stage_sweep.md](audits/fo4_fnv_stage_sweep.md) | FNV stage sweep on Fallout 4 (2026-11-18): 350 cases, 85 failed checks sorted into bugs, faithful errors and sweep limits |
 | [skse_conversion.md](audits/skse_conversion.md) | SKSE / OBSE Convertibility Audit — Grounded in the Original Nehrim Scripts |
 | [worldspace_havok_range.md](audits/worldspace_havok_range.md) | Worldspace extents vs the Havok ±64-cell band; why recentering does not help |

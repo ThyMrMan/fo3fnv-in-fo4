@@ -785,6 +785,22 @@ class TestFalloutIdle(unittest.TestCase):
         assert superseded_keys(Record(type='IDLE', data_size=0, flags=0, form_id=1)) == ('ANAM.', 'DATA.')
 
 
+class TestFalloutRaceAge(unittest.TestCase):
+    """FO3/FNV RACE keeps its older and younger races in ONAM and YNAM."""
+
+    def test_older_and_younger_races(self):
+        """CaucasianOld (Fallout3.esm 000042C3) names only its younger race, Caucasian (00000019)."""
+        from tes4_export.tes4_reader import Record, Subrecord
+        from tes4_export.record_types.falloutnv import export_deltas
+        old = Record(type='RACE', data_size=0, flags=0, form_id=0x42C3,
+                     subrecords=[Subrecord('YNAM', bytes.fromhex('19000000'))])
+        adult = Record(type='RACE', data_size=0, flags=0, form_id=0x19,
+                       subrecords=[Subrecord('ONAM', bytes.fromhex('c3420000')),
+                                   Subrecord('YNAM', bytes.fromhex('c2420000'))])
+        assert export_deltas(old) == ['YNAM.Younger=00000019']
+        assert export_deltas(adult) == ['ONAM.Older=000042C3', 'YNAM.Younger=000042C2']
+
+
 class TestINFOResultScripts(unittest.TestCase):
     """FO3/FNV INFOs embed a Begin and an End script split by NEXT; TES4 one.
 

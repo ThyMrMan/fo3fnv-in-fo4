@@ -40,3 +40,9 @@ def test_a_name_outside_the_timer_does_not_count_as_used_there():
     """timer_uses reads only the OnTimer event, as a whole word."""
     assert P.timer_uses(QUEST, 'tunnelerbrute') and not P.timer_uses(QUEST, 'Stinger')
     assert not P.timer_uses(QUEST, 'Tunneler')
+
+
+def test_a_name_in_a_timer_comment_is_not_a_use():
+    """A `;NE: TODO` note names its forms only in a comment."""
+    text = QUEST.replace('  EndIf\nEndEvent', '  EndIf\n  ;NE: TODO: SetCellImageSpace Home Stinger\nEndEvent')
+    assert not P.timer_uses(text, 'Stinger') and P.timer_uses(text, 'TunnelerBrute')

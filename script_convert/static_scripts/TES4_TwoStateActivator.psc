@@ -44,7 +44,12 @@ Function TES4SetOpen(Bool abOpen)
 EndFunction
 
 ; A converted `Activate` asking for default processing: a terminal opens its menu, a two-state activator toggles.
+; Without an action ref nothing is activated, as the source's Activate (GECK): a bare Activate before anyone activated
+; the caller. See docs/fork/fo4_pipeline.md#onload-disabled
 Function DefaultActivate(ObjectReference akTarget, ObjectReference akActionRef) Global
+  If akActionRef == None
+    Return
+  EndIf
   TES4_Terminal term = akTarget as TES4_Terminal
   TES4_TwoStateActivator twoState = akTarget as TES4_TwoStateActivator
   If term

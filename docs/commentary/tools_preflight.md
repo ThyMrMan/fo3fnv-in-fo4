@@ -292,6 +292,11 @@ a master's id space aren't judged.
 | Optional, can't fill, has packages (ALPC) | error: the packages never run |
 | Optional, can't fill, no packages | review |
 | Required, filled by conditions, creation or another alias | review: the audit can't evaluate the fill |
+| Required, filled from the quest's Story Manager event (ALFE) | none: the event that starts the quest supplies it, as vanilla `ConvDiamondCityGenericNPC03` does |
+
+The event row matters for the FO3/FNV chat quests (`Chat<line>`, Actor
+Dialogue event): before it, each gave two reviews, 2,132 on the FO3 whole-map
+build.
 
 The converter writes every alias as Optional + Allow Disabled + Allow Dead +
 Allow Reserved (FNAM 0x292). On 2026-09-28, all 1,288 Fallout 3 forced-ref

@@ -432,9 +432,15 @@ python -m tools.live.fo4_story_cases temp/stage_sweep/FalloutNV.esm --set SEX=ma
   (`load`), starts the quest when the source starts it and checks
   `GetQuestRunning`, then for each stage the source reaches and the build
   holds (`--all-stages`: every built stage), in order: when an earlier swept
-  stage's result script (10 s) or the quest's timer (30 s) sets it, waits for
-  it first; then `setstage`, `GetStageDone` within 10 s, and the window's
-  Papyrus errors.
+  stage's result script (10 s) or the quest's timer sets it, waits for it
+  first; then `setstage`, `GetStageDone` within 10 s, and the window's
+  Papyrus errors. A timer wait lasts the timer's authored length and 10 s,
+  at least 30 s: the plan's `seconds` (`fo4_quest_plan.timer_seconds`), the
+  largest number set to a countdown named in the conditions around the
+  SetStage (its own `set t to N`, or `set <quest>.t to N` anywhere), or a
+  count up is compared with; MQ01 105 gets 70 s for its 60 s failsafe. The
+  waits are `alone` steps: `until`, leaving each talk that opens meanwhile
+  with Tab, since an open talk holds every quest script's poll.
 - **Why one case per quest, and soft checks.** The runner stops at the first
   failing case, so a sweep built from hard steps would stop at the first
   broken quest. Every sweep check is `check <step> | <note>`: a failure is
@@ -458,6 +464,98 @@ python -m tools.live.fo4_story_cases temp/stage_sweep/FalloutNV.esm --set SEX=ma
   51 not in the build). FO3 135 cases, 533 stages, 94 waited for (188 source
   quests; 44 not in the build).
 
+**First FO3 run (2026-11-19, laptop, no start save):** 166 quest cases,
+549 stages, about 35 minutes after FO4's character creation. 77 checks
+failed: 49 timer waits, 4 result-script waits, 3 stages that would not set
+(CG01 10, CG03 6, CG03Test 1), and Papyrus errors at 21 stages.
+
+<a id="stopped-quest-fragments"></a>**Open: fragments of a stopped quest see None.**
+Most errors (about 200 of 300) are on stages swept after one whose
+fragment stopped the quest: FO3's alternative endings (MS03
+210/215/225/250, MS16 215/240) and the CG hand-off stages. MS03 stage 210
+ran cleanly and ended with `Stop()`. The quest was running again for
+stage 215 (`GetQuestRunning` 1), yet the kept game listed all 111
+properties of `FALLOUT3_QF_MS03` as None, while the quest script's were
+bound. Ruled out, each measured:
+- the quest staying stopped: a `startquest` before each later stage
+  (runs 2 and 3) changed no count;
+- non-Const properties: with the fragment properties `Auto Const` (run 3,
+  confirmed `const` in `sqv`) they were still None;
+- VMAD layout: the fragment script is named only in the fragment section,
+  with its properties, as vanilla's.
+Whether real play restarts a stopped FO3 quest, and why FO4 drops the
+properties, is not known. The sweep goes around it: the plan marks each
+stage whose source script runs `StopQuest` on its own quest (`stops`,
+from `quest_source`; 54 in FO3), and with `--save` the stage after one
+loads the start save again and restarts the quest.
+
+**Second FO3 run (2026-11-20, laptop, start save
+`f3nvtest_fo4_character_creation_male`):** all 189 loads worked, 166 cases.
+Leaving out the start save's own two errors (below), 66 checks failed
+against run 3's 77: 48 waits, 2 stages that would not set, and errors at 16
+stages. The None walls (11 to 17 errors each) are gone from MS03
+215/225/250, MS16 215/240, CG00/CG01/CG03 100, CG03Test 2 and MS11 210.
+What is left there is one or two single None properties per fragment
+(`Disable()`, `Start()` on None), which are bugs of their own.
+
+<a id="unmet-waits"></a>**The unmet waits, triaged (third FO3 run, 2026-11-20, first 103
+cases).** 35 waits failed. Each was checked against the source condition
+around its SetStage, and the suspect ones against the quest script's
+`pass` and `stage` traces in the Papyrus log. None is a converter bug:
+- **27: a condition the sweep never meets.** A menu open (CG00 61, CG01 0,
+  CGTutorial 52/72/212), a place, item, door, kill or actor state (CG02
+  90, CG03 30, CG04 33/144, MQ01 72 needs the ambush mutant dead, MQ02
+  20/30/40, MQ04 5/40/50/60/70/75), and the rest of CGTutorial (sneaking,
+  hurt, crippled, addicted, irradiated, worn weapon, locations found).
+- **5: a talk the sweep left open.** A stage's result script makes an
+  actor force-greet (CG04 stage 3, Amata). The quest script's poll then
+  traces `held: dialogue` until the case ends, as FO3's GameMode would not
+  run in a menu either, so its timers never finish: CG02 98/100, CG04
+  141/142/200 (CG04's own stage 2 to 3 timer fired, 6.5 s for 6.3).
+- **1: a wait shorter than the authored timer.** MQ01 stage 100 starts a
+  60 s failsafe for 105; the sweep waits 30 s.
+- **1: the start save's own scene.** The save stands in Vault 101 with CG00
+  (the birth) still at its start; each load runs it (stages 5, 6, 8, ...)
+  beside the case. Setting CG00 61 was followed at once by CG00's own 65,
+  so 62's `GetStage == 61` never held.
+- **1: a quest the start save already ran.** ControlRumble is Start Game
+  Enabled; its first pass set stage 0 (which stops it) and its do-once
+  `initDefaults` before the save, so a restart never sets 0 again, as in
+  FO3.
+
+What the sweep needs, from this: close a talk a stage opened before
+waiting, take a timer's authored length from the result script that
+starts it, not count a wait whose setter tests more than the stage, and a
+start save with no scripted scene running. The first two are built (the
+`alone` wait and the plan's timer `seconds`, above); the last two are
+open.
+
+**Fourth FO3 run (2026-11-20, `alone` and timer lengths):** 60 checks failed,
+against 66 in the third: 41 waits, 17 error checks, 2 stages that would
+not set. All six targeted waits passed (CG02 98/100, CG04 141/142/200, MQ01
+105 with its 70 s wait), and MS11 50 passed too. Two harness bugs showed:
+- A stage whose wait passed was then set again from the console. At CG00
+  100, CG02 100 and CG03 100 the quest's timer had set it, its fragment
+  had stopped the quest, and the second run met the
+  [stopped-quest](#stopped-quest-fragments) None wall (CG02: 115 errors,
+  one burst 6 s after the wait). A waited stage is now set only
+  `unless GetStageDone ... == 1`.
+- The console answers `setstage` with "SetStage ignored - please start the
+  game or go into a cell first" while the player is between cells, as a
+  CG stage moves them to the next age. That happened 7 times. It caused
+  both stages that would not set (CG01 10, CG03 6); the other 5 passed only
+  because the quest set them itself. `run` now sends the command again each
+  second, for up to 30 s, while the console gives that reply.
+
+**Fifth FO3 run (2026-11-20, both fixes):** 56 checks failed: 42 waits and
+14 error checks, with no stage that would not set and no ignored
+`setstage`. The stage-100 None walls left CG00, CG02 and CG03, and CG01
+10 and CG03 6 now set. MQ01 105 and MS11 50 failed again (they failed in
+the third run and passed in the fourth); both waits run before the stage
+is set, so they are flaky, not caused by the fix. The one-off "cannot
+speak a None topic info" `Say` errors move between stages and speakers from
+run to run (CG02 22/30/35, MS01 62).
+
 Known limits:
 - The errors in a stage's window include those of any stage its fragment set
   in turn, and errors that reach the log more than 1 s late fall into the
@@ -468,10 +566,18 @@ Known limits:
 - Not built yet: objectives (`IsObjectiveDisplayed` against the source's
   lists), quest target aliases, naming the empty required alias of a quest
   that does not start (the preflight's `quest_start` alias findings list
-  them offline), and the start save itself ([S3](#s3)).
-- `temp/` is gitignored, so `fo4_laptop push` does not send the generated
-  cases. Until push sends `temp/stage_sweep/`, run them with
-  `fo4_story_cases` on this PC's test instance.
+  them offline), and a start save per quest group: today every case loads
+  the character-creation save (`--checkpoints` on `fo4_creation.f4test`).
+- That save stands in Vault 101, and two of its scripts raise errors more
+  than 3 s after each load: `CG04ButchRadroachSCRIPT.StartCombat` ("Actor
+  has no AI process") and `RobcoProtectronSCRIPT.Activate` (None action
+  ref). They land in each case's first window, so every case's start check
+  failed on them. Both are fixed in the converter
+  ([onload-disabled](fo4_pipeline.md#onload-disabled)); the third and
+  fourth runs had none of them.
+- `temp/` is gitignored, but `fo4_laptop push` sends the generated cases
+  anyway (`GENERATED_CASES`: `temp/stage_sweep`, `temp/route_sweep`), so
+  sweeps run on the laptop like any other case.
 
 ## <a id="l2"></a>Layer 2: route sweeps
 

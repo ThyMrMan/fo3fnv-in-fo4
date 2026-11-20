@@ -64,6 +64,25 @@ def test_fitted_faces_are_only_those_the_export_wrote(tmp_path, monkeypatch):
     assert [f.form_id for f in facegen_skin.fitted_faces(tmp_path, 'p.esp', tmp_path)] == [0x800]
 
 
+def test_only_a_face_set_of_the_plugins_own_marks_an_own_skin(tmp_path, monkeypatch):
+    """An NPC naming Fallout4.esm's old face set (an old race) keeps the base skin; one naming the plugin's own set
+    is an own face set."""
+    w = FO4PluginWriter(masters=['Fallout4.esm'], is_esm=False, description='t')
+    for fid, ftst in ((0x01000800, 0x00128C59), (0x01000801, 0x01000900)):
+        subs = pack_subrecord('EDID', f'{own_facegen.FNV_PREFIX}Npc{fid & 0xFFF:X}\0'.encode())
+        subs += pack_subrecord('ACBS', bytes(20)) + pack_subrecord('FMRI', b'\0' * 4)
+        subs += pack_subrecord('FTST', struct.pack('<I', ftst))
+        w.add_record('NPC_', pack_fo4_record('NPC_', fid, 0, subs))
+    w.write(str(tmp_path / 'p.esp'))
+    geom = tmp_path / own_facegen.GEOM_DIR / 'p.esp'
+    geom.mkdir(parents=True)
+    for stem in ('00000800', '00000801'):
+        (geom / f'{stem}.nif').write_bytes(b'')
+    npcs = ({'EditorID': 'Npc800'}, {'EditorID': 'Npc801'})
+    monkeypatch.setattr(facegen_skin, 'export_records', lambda export_dir, sig: npcs if sig == 'NPC_' else ())
+    assert [f.own for f in facegen_skin.fitted_faces(tmp_path, 'p.esp', tmp_path)] == [False, True]
+
+
 def test_a_face_a_later_plugin_overrides_is_not_refitted(monkeypatch):
     """refit_face leaves an NPC whose winning record is another plugin's: its sliders are not ours to patch."""
     monkeypatch.setitem(facegen_skin.shared(), 'plugin', 'p.esp')

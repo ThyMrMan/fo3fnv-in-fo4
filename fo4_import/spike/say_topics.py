@@ -218,9 +218,9 @@ class SayTopics:
     def _vmad(self, rec: dict, first: bool, last: bool, marked: list) -> bytes:
         """FNV line `rec`'s VMAD: the `marked` helper scripts (its Say Once marker), then its
         converted fragments (Begin on its first part, End on its last); b'' with neither."""
-        scripts, name = self.builder.scripts, f'{prefix("TIF__")}{rec["FormID"].upper()}'
+        scripts, name = self.builder.scripts, line_script(self.builder.scripts, rec)
         scripts.used += [s[0] for s in marked if s[0] not in scripts.used]
-        if scripts.dir and (scripts.dir / f'{name}.psc').exists() and (first or last):
+        if name and (first or last):
             scripts.used.append(name)
             return info_fragments(name, scripts.properties(name), begin='Fragment_1' if first else None,
                                   end='Fragment_0' if last else None, scripts=marked)
@@ -279,6 +279,12 @@ class SayTopics:
                            phase_index=scene[2] if len(scene) > 2 else 0, stages=(R.NO_STAGE, R.NO_STAGE),
                            notes=f'FNV {rec["FormID"]}', vmad=vmad, idles=idles,
                            speaker=speaker, prompt=prompt, forced_alias=forced)
+
+
+def line_script(scripts, rec: dict) -> 'str | None':
+    """FNV line `rec`'s converted result script (TIF__<FormID>); None when it has none."""
+    name = f'{prefix("TIF__")}{rec["FormID"].upper()}'
+    return name if scripts.dir and (scripts.dir / f'{name}.psc').exists() else None
 
 
 def actor_values(helper_index: int) -> dict:

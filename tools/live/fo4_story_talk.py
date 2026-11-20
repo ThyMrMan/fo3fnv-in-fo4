@@ -168,12 +168,19 @@ def bye(bridge: Bridge, rest: str, front) -> None:
     """`[seconds]`: the player leaves the talk with Tab, again every PRESS_WAIT seconds, until no dialogue menu is
     open (default TALK_RETRY seconds)."""
     deadline = time.time() + (float(rest) if rest.strip() else TALK_RETRY)
-    while 'DialogueMenu' in bridge.status()['menus']:
+    while leave(bridge, front):
         if time.time() > deadline:
             raise CaseFailed('the dialogue menu stayed open')
-        front()
-        hidden_launch.tap_key(hidden_launch.SCANCODES['tab'])
         time.sleep(PRESS_WAIT)
+
+
+def leave(bridge: Bridge, front) -> bool:
+    """Presses Tab once in an open talk, as a player leaving it; whether a dialogue menu was open."""
+    if 'DialogueMenu' not in bridge.status()['menus']:
+        return False
+    front()
+    hidden_launch.tap_key(hidden_launch.SCANCODES['tab'])
+    return True
 
 
 def press(bridge: Bridge, row: int, listed: list, front) -> bool:

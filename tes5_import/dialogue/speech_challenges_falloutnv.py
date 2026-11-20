@@ -20,11 +20,8 @@ from ..base.writer import pack_record, pack_string_subrecord, pack_subrecord
 from ..record_types.common import get_formid, get_int, get_str
 from ..record_types.world_falloutnv import is_fallout_source
 from .arrest import info_records, shared_copy
-from .speech_chance_falloutnv import (ANY_TOPIC, NEED_GLOBALS, chance_settings, difficulties, is_challenge,
-                                      is_failure, raw_formid, rerolls, roll_point, speech_needed)
-
-#: The roll a new game's thresholds start from, the middle of 0 to 99.
-_FIRST_ROLL = 49
+from .speech_chance_falloutnv import (ANY_TOPIC, NEED_GLOBALS, chance_settings, first_needs, is_challenge,
+                                      is_failure, raw_formid, rerolls)
 
 #: Fallout's Speech actor value, and the label its challenge prompts carry.
 _SPEECH, _LABEL = 43, 'Speech'
@@ -62,10 +59,8 @@ def plan_speech_challenges(infos: list, gmsts: list, writer) -> int:
     _PLAN.clear()
     if not any(rerolls(r, is_fallout_source()) for r in infos):
         return 0
-    settings = chance_settings(gmsts)
-    point = roll_point(_FIRST_ROLL, settings)
-    _PLAN['needs'] = {name: _emit_need(writer, name, speech_needed(point, d, settings))
-                      for name, d in zip(NEED_GLOBALS, difficulties(settings))}
+    _PLAN['needs'] = {name: _emit_need(writer, name, value)
+                      for name, value in first_needs(chance_settings(gmsts)).items()}
     failures = [r for r in infos if is_failure(r)]
     _PLAN['failures'] = {}
     for rec in filter(is_challenge, infos):

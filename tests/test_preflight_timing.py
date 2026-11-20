@@ -132,6 +132,13 @@ def test_a_block_with_code_and_no_handler_is_dropped_but_a_plain_activate_is_not
     assert W.block_state('gamemode', 'Event OnTimer(int aiTimerID)\nEndEvent\n') == 'handler'
 
 
+def test_a_package_block_moved_into_its_package_function_is_handled():
+    """An OnPackageDone block runs in its TES4_onpackagedone_<package> function."""
+    built = 'ScriptName X extends Actor\nFunction TES4_onpackagedone_cg01dadclosedoor()\nEndFunction\n'
+    assert W.block_state('onpackagedone', built) == 'handler'
+    assert W.expected(SimpleNamespace(kind='script', part='onpackagedone'), None)('tes4_onpackagedone_cg01dadclosedoor')
+
+
 def test_a_weapon_onhit_converted_to_an_effect_runs_in_its_effect_start():
     """An OnHit turned effect script runs in OnEffectStart; an object's does not."""
     body = 'Event OnEffectStart(Actor akTarget, Actor akCaster)\nEndEvent\n'

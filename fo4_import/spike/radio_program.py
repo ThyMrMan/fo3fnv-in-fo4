@@ -35,7 +35,7 @@ from fo4_import.base.writer import pack_topic
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.spike.holotapes import TOPIC, pack_scene, speaker_npc
-from fo4_import.spike.say_topics import VM_QUEST_VARIABLE
+from fo4_import.spike.say_topics import VM_QUEST_VARIABLE, line_script
 from fo4_import.spike.voice import fnv_folders, index_recordings
 from fo4_import.spike.voice_types import fnv_voice_types
 from fo4_import.pipeline.export_index import export_file
@@ -220,11 +220,13 @@ class Program:
 
     def _line(self, line: dict, form_map: dict) -> bytes:
         """FNV radio `line` as an FO4 line said by the speaker of its voice (FNV's Random flags kept), telling the
-        playlist its song and next step as it begins (F3NV_RadioLine); b'' with no recording or song (FO4 ends a
-        line without audio at once), no speaker or a condition not converting."""
+        playlist its song and next step as it begins (F3NV_RadioLine); b'' with no recording, song or result script
+        (FO4 ends a line without audio at once, after its script runs), no speaker or a condition not converting.
+        See: docs/fork/fo4_radio.md#silent-script-lines
+        """
         recorded = recorded_voices(self.radio.export_dir).get(int(line['FormID'], 16))
         soun, path = self._song_file(line)
-        if recorded is None and path is None:
+        if recorded is None and path is None and not line_script(self.builder.scripts, line):
             self.builder.counts['radio line left out (no recording or song)'] += 1
             return b''
         speaker = self.speakers.of(recorded or self.speakers.station_voice)

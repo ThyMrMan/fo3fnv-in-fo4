@@ -26,6 +26,7 @@ from script_convert.constants import (
     is_generated_script_type,
     papyrus_script_name,
     safe_property_name,
+    source_name,
     script_prefix,
     PLAYER_ALIAS_EXTENDS,
 )
@@ -1786,6 +1787,11 @@ class TestPapyrusCompilerContracts:
 
     def test_reserved_rename_preserves_casing(self):
         assert safe_property_name('DarkBrotherhood') == 'myDarkBrotherhood'
+
+    def test_source_name_undoes_only_a_reserved_rename(self):
+        """`myMS14` came from MS14; a source name that merely starts with `my` is kept."""
+        assert source_name(safe_property_name('MS14')) == 'MS14'
+        assert source_name('myQuestVar') == 'myQuestVar'
 
     def test_no_doubled_cast(self, xref):
         """`X as Int as Int` is a parse error."""
@@ -6340,6 +6346,13 @@ def test_quest_script_bare_reference_call_has_no_subject():
     src = 'scn T\nbegin GameMode\n  Playsound3D AMBThing\nend\n'
     out = ScriptConverter(CrossRefGraph()).convert_standalone('T', src, 'Quest', 'T')
     assert 'AMBThing.Play(None)' in out
+
+
+def test_quest_script_bare_getincell_reads_false():
+    """A bare `GetInCell` in a quest has no subject: False, never `None.`."""
+    src = 'scn T\nshort x\nbegin GameMode\n  if GetInCell SomeCell == 1\n    set x to 1\n  endif\nend\n'
+    out = ScriptConverter(CrossRefGraph()).convert_standalone('T', src, 'Quest', 'T')
+    assert 'None.' not in out and 'False' in out
 
 
 def test_dispel_of_an_ingestible_is_neutralised():

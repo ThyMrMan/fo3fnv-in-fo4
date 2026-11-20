@@ -103,8 +103,8 @@ it, with no conversion logic of its own:
 EditorID, under its category (since phase 2 of the [app](fo4_gui.md#replacement-data)):
 
 ```json
-"WeapBBGun": {"use": "Fallout4.esm|PipeBoltAction", "as": "stats",
-              "mods": ["mod_PipeBoltAction_Grip_StockFull"]}
+"Weap44MagnumScoped": {"use": "Fallout4.esm|44", "as": "stats",
+                       "mods": ["mod_44_Scope_ScopeShort"]}
 ```
 
 - `use`: `Plugin|EditorID` of the target record.
@@ -121,9 +121,21 @@ EditorID, under its category (since phase 2 of the [app](fo4_gui.md#replacement-
     ([gun clips](fo4_spikes.md#spike-4-gun-clips)).
 - `mods`: OMOD EditorIDs that replace a gun's default parts at the same
   attach points; with them only the default combination is kept, so a
-  leveled list cannot hand out a variant with the old part. The BB gun
-  takes the pipe bolt-action's full stock, for a rifle stance (its
-  default grip adds AnimsGripPistol).
+  leveled list cannot hand out a variant with the old part. The scoped
+  .44 takes the .44's short scope.
+- <a id="fo3-guns"></a>**FO3's guns** (2026-11-19): all 67 have an entry
+  (20 had one before; the other 47 fell to `gun_choice`'s layout match).
+  A gun Fallout 4 also has is `stats` on it, its uniques and followers'
+  copies too (10mm, .44, assault rifle, combat and sawed-off shotguns,
+  laser, plasma, Gatling laser, minigun, missile launcher, Fat Man, alien
+  blaster, railway rifle; the Rock-It Launcher on the Junk Jet). One it
+  lacks keeps its own mesh (`fnv`) on the template its FNV counterpart plays
+  well on: Chinese assault rifle on the assault rifle as FNV's assault
+  carbine, 10mm SMG on the submachine gun as FNV's 9mm SMG, Chinese pistol
+  and dart gun on the 10mm as FNV's 9mm pistol, .32 pistol on the .44,
+  Lincoln's repeater and the three BB guns on the hunting rifle as FNV's
+  lever actions. `WeapBBGun` left the pipe bolt-action for the hunting
+  rifle that `CG02WeapBBGun` already used.
 - A user file of the same shape (`--replacements file.json` on the cell
   spike) is laid over the defaults entry by entry.
 - **Another mod's record** (`"use": "BBGunMod.esp|BBGun"`, `as: item`):

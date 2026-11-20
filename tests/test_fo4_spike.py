@@ -24,6 +24,7 @@ from fo4_import.base.source_ids import SourceIds
 from fo4_import.base.writer import FO4PluginWriter
 from fo4_import.havok import human_clip as HC
 from fo4_import.nif import collision as CO
+from fo4_import.nif import convert_static as CS
 from fo4_import.nif import file as nf
 from fo4_import.spike import conditions as CD
 from fo4_import.spike import dialogue as D
@@ -679,6 +680,18 @@ def test_a_mopp_over_a_list_is_not_a_mesh_but_one_over_strips_is():
     over_strips, over_list = mopp(), mopp()
     over_strips.shape, over_list.shape = strips, type('bhkListShape', (), {})()
     assert CO.is_mesh(strips) and CO.is_mesh(over_strips) and not CO.is_mesh(over_list)
+
+
+TRUCK = Path(__file__).resolve().parents[1] / 'export' / 'Fallout3.esm' / 'meshes' / 'vehicles' / 'truckarmy01.nif'
+
+
+@pytest.mark.skipif(not TRUCK.exists(), reason='needs the FO3 export')
+def test_a_bare_mesh_in_a_list_converts_as_a_mopp_mesh_does():
+    """FO3's truck lists a packed mesh with no MOPP: it converts as one.
+    See: docs/fork/fo4_pipeline.md#mixed-collision
+    """
+    kinds = [kind for kind, _ in CS.convert(str(TRUCK)).nif.blocks]
+    assert 'bhkListShape' in kinds and 'bhkNiTriStripsShape' in kinds
 
 
 def test_moving_props_layer_body_takes_clutter_and_a_fixed_one_keeps_props():
@@ -1459,6 +1472,13 @@ def test_placeable_water_tiles_cover_a_strip_with_squares_of_its_width():
     assert PW.tiles((10.0, 20.0), (512.0, 512.0), True) == [(10.0, 20.0, 0.0, 0.0, 0.0, 0.0, 0.5)]
 
 
+def test_an_older_water_type_keeps_its_visual_data_in_data():
+    """A WATR with DNAM reads it; an older one (no DNAM) its DATA."""
+    from fo4_import.spike import placeable_water as PW
+    assert PW.visual_data({b'DATA': b'\1\0', b'DNAM': b'new'}) == b'new'
+    assert PW.visual_data({b'DATA': b'old'}) == b'old'
+
+
 def test_two_fnv_items_may_share_one_item_replacement():
     """Every FNV entry naming the same Fallout4.esm record gets it (frag mines and powder charges: fragMine)."""
     from fo4_import.base.writer import pack_fo4_record
@@ -1687,6 +1707,25 @@ def test_an_on_demand_programs_goodbye_line_ends_the_run():
     assert (program.next_step(bye), program.next_step(song)) == (0, 1)
     program.on_demand = False
     assert program.next_step(bye) == 1
+
+
+def test_a_silent_radio_line_is_kept_only_for_its_result_script(tmp_path, monkeypatch):
+    """A radio line with no recording or song is built when it has a result script (FO3's RadioGoodbye stage
+    setters); without one it is left out."""
+    from fo4_import.spike import radio_program as RP
+    from fo4_import.spike.script import prefix
+    monkeypatch.setattr(RP, 'recorded_voices', lambda export_dir: {})
+    (tmp_path / f'{prefix("TIF__")}00087288.psc').write_text('ScriptName X')
+    program = RP.Program.__new__(RP.Program)
+    program.radio, program.quest, program.on_demand = SimpleNamespace(export_dir=None, sounds={}), 0x0100, True
+    program.speakers = SimpleNamespace(station_voice=7, of=lambda voice: 0x0500)
+    program.builder = SimpleNamespace(scripts=SimpleNamespace(dir=tmp_path), counts=collections.Counter(),
+                                      say=SimpleNamespace(info=lambda *a, **k: b'INFO'))
+    monkeypatch.setattr(RP, 'song_sounds', lambda: {})
+    bye = {'FormID': '00087288', 'DATA.Flags': '1'}
+    assert program._line(bye, {}) == b'INFO'
+    assert program._line({**bye, 'FormID': '00087289'}, {}) == b''
+    assert program.builder.counts['radio line left out (no recording or song)'] == 1
 
 
 def test_a_step_scene_plays_each_song_on_its_own_gated_phase():

@@ -4530,7 +4530,11 @@ command table in `Fallout3.exe`, not the source text alone.
   script is `None`: the same failed call. An OBSE user function is the
   exception, since its Self is the calling reference. `SetDestroyed` and
   `GetDestroyed` became `OBJREF` rows, so in a package or INFO fragment they
-  act on the fragment's actor instead of the fragment script.
+  act on the fragment's actor instead of the fragment script. Papyrus can't
+  parse `None.` as a receiver, so a bare `GetInCell` there converts to
+  `False`, the 0 FO3's failed call reads: the FO3 Doctors quest's stage 10
+  item (`GetInCell CitadelBRing` run on the Subject of a stage) made the whole
+  `QF_Doctors` fail to compile.
 - **`SCAOnActor Player`** in a door script compiles to `01 11 00 00`: opcode
   0x1101 with no reference prefix and no parameters. FO3's compiler dropped
   `Player`, so the call ran on the door and did nothing. The three

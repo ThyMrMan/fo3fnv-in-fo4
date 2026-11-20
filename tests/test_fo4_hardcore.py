@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.spike import conditions as C
 from fo4_import.spike import consumable_effects as CE
 from fo4_import.spike import hardcore as H
@@ -66,6 +67,15 @@ def test_hardcore_variants_are_kept_with_their_test():
     effects = CE.fnv_effects(rec)
     assert [e[0] for e in effects] == ['RestoreHealth', 'RestoreHealthStimpak']
     assert [[C.compare(c, 1.0) for c in e[6]] for e in effects] == [[True], [False]]
+
+
+def test_an_actor_value_test_is_kept_as_fo4_s_get_value():
+    """Fallout3.esm's PlayerConcussed: Perception -4 only while PerceptionCondition <= 0 (a crippled head)."""
+    rec = _rec(('ReducePerception', 4, ['A0000000000000000E00000019000000000000000000000000000000']))
+    builder = SimpleNamespace(counts=Counter(), perks=SimpleNamespace(form_map=dict))
+    out = CE.Effects(builder, 1, {'ReducePerception': (0x47666, {})}).pairs(rec)
+    op, value, func, p1 = struct.unpack_from('<B3xfH2xI', out, out.index(b'CTDA') + 6)
+    assert (op, value, func, p1) == (0xA0, 0.0, CE.GET_VALUE, actor_value_form('PerceptionCondition', 1))
 
 
 def test_an_isHardcore_test_reads_the_global():

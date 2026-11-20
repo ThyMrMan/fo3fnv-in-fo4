@@ -64,6 +64,12 @@ def on_talking_activator(conv) -> bool:
         xref.record_type.get(fid) == TALKING_ACTIVATOR for fid in xref.script_owner_actors(edid))
 
 
+def on_trigger(conv) -> bool:
+    """Whether `conv`'s script sits on a base placed as a trigger box (a primitive)."""
+    xref, edid = conv.xref, conv.sc.edid
+    return bool(xref and edid) and any(fid in xref.trigger_bases for fid in xref.script_owner_actors(edid))
+
+
 def event_opener(skyrim_opener: str) -> str:
     """The target's spelling of an event opener given in Skyrim's; Fallout 4's OnDeath and OnHit also trace the
     event (trace_points), OnHit also starting the hit reference's graph event trace (TraceAnimEvents)."""
