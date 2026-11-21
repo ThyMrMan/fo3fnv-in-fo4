@@ -21,7 +21,7 @@ from tes5_import.packages.scripts_falloutnv import DIALOGUE_TYPE, package_sectio
 WALK_DONE = 'TES4WalkDone'
 #: The FNV Trigger Location of a SayTo (PLD2 type, -1: none; its form; its radius) its walk-up waits for the player in.
 WALK_PLACE, WALK_TRIGGER, WALK_REACH = 'TES4WalkPlace', 'TES4WalkTrigger', 'TES4WalkReach'
-#: The walk-up scene's id and plugin file, to look it up once its quest loads it (the Scene property binds None before).
+#: The walk-up scene's id and plugin file, to look it up once its quest loads it (its Scene property is left unfilled).
 WALK_SCENE, WALK_FILE = 'TES4WalkScene', 'TES4WalkFile'
 #: Block type: the package fragments it runs in (Done on completion, Change on leaving it, End on either).
 SECTIONS = {'onpackagestart': ('OnBegin',), 'onpackagedone': ('OnEnd',), 'onpackageend': ('OnEnd', 'OnChange'),

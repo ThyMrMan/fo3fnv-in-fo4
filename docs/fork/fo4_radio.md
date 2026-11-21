@@ -71,7 +71,9 @@ Non-Pipboy (casino and Tops lounges, Hanlon's broadcast, ED-E's): step 3.
 - **Placement:** each Pip-Boy station reference in the built worldspace,
   or in an interior (the first worldspace built takes these), goes into
   the worldspace's persistent cell, persistent, at its position reference
-  when it has one.
+  when it has one. Until 2026-11-20 one in a built interior was also
+  written there, two records on one FormID (13 in the FO3 build); the
+  interior no longer writes a reference the world took (`cell._scoped`).
 - **XRDO:** frequency a free Pip-Boy slot, one per station in FormID
   order (`FREQUENCIES`). The Pip-Boy tunes only from
   `fPipboyRadioMinFrequency` 80 to `fPipboyRadioMaxFrequency` 110 (the
@@ -89,6 +91,20 @@ Non-Pipboy (casino and Tops lounges, Hanlon's broadcast, ED-E's): step 3.
   Distance Checks, as vanilla's global stations; a radius weak from
   where FNV's static begins (radius x (1 - static %)) out to the radius.
 - Every other talking activator is still left out (counted).
+
+<a id="band"></a>**Past the band's top (2026-11-20, not yet played).** FO3 places 18
+Pip-Boy stations; the 14 slots ran out at `MamaDolceRadioBeacon`, and the
+last four by FormID got no frequency and were left out:
+`MS16Vault101ExternalRadio`, `MS18RadioSignal`, `MS17AgathasRadio` and
+`FFRadioSignal02`. MS16 Disables, and MS17 Enables, references that were
+not built (the fifth FO3 sweep's None errors). Inside 80 to 110 no slot is left: the 14 are every
+half step at least 1.0 from a vanilla transmitter. The band's top is a
+game setting, and Fallout4.esm writes neither end. Vanilla's lowest
+transmitter past 110 is at 117 (Fallout4.esm; 135, 140 and 200 in the
+others), so the slots go on from 110.5 to 116 (12 more, `FREQUENCIES`). The first
+station on one writes `fPipboyRadioMaxFrequency` 116 once
+(`Radio._open_band`). The first 14 slots are unchanged, so no FNV station
+moves, and FNV, with fewer stations, writes no setting.
 
 ## <a id="programming"></a>Step 2: programming (researched 2026-10-21)
 

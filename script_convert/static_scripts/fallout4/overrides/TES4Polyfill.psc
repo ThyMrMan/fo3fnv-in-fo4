@@ -1265,7 +1265,10 @@ EndFunction
 
 ; fallout4: new
 Bool Function WalkUp(Actor akActor, Package akPackage, Scene akWalk, Int aiScene, String asFile, Int aiDone, Int aiPlace, Form akTrigger, Float afReach) Global
-  {An FO3/FNV SayTo Dialogue package to the player, as it begins: once the player is in its Trigger Location (InWalkArea; aiPlace -1: none, at once) and its walk-up scene is loaded (akWalk None while its quest has not started: found as aiScene of asFile), while it is still the actor's package, the scene plays (the actor walks to the player and says the package's topic), and the actor's DialogueDone mark parks the package (GreetOnce). Returns once the scene has ended, True when it played. See docs/fork/fo4_pipeline.md#say-to-packages}
+  {An FO3/FNV SayTo Dialogue package to the player, as it begins: once the player is in its Trigger Location (InWalkArea; aiPlace -1: none, at once) and its walk-up scene is loaded (found as aiScene of asFile; the build leaves akWalk unfilled, since a property binds None until the scene's quest starts), while it is still the actor's package, the scene plays (the actor walks to the player and says the package's topic), and the actor's DialogueDone mark parks the package (GreetOnce). Returns once the scene has ended, True when it played. See docs/fork/fo4_pipeline.md#say-to-packages}
+  If !akWalk && aiScene
+    akWalk = Game.GetFormFromFile(aiScene, asFile) as Scene
+  EndIf
   If !akActor || akWalk && akWalk.IsPlaying() || !akWalk && !aiScene
     Return False
   EndIf

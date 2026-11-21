@@ -80,6 +80,7 @@ def _new_scan_out() -> dict:
         'enchanted_books': set(),
         'voice_notes': set(),
         'trigger_bases': set(),
+        'enable_children': set(),
         'trigger_blocks': {},
         'script_vars': {},
     }
@@ -127,7 +128,7 @@ def _rekey_scan(out: dict, remap: dict) -> dict:
         out[name] = {fid(key): value for key, value in out[name].items()}
     for name in ('edid_to_formid', 'record_scri', 'record_base'):
         out[name] = {key: fid(value) for key, value in out[name].items()}
-    for name in ('npc_formids', 'enchanted_books', 'voice_notes', 'trigger_bases'):
+    for name in ('npc_formids', 'enchanted_books', 'voice_notes', 'trigger_bases', 'enable_children'):
         out[name] = {fid(value) for value in out[name]}
     out['actor_packages'] = {key: [fid(p) for p in packs] for key, packs in out['actor_packages'].items()}
     out['cell_geom'] = {key: (geom[0], fid(geom[1]), *geom[2:]) for key, geom in out['cell_geom'].items()}
@@ -236,6 +237,8 @@ _TRIGGER_BLOCK_RE = re.compile(r'(?:^|\\n)(?:\s|\\t)*begin\s+(ontriggerenter|ont
 
 #: The export key of a reference's primitive, which makes it a trigger box.
 TRIGGER_BOUND = 'XPRM.BoundX'
+#: The export key of a reference's enable parent.
+ENABLE_PARENT = 'XESP.Reference'
 
 #: SCHR.Type of a quest script.
 QUEST_SCRIPT_TYPE = 1
@@ -343,6 +346,8 @@ def _scan_record_lines(sig: str, lines: list, out: dict):
         out['record_base'][formid] = rec['NAME']
         if TRIGGER_BOUND in rec:
             out['trigger_bases'].add(rec['NAME'])
+        if ENABLE_PARENT in rec:
+            out['enable_children'].add(formid)
     out['record_type'][formid] = sig
 
 
@@ -421,6 +426,8 @@ class CrossRefGraph:
         self.voice_notes: set[str] = set()
         #: Base FormIDs placed as a trigger box: a reference with a primitive (XPRM).
         self.trigger_bases: set[str] = set()
+        #: Placed reference FormIDs with an enable parent (XESP): Enable and Disable on them do nothing.
+        self.enable_children: set[str] = set()
         #: script EditorID (lower) -> the trigger blocks it authors ('ontriggerenter', 'ontrigger').
         self.trigger_blocks: dict[str, frozenset] = {}
         self.record_base: dict[str, str] = {}  # placed ref FormID -> base record FormID (NAME)
@@ -547,6 +554,7 @@ class CrossRefGraph:
         self.enchanted_books.update(out['enchanted_books'])
         self.voice_notes.update(out['voice_notes'])
         self.trigger_bases.update(out['trigger_bases'])
+        self.enable_children.update(out['enable_children'])
         self.trigger_blocks.update(out['trigger_blocks'])
         self.script_vars.update(out['script_vars'])
         self.quest_edids.update(out['quest_edids'])

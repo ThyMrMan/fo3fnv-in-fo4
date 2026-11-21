@@ -82,11 +82,12 @@ from fo4_import.spike import records as R
 from fo4_import.spike import voice
 from fo4_import.spike.dialogue import CELL_FO4
 from fo4_import.spike.dialogue_trace import register as register_trace
-from fo4_import.spike.say_topics import SayTopics, conditions_of, script_vars
+from fo4_import.spike.say_topics import (SAID_GREETING_KEY, SAID_GREETING_PROPERTY, SayTopics, conditions_of,
+                                         script_vars)
 from fo4_import.spike.quest import LISTENER_ALIAS, SPEAKER_ALIAS, objective_globals, quest_record, quest_var_globals
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.spike.quest_scope import QuestScope
-from fo4_import.spike.named_refs import named_markers
+from fo4_import.spike.named_refs import enable_parents, named_markers
 from fo4_import.spike.condition_forms import condition_map
 from fo4_import.spike.locks import lock_vmad
 from fo4_import.spike.readiness import Readiness
@@ -788,8 +789,9 @@ def _quests(builder: CellBuilder, export_dir: Path, recs: list, quests: dict, re
     for prop in set(builder.scripts.talks) - built:
         builder.counts[f'{prop}: no lines in the cell quests'] += 1
     ActorDialogue(builder, say, form_map, shared).write()
-    for quest, topics, scenes in pending:
-        _greetings_quest(builder, quest, max((p for _, p in shared.quests.values()), default=0), topics, scenes)
+    for quest, topics, scenes, branches in pending:
+        _greetings_quest(builder, quest, max((p for _, p in shared.quests.values()), default=0), topics, scenes,
+                         branches)
     builder.counts['SCEN'] += len(shared.home.scenes)
     builder.patrols.write()
     if say.once.stages:
@@ -858,18 +860,20 @@ def _greetings(builder: CellBuilder, say: SayTopics, form_map: dict, shared: Hub
     opener = talks.greeting(builder.packages.greets, builder.packages.topics, builder.packages.once.write_list(), home)
     talks.topics += [opener] if opener and not home else []
     talks.player_hello()
+    branch, said = say.said_greeting(fid, form_map)
     builder.writer.add_record('GMST', pack_gmst(builder.new_id(f'GMST {PADDED_SETTING}'), PADDED_SETTING,
                                                 voice.SILENT_SECONDS))
     register_trace(builder.scripts)
-    return built, [((fid, GREETINGS_EDID), talks.topics, talks.scenes)] + ([((home[0], home[2]), [opener], [])]
-                                                                          if opener and home else [])
+    own = ((fid, GREETINGS_EDID), talks.topics + [said] * bool(said), talks.scenes, [branch] if branch else [])
+    return built, [own] + ([((home[0], home[2]), [opener], [], [])] if opener and home else [])
 
 
-def _greetings_quest(builder: CellBuilder, quest: tuple, priority: int, topics: list, scenes: list) -> None:
+def _greetings_quest(builder: CellBuilder, quest: tuple, priority: int, topics: list, scenes: list,
+                     branches: list = ()) -> None:
     """Write start-game quest `quest` (FormID, EditorID) with its talk aliases."""
     aliases = [(SPEAKER_ALIAS, 'Speaker', None), (LISTENER_ALIAS, 'Listener', None)]
     record = R.pack_fnv_quest(quest[0], f'FNV_{quest[1]}', '', priority, quest_fragments('', []), [], [], aliases, True)
-    builder.writer.add_record('QUST', pack_quest(record, quest[0], [], topics, scenes))
+    builder.writer.add_record('QUST', pack_quest(record, quest[0], list(branches), topics, scenes))
 
 
 def _opener_home(builder: CellBuilder, shared: int) -> 'tuple | None':
@@ -961,6 +965,8 @@ def _cell_quests(builder: CellBuilder, export_dir: Path, refs: list, cell_of, ce
     say = builder.say = SayTopics(builder, export_dir)
     topics = {say.dials[d]['EditorID']: builder.first_id(f'DIAL {r["FormID"]} {d}') for r in quest_recs
               for d in say.topics(r)}
+    if say.greeting_said:
+        topics[SAID_GREETING_PROPERTY] = builder.first_id(f'DIAL {SAID_GREETING_KEY}')
     builder.scripts.named.update({**cells, **placed, **actors, **builder.faction_names, **topics, **quests})
     builder.scripts.unique_actors = _unique_actors(builder, export_dir)
     builder.objectives = objective_globals(builder, quest_recs)
@@ -986,10 +992,11 @@ def build(export_dir: Path, out: Path, data_dir: Path, cell_edid: str,
     use_actor_values(export_dir)
     cell = find_cell(export_dir, cell_edid) if cell_edid else None
     all_refs = export_records(export_dir, 'REFR') + export_records(export_dir, 'PGRE')
-    refs = [r for r in all_refs if cell and r.get('ParentCELL') == cell['FormID']]
     links = {r['FormID']: r for r in all_refs if 'XTEL.Door' in r}
     worlds = [Exterior(export_dir, all_refs, *spec) for spec in exteriors]
     interiors, every, outside, sold = _scoped(export_dir, all_refs, cell, worlds)
+    moved = {r['FormID'] for r in outside}
+    refs = [r for r in all_refs if cell and r.get('ParentCELL') == cell['FormID'] and r['FormID'] not in moved]
     builder = _builder(export_dir, data_dir, every + outside, (table, plugin_dirs), ledger_path(out), light)
     _renamed(builder, data_dir, out.name)
     _object_makers(builder, export_dir, scripts_dir, refs, every + outside)
@@ -1148,7 +1155,8 @@ def _rooms(builder: CellBuilder, scoped: tuple, placing: tuple, navmesh: dict, f
 def _scoped(export_dir: Path, all_refs: list, cell: dict, worlds: list) -> tuple:
     """(interiors, their references, the worldspaces' references, the built vendors (vendors.merchants)) of a
     build from `cell`: interiors.scope() with the vendors' merchant containers, and each of `worlds` with the
-    persistent references past it its actors' packages name (named_refs)."""
+    persistent references past it its actors' packages name, and the first with the markers outside the build
+    that enable a built reference (named_refs)."""
     outside = [r for world in worlds for r in world.refs]
     interiors, every = scope(export_dir, all_refs, cell, outside)
     sold = merchants(export_dir, _in_build(interiors, worlds))
@@ -1159,7 +1167,13 @@ def _scoped(export_dir: Path, all_refs: list, cell: dict, worlds: list) -> tuple
         placed = {r['FormID'] for w in worlds for r in w.refs}
         world.add_persistent(named_markers(export_dir, actors, world.persistent_cell, placed))
         world.add_persistent(radio_placements(export_dir, all_refs, world, n == 0))
-    return interiors, every, [r for world in worlds for r in world.refs], sold
+    if worlds:
+        built = every + actors + [r for world in worlds for r in world.refs]
+        worlds[0].add_persistent(enable_parents(export_dir, built, worlds[0].persistent_cell,
+                                                {r['FormID'] for r in built}))
+    outside = [r for world in worlds for r in world.refs]
+    moved = {r['FormID'] for r in outside}
+    return interiors, [r for r in every if r['FormID'] not in moved], outside, sold
 
 
 def _exterior_cells(worlds: list) -> list:

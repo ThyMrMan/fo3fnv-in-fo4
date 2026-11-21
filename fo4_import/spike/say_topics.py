@@ -46,6 +46,10 @@ GREETING = '000000C8'
 GOODBYE_TOPIC = '000000D4'
 #: A converted Say: TES4Polyfill.SayWhenFree(speaker, Topic, target).
 SAY_FREE = re.compile(r'SayWhenFree\([^,]+,\s*(\w+)\s*,')
+#: A converted Say GREETING by a named reference: the reference.
+SAY_GREETING = re.compile(r'SayWhenFree\((\w+),\s*greeting\s*,', re.I)
+#: Record key, FO4 EditorID and script property of the topic a script's Say GREETING plays (said_greeting).
+SAID_GREETING_KEY, SAID_GREETING_EDID, SAID_GREETING_PROPERTY = 'said GREETING', 'FNV_GREETING_Said', 'GREETING'
 #: FNV topics the engine plays itself (HELLO, GOODBYE, the barks) -> the FO4 topic kind its engine plays the same way.
 ENGINE_TOPICS = {'000000D2': R.TOPIC_HELLO, GOODBYE_TOPIC: R.TOPIC_GOODBYE, **ENGINE_BARKS}
 #: FNV INFO key of the line before it in its topic: a DLC inserting lines rewrites it on the master's.
@@ -85,13 +89,29 @@ CASINO_STAGE, CASINO_KEY = 'GetCasinoWinningStage', 'casino level'
 REPUTATION_FIRST_SLOT = {'GetReputation': 0, 'GetReputationThreshold': 2}
 
 
-def free_said(scripts_dir) -> set:
-    """Topic names (lower case) a converted script or package fragment in `scripts_dir` (a folder, a Layered one,
-    or None) says with TES4Polyfill.SayWhenFree."""
+def script_texts(scripts_dir) -> list:
+    """The converted scripts' texts in `scripts_dir` (a folder, a Layered one, or None)."""
     folders = [Path(f).joinpath(*scripts_dir.parts) for f in scripts_dir.folders] if isinstance(
         scripts_dir, Layered) else [Path(scripts_dir)] if scripts_dir else []
-    return {m.group(1).lower() for folder in folders if folder.is_dir() for path in folder.glob('*.psc')
-            for m in SAY_FREE.finditer(path.read_text(encoding='utf-8', errors='replace'))}
+    return [path.read_text(encoding='utf-8', errors='replace') for folder in folders if folder.is_dir()
+            for path in folder.glob('*.psc')]
+
+
+def free_said(texts: list) -> set:
+    """Topics (lower) the converted script `texts` say with SayWhenFree."""
+    return {m.group(1).lower() for text in texts for m in SAY_FREE.finditer(text)}
+
+
+def said_greetings(export_dir: Path, texts: list, greetings: list) -> list:
+    """The `greetings` lines (FNV GREETING, in topic order) whose GetIsID names the base of a reference converted
+    script `texts` Say GREETING with: the lines such a Say plays.
+    See: docs/fork/fo4_pipeline.md#said-greeting
+    """
+    names = {m.group(1).lower() for text in texts for m in SAY_GREETING.finditer(text)}
+    bases = {int(r['NAME'], 16) for sig in ('REFR', 'ACHR', 'ACRE') for r in export_records(export_dir, sig)
+             if (r.get('EditorID') or '').lower() in names}
+    return [rec for rec in greetings if any(c['func'] == 'GetIsID' and c['p1'] in bases and c['value'] == 1
+                                            and not c['op_flags'] & COMPARE for c in parsed(rec))]
 
 
 def masters_own(export_dir, sig: str) -> dict:
@@ -169,8 +189,11 @@ class SayTopics:
         self.replies = replies(self.dials, export_records(export_dir, 'INFO'), self.engine)
         self.script_vars = builder.script_vars
         self.say_target = form_id(FALLOUT4_HELPER_SAY_TARGET_KEYWORD, builder.scripts.helper_index)
-        self.said =script_said(self.dials, free_said(builder.scripts.dir)) | status_barks(self.dials)
+        texts = script_texts(builder.scripts.dir)
+        self.said = script_said(self.dials, free_said(texts)) | status_barks(self.dials)
         self.borrowed = borrowed_lines(self.dials, self.said, by_id)
+        self.greeting_said = said_greetings(export_dir, texts, [by_id[r['FormID'].upper()] for r in
+                                                                self.by_topic.get(GREETING, ()) if r['FormID'].upper() in by_id])
 
     def topics(self, quest: dict) -> list:
         """FNV FormIDs of `quest`'s Conversation topics, engine topics (self.engine), the topics a reply of its
@@ -203,6 +226,19 @@ class SayTopics:
             blobs.append(pack_topic(record, fid, infos))
         dlbr = R.pack_dlbr(branch, f'FNV_{quest["EditorID"]}Branch', quest_fid, custom[0]) if custom else None
         return dlbr, blobs
+
+    def said_greeting(self, quest_fid: int, form_map: dict) -> tuple:
+        """(DLBR, topic blob) of the Custom topic a script's Say GREETING plays (copies of greeting_said), in
+        generated quest `quest_fid`; (None, None) without such lines.
+        See: docs/fork/fo4_pipeline.md#said-greeting
+        """
+        if not self.greeting_said:
+            return None, None
+        fid, branch = (self.builder.new_id(f'{sig} {SAID_GREETING_KEY}') for sig in ('DIAL', 'DLBR'))
+        infos = [i for i in (self.info(rec, form_map, owner=quest_fid, place=SAID_GREETING_KEY, linked=self.say_target)
+                             for rec in self.greeting_said) if i]
+        record = R.pack_dial(fid, SAID_GREETING_EDID, quest_fid, R.TOPIC_CUSTOM, len(infos), branch)
+        return R.pack_dlbr(branch, f'{SAID_GREETING_EDID}Branch', quest_fid, fid), pack_topic(record, fid, infos)
 
     def _quest_lines(self, quest: dict) -> list:
         """`quest`'s own lines, then the copies its said topics borrow (borrowed_lines)."""

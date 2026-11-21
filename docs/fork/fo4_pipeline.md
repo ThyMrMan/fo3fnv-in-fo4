@@ -317,7 +317,9 @@ script runs `player.MoveTo PlayerSlideshowMarker`. Left out, it took
 narrations could play. A `player.MoveTo` in script text tied to no placed
 object (a quest or effect script, a quest stage or line result) now seeds its
 marker's interior, reached from anywhere (`interiors.moved_to`). Of the 26
-interiors FNV moves the player into, only `Endgame` was missing.
+interiors FNV moves the player into, only `Endgame` was missing. Since
+2026-11-20 any actor's `MoveTo` counts, outside comments
+([sweep-errors](#sweep-errors)).
 
 **Interiors an add-on edits (2026-11-14).** A plugin with masters also seeds
 every interior it holds, its own and its overrides
@@ -356,8 +358,9 @@ list) into the build (`quest_scope.topic_quests`): DialogueNCRSniffer
 was out, so 8 scripts' sniffer challenge said nothing. GREETING stays
 out of both rules: FO4's greeting topic only opens the greeting scene
 on activation, and a scripted copy would duplicate every voiced greeting
-line. Its 8 `Say GREETING` calls remain empty, as do topics with no lines
-in FNV either (`vHDNCRBattleAdvance00`, `MegDocChurchMedicalChatter`).
+line. A `Say GREETING` now gets copies of only its speakers' lines
+([said-greeting](#said-greeting)). Topics with no lines in FNV either
+(`vHDNCRBattleAdvance00`, `MegDocChurchMedicalChatter`) stay empty.
 
 <a id="say-target"></a>**A scripted line's Target (2026-11-16, not yet played).**
 FO3/FNV's `SayTo <target> <topic>` let a line test the one it is said to
@@ -528,7 +531,11 @@ keeps waiting, while the package stays current, until
 waited from CG03 (71 s) to the player in his trigger (478 s), then set 12.
 Of the run logs on hand, only this package hit the bind failure (5 times); the
 change reaches every walk-up fragment (FO3 11, FNV 17) but alters only one
-whose scene was missing when it began.
+whose scene was missing when it began. The bind still logged its error, which
+the stage sweep counts against CG03 stage 40, so since 2026-11-20 the build
+leaves the `TES4Walk_` property unfilled (it stays declared: it is what makes
+`Conversations.talk` build the scene) and `WalkUp` always looks the scene up
+by id, before its already-playing check.
 
 <a id="barks"></a>**Engine topics as FO4 barks (2026-10-31).** FNV's engine
 plays its reserved topics itself, from every running quest's lines: Combat
@@ -4691,6 +4698,83 @@ conversion passed the empty `TES4_LastActivator` to the native, which
 raised "Action ref cannot be None" (4 per load).
 `TES4_TwoStateActivator.DefaultActivate`, which every converted default
 `Activate` goes through, now does nothing without an action ref.
+
+## <a id="sweep-errors"></a>The FO3 sweep's error checks (2026-11-20, not yet swept)
+
+The fifth FO3 stage sweep left 14 checks with Papyrus errors
+([fo4_test_layers_plan.md](fo4_test_layers_plan.md#unmet-waits)). Each was
+traced to the source data and the built plugin. Seven causes:
+
+<a id="enable-children"></a>**Enable parents.** A FO3 reference with an
+enable parent ignores `Enable` and `Disable` ("it will have no effect",
+GECK wiki, Enable and Disable). FO4 ignores them too, but logs "cannot
+enable an object with an enable state parent". MQ11 and MQ11LD enable
+`MQ11FieldFX01L`/`R`, children of `0004C6F7`. The scan now records each
+reference with XESP (`cross_ref.enable_children`), and
+`commands_falloutnv.enable_child` leaves those calls out as a `;NE:` note.
+
+The other half: an enable parent the build leaves out. The build places
+the child in its parent's starting state, but nothing can switch it later.
+MQ05 stage 85 enables `FFEnclaveEncampmentMasterREF`, an XMarker in the
+"Dummy Cell" `FFEnclave000Encampment`, which no door reaches; it switches
+on 171 references (124 objects, 12 NPCs, 35 creatures). An invisible
+marker (XMarker, XMarkerHeading) outside the build that is the enable
+parent of a built reference now goes into the first worldspace's
+persistent cell, persistent (`named_refs.enable_parents`). FO3 census:
+6 such parents with 137 built children. The 3 markers are placed; 2 NPCs
+and 1 creature, in interiors outside the build, are not.
+
+**Interiors an actor is moved into.** CG04 stage 110 moves a guard to
+`CG04ReactorGuardStartMarker` in `Vault101Reactor`, cut content with no
+working door (its door has no teleport, and CG04's unlock is commented
+out). FO3 moves him there; FO4 had no such cell and logged "cannot be
+moved to a None object's location". `interiors.moved_to` now seeds the
+cell of any `MoveTo` target in code (not comments), not only the
+player's. In FO3 that adds only `Vault101Reactor` (641 references).
+
+**Radio stations past the Pip-Boy's band.** See
+[fo4_radio.md](fo4_radio.md#band): MS16's three Disables and MS17's
+Enable named radio references the build had left out.
+
+**Objectives the source never authored.** For Oblivion, a quest with no
+`Objective[]` gets an objective per journal stage. FO3 and FNV show only
+their QOBJ objectives; a stage's log text is a designer's note ("This
+repeatable stage adds notes to the player's pipboy"). The FO4 build writes
+objectives only from `Objective[]`, so CG03Test and MS11Fin raised
+"unknown quest objective". `quest_fragments` no longer derives objectives
+when the target is Fallout 4.
+
+<a id="unloaded-sound"></a>**A 3D sound at an unloaded source.** MQ01
+stage 104's `MQ01BehemothArriveMarker.PlaySound3D` became
+`Sound.Play(marker)`, and the marker stood unloaded while the sweep sat in
+Vault 101: "Object reference has no 3D". FO3 plays nothing there. For
+Fallout 4, `PlaySound3D` now plays inside `If <source>.Is3DLoaded()`
+(`commands_falloutnv.sound_at`), as `PlayGroup` already does.
+
+<a id="said-greeting"></a>**Say GREETING.** A script's `Say GREETING`
+(CG02's Andy after his cake line, Big Town's residents, MQ05's intercoms:
+12 speakers in 5 FO3 scripts) had no topic, so the `Greeting` property
+stayed empty and FO4 raised "cannot speak a None topic info". The build
+now copies the GREETING lines whose `GetIsID == 1` names a speaker such a
+`Say` names (`say_topics.said_greetings`) into one Custom topic,
+`FNV_GREETING_Said`, in the generated Greetings quest, and fills
+`GREETING` with it. It copies only those lines, not the whole topic (the
+earlier objection: [said topics](#said-topics)). A generic greeting
+with no `GetIsID` is not copied.
+
+**Topics and scenes bound before their quest runs.** CG03 stage 40's
+error was `TES4Walk_0002D4C5` on the ambush package `CG04Security02Ambush`,
+bound to `FNV_CG04_Scene6` (SCEN 02D6F888 under CG04): the
+[walk-up before its quest](#walk-up-before-quest) case, now left unfilled.
+Script properties naming another quest's Custom topics show the same
+mechanism: 56 topics log `<nullptr form>` in a burst about 100 lines after
+every save load in run 9 (fresh save; run 8 with an older save logged the
+same set, so the save is not the cause). Each is in the plugin, unique, with
+the same fields, group and branch as topics that bind, and the same ids
+resolve once their quest runs: `FNV_CG04Interrogation` is null 2,057 times,
+then the Overseer says it by name after CG04 starts. FO3 says nothing for a
+topic of a quest that is not running either, so these binds lose nothing;
+they are log noise the sweep does not count.
 
 ## <a id="script-casts"></a>DLC scripts that did not compile (fixed 2026-11-04, not yet played)
 

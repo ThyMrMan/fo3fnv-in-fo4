@@ -556,6 +556,16 @@ def test_an_interior_a_quest_moves_the_player_into_is_reached(tmp_path):
         'DOC', 'END']
 
 
+def test_an_interior_a_stage_moves_an_actor_into_is_a_seed_but_not_a_commented_move(tmp_path):
+    """CG04's stage moves a guard to the cut reactor level, which no door reaches: a seed; a commented move is not."""
+    script = r'if Guard.getDead == 0\r\n   Guard.moveto ReactorMarker\r\nendif\r\n;Guard.moveto OldMarker'
+    (tmp_path / 'QUST.txt').write_text('---RECORD_BEGIN---\nSignature=QUST\nFormID=00000001\n'
+                                       f'Stage[0].Log[0].ResultScript={script}\n---RECORD_END---\n', encoding='utf-8')
+    refs = [{'FormID': 'm', 'EditorID': 'ReactorMarker', 'ParentCELL': 'REACTOR'},
+            {'FormID': 'o', 'EditorID': 'OldMarker', 'ParentCELL': 'OLD'}]
+    assert IN.moved_to(tmp_path, refs) == {'REACTOR'}
+
+
 def test_a_note_on_a_shared_topic_keeps_only_lines_naming_its_speaker():
     """On a note's own topic a line with no speaker test is the note's; on a topic two quests share (GREETING)
     only a line naming the speaker by GetIsID is."""
@@ -1584,12 +1594,14 @@ def test_trimmed_clip_keeps_its_first_seconds_and_their_events():
 
 def test_radio_station_xrdo_reaches_everywhere_or_weakens_over_fnvs_static_share():
     """Everywhere ignores distance; a 5000 radius at 50% static weakens from 2500 out; frequencies in the Pip-Boy's
-    80-110 band, one slot per station in FormID order."""
+    80-110 band first, then past it up to the opened top (FO3's 18 stations), one slot per station in FormID order."""
     from fo4_import.spike import radio as RA
     assert struct.unpack('<3fI', RA.xrdo_data(96.0, (0.0, 1, 0.0, 0))) == (96.0, 0.0, 0.0, RA.IGNORES_DISTANCE)
     assert struct.unpack('<3fI', RA.xrdo_data(96.0, (5000.0, RA.RADIUS, 50.0, 0)))[1:] == (2500.0, 5000.0, 0)
     assert [RA.frequency_of(s, {9: 0, 2: 0, 5: 0}) for s in (2, 5, 9)] == list(RA.FREQUENCIES[:3])
-    assert all(80.0 <= f <= 110.0 for f in RA.FREQUENCIES)
+    band = [f for f in RA.FREQUENCIES if f <= RA.PIPBOY_TOP]
+    assert RA.FREQUENCIES[:len(band)] == tuple(band) and all(80.0 <= f for f in band) and len(band) == 14
+    assert RA.FREQUENCIES[len(band):] == tuple(110.5 + 0.5 * n for n in range(12)) and RA.FREQUENCIES[-1] == 116.0
 
 
 def test_only_radio_stations_the_pipboy_lists_become_transmitters(monkeypatch):

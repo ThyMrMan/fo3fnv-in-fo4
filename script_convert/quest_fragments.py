@@ -146,7 +146,7 @@ def quest_fragment_psc(rec: dict, edid: str, xref: CrossRefGraph,
     runs = _items_run(rec, fragments, xref)
     plan = (superseded_stages(rec, fragments),
             sweep_targets(rec, fragments, edid))
-    synthesize = 'ObjectiveCount' not in rec
+    synthesize = 'ObjectiveCount' not in rec and not is_fallout4()
     conv = ScriptConverter(xref)
     preload_scro_refs(conv, rec, xref)
     script_name = papyrus_script_name(edid, script_prefix('_QF_'))

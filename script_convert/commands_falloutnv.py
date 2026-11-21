@@ -11,6 +11,8 @@ imports nothing from `commands` and the two cannot form a cycle.
 See: docs/commentary/script_convert.md#getfactionrelation-has-two-receivers
 """
 
+import re
+
 from fo4_import.base.bink import movie_key
 from fo4_import.spike.type_tests import BIPED_SLOT_PREFIX, CREATURE_TYPES, WEAPON_SLOT, creature_keyword, equipped_slot
 from script_convert.constants import (FALLOUT4_POSE_PREFIX, is_player,fallout4_screen_property, fallout4_swap_property,
@@ -18,7 +20,7 @@ from script_convert.constants import (FALLOUT4_POSE_PREFIX, is_player,fallout4_s
 from script_convert.anim_action_falloutnv import anim_action
 from script_convert.anim_playing_falloutnv import anim_playing
 from script_convert.script_helpers import PC_MOVED_CELL
-from script_convert.command_rows import ACTOR, OBJREF, Cmd
+from script_convert.command_rows import ACTOR, COMMAND_ROWS, OBJREF, Cmd
 from script_convert.constants_falloutnv import ITEM_TYPE_LISTS
 from script_convert.emit.commands import emit_row
 from script_convert.message_menus import authored_site
@@ -26,6 +28,8 @@ from script_convert.target import (CHARACTER_PROPERTY, CHARACTER_SCRIPT, CONTROL
                                    av_property, fallout4_av_name, is_fallout4)
 from tes5_import.record_types.equipment_falloutnv import WEAPON_ANIM_LISTS
 
+#: The source a rendered PlaySound3D plays at: `Sound.Play(<source>)`.
+PLAY_SOURCE = re.compile(r'\.Play\((.+)\)\s*$')
 #: The row a forced sneak's start renders: the actor's native StartSneaking.
 START_SNEAKING = Cmd('{ref}.StartSneaking()', ACTOR, flags='actor_only')
 #: Fallout 4's FNV IsActorRefEssential: the reference's essential flag, as SetActorRefEssential sets it.
@@ -296,6 +300,31 @@ def set_open_state(ctx, call):
     arg = call.arg(0)
     state = {'0': 'false', '1': 'true'}.get(arg.strip(), f'({arg} != 0)')
     return f'TES4_TwoStateActivator.SetOpenState({_open_state_target(ctx, call)}, {state})'
+
+
+def sound_at(ctx, call):
+    """Fallout 4 PlaySound3D: plays only while its source's 3D is loaded, as FO3/FNV's played nothing at an unloaded
+    reference where Fallout 4 logs "has no 3D"; declines elsewhere.
+    See: docs/fork/fo4_pipeline.md#unloaded-sound
+    """
+    if not is_fallout4():
+        return None
+    play = emit_row(ctx, COMMAND_ROWS['playsound3d'], call.ref, call.raw_name, call.src, call.extends)
+    source = PLAY_SOURCE.search(play)
+    if not source or source.group(1) == 'None':
+        return play
+    return '\n  '.join([f'If {source.group(1)}.Is3DLoaded()', f'  {play}', 'EndIf'])
+
+
+def enable_child(ctx, call):
+    """FO3/FNV Enable or Disable on a reference with an enable parent: nothing, as in the source, where the parent
+    alone sets its state (Fallout 4 logs an error for the call); declines elsewhere.
+    See: docs/fork/fo4_pipeline.md#enable-children
+    """
+    xref = ctx.xref if ctx.xref and ctx.xref.is_fallout() else None
+    if not (xref and call.ref and xref.edid_to_formid.get(call.ref.lower()) in xref.enable_children):
+        return None
+    return ctx.note(f'NE: {call.written()} - its enable parent sets its state')
 
 
 def creature_type(ctx, call):
@@ -573,5 +602,8 @@ FALLOUT_HANDLERS = {'getfactionrelation': faction_relation,
                     'setnpcradio': npc_radio,
                     'setsecuritronexpression': securitron_expression,
                     'setcellownership': cell_ownership,
+                    'playsound3d': sound_at,
+                    'enable': enable_child,
+                    'disable': enable_child,
                     **{name: quest_call for name in _QUEST_CALLS},
                     **{name: quest_native for name in _QUEST_NATIVES}}

@@ -423,7 +423,7 @@ class Packages:
             place, form, reach = self.trigger_area(rec, form_map) or (-1, 0, 0)
             props.update({WALK_TRIGGER: form} if form else {})
             values = {WALK_DONE: ('int', number), WALK_PLACE: ('int', place), WALK_REACH: ('float', float(reach)),
-                      WALK_SCENE: ('int', props.get(FALLOUT4_WALK_PREFIX + rec['FormID'].upper(), 0) & 0xFFFFFF),
+                      WALK_SCENE: ('int', props.pop(FALLOUT4_WALK_PREFIX + rec['FormID'].upper(), 0) & 0xFFFFFF),
                       WALK_FILE: ('string', self.builder.plugin_file)}
         return pack_subrecord('VMAD', package_fragments(name, flags, props, values))
 

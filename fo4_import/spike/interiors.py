@@ -22,8 +22,10 @@ from fo4_import.pipeline.export_index import export_masters, export_records, own
 INTERIOR = 0x1
 #: FNV base types placed in cells whose scripts (SCRI) may move the player: doors, activators, terminals, actors.
 SCRIPTED_BASES = ('DOOR', 'ACTI', 'TACT', 'TERM', 'FURN', 'CONT', 'NPC_', 'CREA', 'MISC', 'BOOK', 'NOTE')
-#: `player.MoveTo <reference>` in FO3/FNV script text.
-PLAYER_MOVE = re.compile(r'(?i)\b(?:player|playerref)[ \t]*\.[ \t]*moveto[ \t]+(\w+)')
+#: `<mover>.MoveTo <reference>` (the player or any actor) in FO3/FNV script text.
+MOVE_TO = re.compile(r'(?i)\bmoveto[ \t]+(\w+)')
+#: A line break in script text, raw or export-escaped.
+LINE_BREAK = re.compile(r'\\r\\n|\\n|\r?\n')
 #: Record field name endings holding quest stage and line result scripts.
 RESULT_SCRIPTS = ('ResultScript', 'ResultScriptEnd')
 
@@ -53,15 +55,17 @@ def edited_interiors(export_dir: Path) -> set:
 
 
 def moved_to(export_dir: Path, all_refs: list) -> set:
-    """The cells of the references `player.MoveTo` names in script text tied to no placed object: quest and
-    effect scripts, quest stage and line results (the VEnding quest moves the player to the Endgame cell).
+    """The cells of the references a `MoveTo` (the player's or an actor's) names in the code of script text tied
+    to no placed object: quest and effect scripts, quest stage and line results (the VEnding quest moves the
+    player to the Endgame cell, CG04 a guard to the cut reactor level).
     See: docs/fork/fo4_pipeline.md#interiors
     """
     cell_of = {r['EditorID'].lower(): r.get('ParentCELL') for r in all_refs if r.get('EditorID')}
     texts = [r.get('SCTX', '') for r in export_records(export_dir, 'SCPT') if r.get('SCHR.Type', '0') != '0']
     texts += [text for sig in ('QUST', 'INFO') for r in export_records(export_dir, sig)
               for key, text in r.items() if key.endswith(RESULT_SCRIPTS)]
-    return {cell_of[name.lower()] for text in texts for name in PLAYER_MOVE.findall(text) if name.lower() in cell_of}
+    return {cell_of[name.lower()] for text in texts for line in LINE_BREAK.split(text)
+            for name in MOVE_TO.findall(line.split(';')[0]) if name.lower() in cell_of}
 
 
 def script_links(export_dir: Path, all_refs: list) -> dict:

@@ -30,6 +30,7 @@ import struct
 from pathlib import Path
 
 from fo4_import.base.install import source_walk
+from fo4_import.base.support_records import pack_gmst
 from fo4_import.base.vmad import object_scripts, quest_fragments
 from fo4_import.base.writer import pack_fo4_record, pack_quest
 from fo4_import.pipeline.export_index import export_records
@@ -46,8 +47,11 @@ RADIO_STATION, NON_PIPBOY, PERSISTENT = 0x20000, 0x10000000, 0x400
 RADIUS, IGNORES_DISTANCE = 0, 0x1
 #: Fallout4.esm's transmitter activator each station copies.
 TRANSMITTER = 'RadioTransmitter'
-#: Pip-Boy frequencies (exe defaults 80 to 110) at least 1.0 from every Fallout4.esm and DLC transmitter.
-FREQUENCIES = (80.0, 80.5, 81.0, 84.0, 84.5, 85.0, 90.0, 93.0, 96.0, 101.0, 108.5, 109.0, 109.5, 110.0)
+#: The Pip-Boy band's exe default top, its setting, and the top a past-it station opens (1.0 below vanilla's 117).
+PIPBOY_TOP, TOP_SETTING, OPENED_TOP = 110.0, 'fPipboyRadioMaxFrequency', 116.0
+#: Pip-Boy frequencies 1.0 or more from every vanilla transmitter: the exe's band (80 to 110), then up to OPENED_TOP.
+FREQUENCIES = (80.0, 80.5, 81.0, 84.0, 84.5, 85.0, 90.0, 93.0, 96.0, 101.0, 108.5, 109.0, 109.5, 110.0,
+               *(PIPBOY_TOP + 0.5 * n for n in range(1, int((OPENED_TOP - PIPBOY_TOP) * 2) + 1)))
 #: Non-Pipboy frequencies: off the 80-110 band, 1.0 or more from vanilla's (0-4, 11, 22, 31-32, 42-44, 60-77, 303).
 LOUNGE_FREQUENCIES = (5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0, 13.0, 13.5, 14.0, 14.5)
 #: The script a transmitter base carries, naming its frequency for F3NV_Radio.Heard.
@@ -294,6 +298,7 @@ class Radio:
         fid = self.builder.fnv_id(fnv)
         if fid not in self.made:
             self.made.add(fid)
+            self._open_band(frequency)
             own = {b'EDID': f'FNV_{rec["EditorID"]}', b'FULL': rec.get('FULL', '')}
             script = pack_subrecord('VMAD', object_scripts([(STATION_SCRIPT, {}, {'Frequency': ('float', frequency)})]))
             body = pack_string_subrecord('EDID', own[b'EDID']) + script + b''.join(
@@ -302,6 +307,16 @@ class Radio:
             self.builder.writer.add_record('ACTI', pack_fo4_record('ACTI', fid, 0, body))
             self.builder.counts['radio transmitters'] += 1
         return fid
+
+    def _open_band(self, frequency: float) -> None:
+        """Opens the Pip-Boy's band to OPENED_TOP (a game setting, once) for a Pip-Boy `frequency` past its top.
+        See: docs/fork/fo4_radio.md#band
+        """
+        if PIPBOY_TOP < frequency <= OPENED_TOP and TOP_SETTING not in self.made:
+            self.made.add(TOP_SETTING)
+            self.builder.writer.add_record('GMST', pack_gmst(self.builder.new_id(f'GMST {TOP_SETTING}'), TOP_SETTING,
+                                                             OPENED_TOP))
+            self.builder.counts['radio band opened'] += 1
 
     def xrdo(self, ref: dict) -> bytes:
         """The XRDO subrecord of a placed FNV station reference; b'' for any other reference."""

@@ -22,6 +22,18 @@ PERSISTENT = 0x400
 NEAR_REFERENCE, SPECIFIC_REFERENCE = '0', '0'
 #: How far a template chain is followed for an actor's packages.
 TEMPLATE_DEPTH = 4
+#: The engine's invisible marker bases (XMarkerHeading, XMarker), safe to place in any cell.
+MARKERS = ('00000034', '0000003B')
+
+
+def enable_parents(export_dir: Path, built: list, persistent_cell: str, placed: set) -> list:
+    """Persistent copies, for `persistent_cell`, of the marker references (MARKERS) not in `placed` FormIDs that are
+    the enable parent of a reference in `built`: an XMarker in an unbuilt holding cell switches a camp on.
+    See: docs/fork/fo4_pipeline.md#enable-children
+    """
+    wanted = {r['XESP.Reference'].upper() for r in built if r.get('XESP.Reference')} - placed
+    return [{**r, 'ParentCELL': persistent_cell, 'RecordFlags': str(int(r.get('RecordFlags', 0)) | PERSISTENT)}
+            for r in export_records(export_dir, 'REFR') if r['FormID'] in wanted and r.get('NAME') in MARKERS]
 
 
 def named_markers(export_dir: Path, actors: list, persistent_cell: str, placed: set) -> list:
