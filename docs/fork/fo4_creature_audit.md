@@ -387,6 +387,45 @@ controllers are now kept, and the layers blend
 ([free controllers](fo4_pipeline.md#free-controllers), built 2026-11-02, not
 yet played).
 
+<a id="talking-machine-clips"></a>**The idle clip on the look (built 2026-11-21,
+not yet played).** Sandbox shots of the 2026-11-02 build: the penthouse
+screen draws Mr. House's face and its glow changes between frames; the pod
+stands still. FNV plays the skeleton folder's `mtidle.kf` on each machine,
+and it drives more than the parts' own controllers do:
+
+- Mr. House's pod (`nvmrhouse`, 10.37 s loop) moves 100+ skeleton nodes:
+  breathing (`Bip01 Lungs` 22 scale keys, `Bip01 Stomach` 26, `Bip01
+  Diaphragm` and `Bip01 StomachPump` 312 translation keys), the heartbeat
+  (`Bip01 Heart`, 308), the helmet sliding (`Bip01 Helmet`, 45), the
+  spine, arms, fingers, neck, head and face (rotation keys, 19 to 216
+  per bone). It also keys the helmet lights', shell buttons' and bed
+  panels' emissive color.
+- The penthouse screen (`nvpenthouemaincomputer`, 20 s) keys the face
+  layers' emittance (78 keys), alpha and UV, and the side monitors.
+
+Fallout 4 plays creature clips through Havok, and a look is an activator
+with no graph. So each part bakes the clip in (`speaker_assets`):
+
+- **Shader channels.** `clip_shaders.bake` loops each shader channel as a
+  free controller. It takes the slot of the shape's own free controller on
+  that channel (`_absorbed`), so none is left without a reference. On the
+  screen all 36 channels take an existing slot.
+- **Node motion.** `clip_motion.loop` loops each node track as a free
+  `NiTransformController` on the node of that name. Vanilla Fallout 4 does
+  this with no controller manager in 1,149 meshes (a byte scan of the
+  `Fallout4 - Meshes*.ba2` header tables), for example
+  `yangtzeperiscope01.nif` and `causticlightmotion.nif`. The mesh gets BSX
+  Animated.
+- **Bones kept.** A part is converted with every node (`every_bone`), so
+  House's skinned body keeps its 96 bones and its skin. A rigid part
+  (helmet, heart, pump, bed panels, shell buttons, screen) is converted
+  unposed and hung under copies of the skeleton's nodes from its root down
+  to its `Prn` bone (`clip_motion.hang`). It then follows every moving bone
+  above it, where the earlier pose froze it at rest. Its bounds are taken
+  where its nodes put it (`terminal.placed_bounds`).
+
+Without an idle clip, a part is still posed and flattened as before.
+
 ## <a id="molerat-burrowing"></a>Mole rats and radscorpions don't burrow (2026-11-07, built in code, not yet played)
 
 FNV mole rats are a `stats` copy of `EncMolerat01Template`, so they used

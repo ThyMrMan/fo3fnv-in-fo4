@@ -41,8 +41,8 @@ def test_a_part_with_no_triangles_is_still_an_activator_bounded_by_zeros(monkeyp
     machines.export_dir = machines.data_dir = None
     monkeypatch.setattr(TM, 'part_pose', lambda part, worlds: {})
     monkeypatch.setattr(TM, 'export_file', lambda *parts: None)
-    monkeypatch.setattr(TM, 'write_assets', lambda *args, **kw: ('fnv\\spray_speaker.nif', None))
-    assert machines._part('nvdlc03\\creatures\\braintank', 'spray01.nif', {}, 'Brain') == 0x0D01
+    monkeypatch.setattr(TM, 'speaker_assets', lambda *args, **kw: ('fnv\\spray_speaker.nif', None))
+    assert machines._part('nvdlc03\\creatures\\braintank', 'spray01.nif', ({}, None), 'Brain') == 0x0D01
     assert dict(subrecords(added[0][24:]))[b'OBND'] == bytes(12)
 
 

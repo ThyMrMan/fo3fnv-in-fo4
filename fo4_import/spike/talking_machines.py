@@ -24,10 +24,14 @@ import struct
 import numpy as np
 
 from fo4_import.base.source_fault import without_fault
-from fo4_import.nif.convert_static import ATTACH, NifFormat
+from fo4_import.nif.clip_motion import clip_tracks, hang, loop
+from fo4_import.nif.clip_shaders import bake, clip_channels
+from fo4_import.nif.convert_static import ATTACH, NifFormat, convert
 from fo4_import.nif.outfit import fnv_nif, prn_bone
+from fo4_import.nif.terminal import placed_bounds
+from fo4_import.pipeline.mesh_cache import cached_convert
 from fo4_import.spike import records as R
-from fo4_import.spike.statics import write_assets
+from fo4_import.spike.statics import write_converted
 from fo4_import.spike.void_actors import invisible_race
 from fo4_import.pipeline.export_index import export_file
 from tes5_import.base.writer import pack_subrecord
@@ -37,6 +41,8 @@ SPEAKER_RACE, IMMOBILE = 'ProtectronRace', 0x200
 SITE = 'FNV talking machine'
 #: The posed parts' file suffix, beside the unposed conversion.
 SUFFIX = '_speaker'
+#: A creature's idle clip in its skeleton folder (FNV's `mtidle.kf`).
+IDLE_CLIP = 'mtidle.kf'
 #: The look's script and its property naming the speaker; the look's activate prompt.
 LOOK_SCRIPT, SPEAKER_PROPERTY, PROMPT = 'F3NV_SpeakerLook', 'Speaker', 'Talk'
 
@@ -59,6 +65,31 @@ def part_pose(part, worlds: dict) -> dict:
     return {ATTACH: worlds[prn]} if prn in worlds else {}
 
 
+def idle_rig(skeleton, idle) -> 'tuple | None':
+    """(skeleton root, clip_channels(), clip_tracks()) of `idle`; None for none."""
+    return (fnv_nif(skeleton), clip_channels(idle), clip_tracks(idle)) if idle.is_file() else None
+
+
+def speaker_assets(export_dir, part: tuple, rig: 'tuple | None', data_dir) -> tuple:
+    """write_converted() of FNV body part `part` (model, pose) as `<name><SUFFIX>.nif`. With an idle_rig() `rig`
+    it is converted with its nodes, hung on the skeleton by its `Prn` bone, looping the idle's node and shader
+    tracks, bounded where its nodes put it; without one, posed and flattened.
+
+    See: docs/fork/fo4_creature_audit.md#talking-machine-clips
+    """
+    model, pose = part
+    path = export_file(export_dir, 'meshes', model.replace('/', '\\').lower())
+    rel = model.lower()[:-4] + SUFFIX + '.nif'
+    if rig is None:
+        return write_converted(export_dir, cached_convert(path, export_dir, pose), rel, data_dir)
+    skeleton, looped, tracks = rig
+    converted, fnv = convert(str(path), export_dir, every_bone=True), fnv_nif(path)
+    hang(converted.nif, skeleton, prn_bone(fnv))
+    loop(converted.nif, tracks, looped[0])
+    bake(converted.nif, fnv, looped, export_dir)
+    return write_converted(export_dir, converted, rel, data_dir)[0], placed_bounds(converted.nif)
+
+
 class TalkingMachines:
     """The speaker race and the talking machines' looks, written once through `builder`."""
 
@@ -77,20 +108,24 @@ class TalkingMachines:
         """The activators showing FNV creature `rec`'s body parts (its NIFZ) posed on its skeleton, written once."""
         folder = '\\'.join(rec['Model.MODL'].replace('/', '\\').split('\\')[:-1]).lower()
         names = [rec[f'NIFZ[{i}]'].lower() for i in range(int(rec.get('NIFZCount', 0) or 0))]
-        worlds = bone_worlds(export_file(self.export_dir, 'meshes', folder, 'skeleton.nif'))
+        skeleton = export_file(self.export_dir, 'meshes', folder, 'skeleton.nif')
+        rig = idle_rig(skeleton, export_file(self.export_dir, 'meshes', folder, IDLE_CLIP))
+        worlds = bone_worlds(skeleton) if rig is None else {}
         present = [name for name in names if export_file(self.export_dir, 'meshes', folder, name).is_file()]
         self.builder.counts['talking machine part left out (no file)'] += len(names) - len(present)
-        made = [self._part(folder, name, worlds, rec.get('FULL', '')) for name in present]
+        made = [self._part(folder, name, (worlds, rig), rec.get('FULL', '')) for name in present]
         self.builder.counts['talking machine part left out (a source fault)'] += made.count(None)
         return [fid for fid in made if fid is not None]
 
-    def _part(self, folder: str, name: str, worlds: dict, full: str) -> 'int | None':
-        """The activator of body part `name` in skeleton folder `folder`, posed by `worlds`, named `full`; a part
-        with no triangles (a particle spray) is bounded by zeros; None for one with a source fault."""
+    def _part(self, folder: str, name: str, posing: tuple, full: str) -> 'int | None':
+        """The activator of body part `name` in skeleton folder `folder`, named `full`, `posing` being (bone
+        worlds, idle_rig()): rigged when there is an idle, else posed by the worlds. A part with no triangles (a
+        particle spray) is bounded by zeros; None for one with a source fault."""
         model = f'{folder}\\{name}'
         if (model, full) not in self.parts:
-            pose = part_pose(export_file(self.export_dir, 'meshes', model), worlds)
-            made = without_fault(write_assets, self.export_dir, model, self.data_dir, pose, suffix=SUFFIX)
+            worlds, rig = posing
+            pose = part_pose(export_file(self.export_dir, 'meshes', model), worlds) if rig is None else None
+            made = without_fault(speaker_assets, self.export_dir, (model, pose), rig, self.data_dir)
             if made is None:
                 self.parts[(model, full)] = None
                 return None

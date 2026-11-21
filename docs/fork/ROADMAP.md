@@ -11,18 +11,25 @@ New Vegas is playable on Fallout 4 from Doc Mitchell's house onward, with
 its four story DLC and the five add-on packs. Nearly every system is built.
 Much of it has never been played, so most of what is left is play-testing
 and fixing what testers find. All four casino games and Caravan are built.
-Fallout 3 has a first spike, Vault 101 and its opening, not yet played
-([FO3 spike](fo4_fo3_plan.md)). Install steps are in the
+Fallout 3's opening, Vault 101 from the birth to the vault door, is built
+and played by our automated story runs ([FO3 spike](fo4_fo3_plan.md),
+[story runs](fo4_story_tests.md)). Install steps are in the
 [README](../../README.md#install).
 
-The page describes the 2026-11-15 build of `FalloutNV.esm`,
-`FalloutHelpers.esl` and `F3NV.dll`, and the 33 DLC, pack and mod plugins
-built on it. It carries the 2026-11-14 play-test fixes (the collision crash
-at Doc Mitchell's, mod scripts naming their masters' references) and the mod
-script fixes: every script in every DLC, pack and mod now compiles but one
-(and five in Fallout 3). Every face is made by our own FaceGen. The game took
-12 minutes, its faces 21 and the 33 plugins 2 hours 5 minutes, all rebuilt
-in full while the new build caches filled.
+The page describes the 2026-11-21 builds of `FalloutNV.esm` (the whole map)
+and of Fallout 3's opening. The 33 DLC, pack and mod plugins were last
+rebuilt in full on 2026-11-15, when every script in them compiled but one;
+every face is made by our own FaceGen. Since then:
+
+- the 2026-11-19 play-test batch (NPC health and armor, Vault 101's rooms,
+  text encoding, terminal prompts, guards at their posts, chair seating,
+  one mesh per gun) and the world pausing while a talk's choices wait;
+- the idle markers' idle lists read from the export (package idle lists
+  are exported, not yet converted);
+- Fallout 3's stage sweep fixes and projectiles for its guns;
+- own-rig crippled-limb reactions and backward walks, projector slides
+  (the G.O.A.T.), the shading-overlay fix, and Mr. House's idle on his
+  screen and pod (built 2026-11-21, not played).
 
 **States:**
 
@@ -52,6 +59,7 @@ in full while the new build caches filled.
 | Weathers and climate | New Vegas's weathers, sun and sky colors, and region weather | Partial | Weathers play and night and noon brightness match. Clouds are Fallout 4's, recolored. The amber tint now rides in each weather's color grade (built, not played). | [weathers](fo4_pipeline.md#weathers) |
 | Grass | Grass where New Vegas grows it, at its density | Built, not played | Fixes for the triangle at the tips and the dark flecks (the texture now clamps, as New Vegas does) and for the color (vertex tint on) are built. Swapping in Fallout 4's grass was ruled out. | [grass](fo4_look.md#grass) |
 | Lights and glow | Lamps, windows, lanterns and animated signs | Built, not played | Lanterns and lamps work. Fixes for the dim OPEN and SAL signs and the Strip's night horizon glow are built. The saloon window is still far too yellow; it needs a shot from the next build. | [neon](fo4_look.md#route-neon) |
+| Projector slides and shading overlays | Screens that change picture by sliding a strip (the G.O.A.T. projector), and multiply-blended shading overlays | Built, not played | The strip is cut into one shape per slide, shown in turn, since Fallout 4 drew none of a long strip; checked in the test instance and by the G.O.A.T. story cases. Multiply overlays lose New Vegas's falloff, which made Fallout 4 draw nothing (1,411 meshes). | [slides](fo4_pipeline.md#slide-strips) |
 | Overall color tone | New Vegas's color grading and warmth | Built, not played | Fallout 4's tone curve and bloom with New Vegas's tint and saturation on top, at a fixed exposure that keeps New Vegas's mid-tones (decided 2026-11-09). | [FO4 route](fo4_look.md#fo4-route) |
 | Modern lighting and the Classic switch | Shadow-casting main lights and Fallout 4's light types, picked by each light's New Vegas role; an optional plugin restores the classic flat look | Built, not played | Up to 6 main lights per interior cast shadows, starting 64 units out so a ceiling fixture does not shadow its own light. The Classic Look plugin is an optional app step. | [plan](fo4_look.md#route-lights) |
 | Precombines and previs | Fallout 4's merged meshes and visibility data for dense areas | Not built | Researched: every precombine format is decoded, so we could write them ourselves; previs is a licensed Umbra file only the Creation Kit writes. Without either the game draws each object on its own, which costs speed only in dense places. | [research](research/fo4_precombines_previs.md#own-precombines) |
@@ -87,12 +95,12 @@ in full while the new build caches filled.
 |---|---|---|---|---|
 | Own-rig creatures | Geckos, nightstalkers, giant mantises and cazadors on New Vegas's own skeletons and animations | Works | | [own rig](fo4_own_rig.md#mantis) |
 | Own-rig creatures, the rest | Giant rats, ants, the ant queen, spore carriers, centaurs, spore plants, ravens | Built, not played | Fire ants', centaurs' and spore plants' ranged attacks work. | [remaining](fo4_own_rig.md#remaining) |
-| Own-rig reactions | Reactions and moves for own-rig creatures | Partial | No hit reactions, staggers, jumps, side or back moves, or kill moves. No hit, idle or alert sounds. | [idles](fo4_own_rig.md#idles) |
+| Own-rig reactions | Reactions and moves for own-rig creatures | Partial | Crippled-limb hit reactions (nine rigs) and backward walks (seven) built, not played. No staggers, jumps, side moves or kill moves (New Vegas has no clips for them). No hit, idle or alert sounds. | [hit reactions](fo4_own_rig.md#hit-reactions) |
 | Stand-in creatures | Deathclaws, dogs, mole rats, radscorpions and robots shown as their Fallout 4 counterpart, with New Vegas stats | Partial | They work. Turning off Fallout 4-only moves (burrowing, robot self-destruct, the deathclaw's roar and dirt throw) isn't played. | [race abilities](fo4_creature_audit.md#race-abilities) |
 | Creature attacks | Each creature's attacks, speeds and knockdowns | Partial | See own-rig reactions. | [attacks](fo4_pipeline.md#creature-attacks) |
 | Spawns | Leveled spawns, including New Vegas's chance that nothing spawns | Built, not played | | [void](fo4_creature_audit.md#void) |
 | Corpse poses | Dead-at-start bodies lying as New Vegas placed them | Partial | Most humans and mutants work. Robots and about 31 others ragdoll where they lie. REPCON's dead mutants aren't played. | [poses](fo4_spikes.md#creature-poses) |
-| Talking machines | Mr. House's screen, Yes Man, Festus | Partial | Mr. House's screen talks. The fix for its blank image, Yes Man and Festus aren't played. | [machines](fo4_creature_audit.md#talking-machines) |
+| Talking machines | Mr. House's screen and pod, Yes Man, Festus | Partial | Mr. House's screen talks and shows his face, animated (seen in the test instance). Each machine now loops New Vegas's idle on its parts: the pod's breathing, heartbeat, blinks and helmet, and the lights (built 2026-11-21, not played). Yes Man and Festus aren't played. | [machines](fo4_creature_audit.md#talking-machines), [idle](fo4_creature_audit.md#talking-machine-clips) |
 | Securitrons | Victor and the Strip's securitrons | Partial | They move, talk and fire both guns. Their face screen isn't played; the Lucky 38 elevator prompt isn't confirmed. | [screens](fo4_build_next.md#screens) |
 | Think Tanks | Old World Blues' scientists on their own rig | Built, not played | | [think tank](fo4_own_rig.md#think-tank) |
 
@@ -224,7 +232,7 @@ in full while the new build caches filled.
 | Conversion app | Converts your New Vegas install for Fallout 4 | Partial | Setup, Convert and Replacements screens are built, not tested end to end. DLC and mod folders convert from the app too ([DLC and mods](fo4_gui.md#addons)); the Finished screen checks the install, sets the output up in Mod Organizer and plays ([buttons](fo4_gui.md#mo2-setup)), and the F4SE plugin and faces are stages. Faces are our own FaceGen, as the chain's; Rebuild what changed runs the chain's build plan (replay, then the mods built on the target) ([rebuild](fo4_gui.md#rebuild)). None of this run from the app yet. | [phases](fo4_gui.md#phases) |
 | Installing | The README's steps for testers | Built, not played | Never followed end to end on a clean machine. | [install](../../README.md#install) |
 | Replacements | Swapping converted items or creatures for Fallout 4's or other mods' versions | Partial | The table and its screen work, empty by default. Named profiles and a Wabbajack modlist aren't built. | [replacements](fo4_replacements.md#direction) |
-| Fallout 3 | Converting Fallout 3 the same way | Partial | A scoped spike: Vault 101 and the opening (born in `CG00`) through the vault door, built into its own MO2 profile, not played; rebuilt 2026-11-12 with crime ignored during character creation (`IgnoreCrime`, `SetInCharGen`). 5 of its 4,118 scripts don't compile (three need `MirrorPlayerFactionRelation`; `MQ01Script`, `FFER05LootBoxSCRIPT`). The rest of the Capital Wasteland is not built. Tale of Two Wastelands judged, not built. The child player is planned: scale at age 1 (converted), a child race of our own at 10 and in Tranquility Lane, whose in-game check (`F3NV_ChildRaceTest.esl`) is built, not played. | [FO3 spike](fo4_fo3_plan.md), [child player](fo4_fo3_child_player.md), [scenes on FO4's engine](fo4_scene_driving_plan.md) |
+| Fallout 3 | Converting Fallout 3 the same way | Partial | A scoped spike: Vault 101 and the opening (born in `CG00`) through the vault door, built into its own MO2 profile (last 2026-11-21), with crime ignored during character creation and projectiles for its guns. The story runs play the opening strict on the test machine: the G.O.A.T. cases pass; the walk to the vault door in CG04 still sticks on its path. The stage sweep went from 267 to 56 failed checks over five runs, and what is left is waits the sweep cannot meet ([triage](fo4_test_layers_plan.md#unmet-waits)). 6 of its 4,721 scripts don't compile, none of the opening's ([build](fo4_fo3_plan.md#build)). The rest of the Capital Wasteland is not built. Tale of Two Wastelands judged, not built. The child player is planned: scale at age 1 (converted), a child race of our own at 10 and in Tranquility Lane, whose in-game check (`F3NV_ChildRaceTest.esl`) is built, not played. | [FO3 spike](fo4_fo3_plan.md), [child player](fo4_fo3_child_player.md), [scenes on FO4's engine](fo4_scene_driving_plan.md) |
 
 ## Known bugs a player will see
 
@@ -265,19 +273,23 @@ Please report what you find in
 - **Unattended play-test runs:** a harness that starts the game under its
   own MO2 profile and visits every cell, quest stage, NPC line and item by
   itself, reporting crashes, Papyrus errors and stuck quests into the
-  preflight; planned, first slice a cell sweep ([plan](fo4_autoplay.md#order)).
+  preflight ([plan](fo4_autoplay.md#order)). The stage sweep (every quest
+  stage set from a start save, its waits and errors checked) is built and
+  has run five times on Fallout 3 ([layer 1](fo4_test_layers_plan.md#l1-built)).
 - **Story runs:** the openings played by themselves in a hidden, muted copy
   of the game, as upstream does for Morrowind and Oblivion: each line heard
-  checked by its source INFO, each stage waited for, and the actors'
-  facing, idles and seating recorded and checked; later diffed against a
-  recording of the source game itself; planned
-  ([plan](fo4_story_tests.md#order)).
+  checked by its source INFO, each stage waited for. Built: the hidden test
+  instance, story cases played as a player does (aimed activates, talks,
+  walks), and runs on a separate test machine; the Fallout 3 opening's
+  cases run strict. Next: recording the actors' facing, idles and seating,
+  then diffing against a recording of the source game itself
+  ([plan](fo4_story_tests.md#order), [test machine](fo4_story_tests.md#laptop)).
 - **Regression checks:** compare each build with the last one the user
   played and called good (records, scripts, meshes, faces, voice), keep each
   fixed bug as a small test, and bisect a break to its commit with scoped
   rebuilds; planned ([plan](fo4_regression.md#order)).
-- **Casino games and Caravan:** all built; blackjack and Caravan not yet
-  played ([plan](fo4_casino_plan.md)).
+- **Casino games and Caravan:** all built; Caravan not yet played
+  ([plan](fo4_casino_plan.md)).
 - **Faces for the DLC and mods** with our own FaceGen, then making it the
   default and dropping the Creation Kit fallback ([own stage](fo4_facegen_plan.md#own-stage)).
 - **Crafting on our own menu:** New Vegas's recipe menu with skill
@@ -288,8 +300,8 @@ Please report what you find in
   [issue plan](fo4_issue_plan.md): play tests first, then by size.
 - **Gun animation:** New Vegas's third-person clips and grip
   ([plan](fo4_gun_animation.md#order)).
-- **Creatures:** reactions, staggers and sounds on own rigs
-  ([own rig](fo4_own_rig.md)).
+- **Creatures:** play the own rigs' crippled-limb reactions and backward
+  walks; then staggers and sounds ([own rig](fo4_own_rig.md#hit-reactions)).
 - **Body choice:** CBBE and BodySlide bodies for converted outfits
   ([plan](fo4_bodies_cbbe.md)).
 - **The look:** grass color, Strip neon, the night horizon glow, New Vegas's
@@ -348,8 +360,9 @@ Please report what you find in
 - **Differences from New Vegas** that could be closed later: attack and equip
   speed perks, looting routines, per-pellet DT, Long Haul and Miss Fortune
   ([drift](fo4_drift.md)).
-- **Fallout 3:** play the Vault 101 spike, then the whole Capital Wasteland,
-  then Mart's Mutant Mod ([FO3 spike](fo4_fo3_plan.md#next)).
+- **Fallout 3:** finish the opening's story runs (the CG04 walk to the vault
+  door) and play it, then the whole Capital Wasteland, then Mart's Mutant
+  Mod ([FO3 spike](fo4_fo3_plan.md#next)).
 - **Idles from every authored place:** package idle lists (the G.O.A.T.
   students and the Overseer's waits; exported since 2026-11-19, not yet
   converted), own idle markers, and held idles on FO4's loop event so its

@@ -14,7 +14,7 @@ from dataclasses import replace
 from fo4_import.base.install import source_walk
 from fo4_import.base.strings import as_text
 from fo4_import.base.writer import pack_fo4_record
-from fo4_import.rig.behavior import fire_start
+from fo4_import.rig.behavior import BACK, DIRECTION_EVENTS, HIT_EVENT, fire_start
 from fo4_import.rig.table import weapon_node
 from fo4_import.spike.creature_attacks import ATKD, POWER, weights
 from fo4_import.spike.records import pack_ctda
@@ -53,6 +53,12 @@ STRIKE_ANGLE = 35.0
 #: Body part data flags kept: hit reactions only (no severing, exploding or cripple geometry).
 PART_FLAGS_KEPT = 0x06
 BPND_FLAGS = 64
+#: FNV's BPND part type offset (signed: wbBodyLocationEnum, GetHitLocation's values).
+FNV_PART_TYPE = 5
+#: The crippled-limb actions a rig with hit reactions answers, as Create-a-Bot's: both send its hit reaction event.
+HIT_ACTIONS = ('ActionLimbCritical', 'ActionLegsCritical')
+#: The walking direction actions a rig with a backward walk answers (behavior.DIRECTION_EVENTS, in order).
+DIRECTION_ACTIONS = ('ActionMoveBackward', 'ActionMoveForward')
 #: The engine's forward sprint factor when it upgrades an old 17-float SPED (Fallout4.exe 0x24D1A00).
 SPRINT = 1.75
 #: A template race's subgraph entries or subgraph template race (SRAC), all replaced by the rig's one entry.
@@ -187,18 +193,37 @@ def with_slots(rig, t: Templates):
     return replace(rig, guns=guns, slots=tuple(added))
 
 
-def fnv_part_names(folder: str) -> dict:
-    """{bone (lower case): part name} of FNV's body part data on skeleton folder `folder` (BPTN before its BPNN)."""
-    out = {}
+def fnv_parts(folder: str) -> list:
+    """(bone in lower case, part name or '', FNV part type) of each part of FNV's body part data on skeleton folder
+    `folder` (record_parts), in order."""
+    out = []
     for rec, _ in source_walk(b'BPTD'):
         subs = list(subrecords(rec.body))
-        if text(dict(subs).get(b'MODL', b'')).lower().replace('/', '\\').rpartition('\\')[0] != folder.lower():
-            continue
-        name = ''
-        for tag, data in subs:
-            if tag == b'BPNN' and name:
-                out.setdefault(text(data).lower(), name)
-            name = text(data) if tag == b'BPTN' else '' if tag == b'BPNN' else name
+        if text(dict(subs).get(b'MODL', b'')).lower().replace('/', '\\').rpartition('\\')[0] == folder.lower():
+            out += record_parts(subs)
+    return out
+
+
+def record_parts(subs: list) -> list:
+    """(bone in lower case, part name or '', FNV part type) of each part in FNV BPTD fields `subs`."""
+    out, name, bone = [], '', ''
+    for tag, data in subs:
+        if tag == b'BPTN':
+            name = text(data)
+        elif tag == b'BPNN':
+            bone = text(data).lower()
+        elif tag == b'BPND' and bone:
+            out.append((bone, name, struct.unpack_from('<b', data, FNV_PART_TYPE)[0]))
+            name, bone = '', ''
+    return out
+
+
+def fnv_part_names(folder: str) -> dict:
+    """{bone (lower case): part name} of FNV's named body parts on skeleton folder `folder` (fnv_parts), first wins."""
+    out = {}
+    for bone, name, _ in fnv_parts(folder):
+        if name:
+            out.setdefault(bone, name)
     return out
 
 
@@ -207,24 +232,40 @@ def localized(data: bytes, strings: dict) -> str:
     return strings.get(struct.unpack('<I', data)[0], b'').decode('cp1252', 'replace') if len(data) == 4 else text(data)
 
 
-def part_name(bone: str, names: dict, parents: dict) -> 'str | None':
-    """The name of the FNV part covering `bone`: the nearest of it and its ancestors (`parents`) that `names`
-    (fnv_part_names) holds; None when none does."""
+def covering(bone: str, table: dict, parents: dict):
+    """`table`'s value (keyed by lower-case bone: an FNV part's name or type) for the FNV part covering `bone`: the
+    nearest of it and its ancestors (`parents`) in `table`; None when none is."""
     while bone:
-        if bone.lower() in names:
-            return names[bone.lower()]
+        if bone.lower() in table:
+            return table[bone.lower()]
         bone = parents.get(bone)
     return None
 
 
+def part_bone(rig, node: bytes) -> str:
+    """The rig's bone for a template part's node field `node`; '' for none."""
+    return rig.parts.get(text(node), rig.default_part) if text(node) else ''
+
+
+def template_parts(rig, t: Templates) -> list:
+    """(FO4 part type, the rig's bone: part_bone) of each part of the template's body part data, in order."""
+    out, bone = [], ''
+    for tag, data in t.get(b'BPTD', rig.template['parts'])[1]:
+        if tag == b'BPNN':
+            bone = part_bone(rig, data)
+        elif tag == b'BPND' and bone:
+            out.append((data[BPND_FLAGS + 1], bone))
+    return out
+
+
 def body_parts(fid: int, rig, t: Templates, made: dict) -> bytes:
     """The template's body part data on the creature's bones (`made`: write()'s parents and Fallout4.esm strings):
-    each part named as FNV names the part covering its bone (part_name), else as the template names it; no limb
+    each part named as FNV names the part covering its bone (covering), else as the template names it; no limb
     models, hit reactions only.
     See: docs/fork/fo4_own_rig.md#body-parts
     """
     rec, subs = t.get(b'BPTD', rig.template['parts'])
-    node = lambda d: rig.parts.get(text(d), rig.default_part) if text(d) else ''
+    node = lambda d: part_bone(rig, d)
     names, template = fnv_part_names(rig.folder), ''
     blank = {b'NAM1': zstr('NAM1', ''), b'NAM5': pack_subrecord('NAM5', b''), b'DNAM': zstr('DNAM', ''),
              b'EDID': zstr('EDID', f'{rig.project}BodyPartData'),
@@ -234,7 +275,7 @@ def body_parts(fid: int, rig, t: Templates, made: dict) -> bytes:
         if tag == b'BPTN':
             template = localized(data, made['strings'])
             continue
-        shown = part_name(node(data), names, made['parents']) or template or node(data) if tag == b'BPNN' else ''
+        shown = covering(node(data), names, made['parents']) or template or node(data) if tag == b'BPNN' else ''
         out += _part_field(tag, data, node, shown) or blank.get(tag) or pack_subrecord(tag.decode(), data)
     return pack_fo4_record('BPTD', fid, rec.flags, out)
 
@@ -322,22 +363,25 @@ def screen_armor(writer, rig, t: Templates, model: str, name: str) -> int:
     return fid
 
 
-def sped(old: list, walk: float, run: float) -> list:
-    """The 28-float SPED of form version 104+: forward walk, run, sprint; rotations.
+def sped(old: list, walk: float, run: float, back: float = 0.0) -> list:
+    """The 28-float SPED of form version 104+: forward walk, run, sprint; back walk and run both `back` (as vanilla's
+    newer creatures walk back at their run); rotations.
     See: docs/fork/fo4_spikes.md#own-rig-movement-type
     """
     rotation = old[8:14] if len(old) == 17 else old[16:28:2]
-    return [0.0] * 8 + [0.0, walk, run, run * SPRINT] + [0.0] * 4 + [r for r in rotation for _ in range(2)]
+    return ([0.0] * 8 + [0.0, walk, run, run * SPRINT] + [0.0, back, back, 0.0]
+            + [r for r in rotation for _ in range(2)])
 
 
-def movement(fid: int, rig, t: Templates, walk_speed: float, run_speed: float) -> bytes:
-    """The template movement type linked to the graph's iState_<project>, forward at the clips' root speeds."""
+def movement(fid: int, rig, t: Templates, speeds: tuple) -> bytes:
+    """The template movement type linked to the graph's iState_<project>, at the clips' root `speeds` (sped()'s
+    walk, run and back)."""
     rec, subs = t.get(b'MOVT', rig.template['movement'])
     out = b''
     for tag, data in subs:
         if tag == b'SPED':
             old = list(struct.unpack(f'<{len(data) // 4}f', data))
-            out += pack_subrecord('SPED', struct.pack('<28f', *sped(old, walk_speed, run_speed)))
+            out += pack_subrecord('SPED', struct.pack('<28f', *sped(old, *speeds)))
         else:
             new = {b'EDID': zstr('EDID', f'{rig.project}_Default_MT'), b'MNAM': zstr('MNAM', rig.project)}
             out += new.get(tag) or pack_subrecord(tag.decode(), data)
@@ -403,19 +447,30 @@ def write_skin(writer, rig, t: Templates, race_fid: int, body: str, footsteps: b
     return ids[0]
 
 
+def actions(rig) -> dict:
+    """{action: root graph event} the rig's IDLEs answer: ACTIONS, HIT_ACTIONS with hit reactions, the walking
+    direction actions with a backward walk."""
+    out = dict(ACTIONS)
+    if rig.hits:
+        out.update(dict.fromkeys(HIT_ACTIONS, HIT_EVENT))
+    if BACK in rig.clips:
+        out.update(zip(DIRECTION_ACTIONS, DIRECTION_EVENTS))
+    return out
+
+
 def write(writer, rig, t: Templates, made: dict) -> int:
     """Add the creature's race, body parts, default skin (its first body), movement type and IDLEs to `writer`;
-    the race's FormID. `made` holds name, body, speeds ((walk, run) root speed), share (of power attacks),
+    the race's FormID. `made` holds name, body, speeds ((walk, run, back) root speed), share (of power attacks),
     footsteps (whether the skin keeps the template's footstep set), screen (its face screen's file or None), talks
     and kind (race()), parents (bones'), strings (Fallout4.esm's)."""
     ids = {k: writer.derive_formid(SITE, f'{rig.folder} {k}') for k in ('race', 'parts', 'movement', 'unarmed')}
     writer.add_record('WEAP', unarmed(ids['unarmed'], rig, t))
     ids['name'] = made['name']
     ids['skin'] = write_skin(writer, rig, t, ids['race'], made['body'], made['footsteps'], made.get('screen'))
-    writer.add_record('MOVT', movement(ids['movement'], rig, t, *made['speeds']))
+    writer.add_record('MOVT', movement(ids['movement'], rig, t, made['speeds']))
     writer.add_record('BPTD', body_parts(ids['parts'], rig, t, made))
     writer.add_record('RACE', race(ids['race'], rig, t, ids, made))
-    for action, event in ACTIONS.items():
+    for action, event in actions(rig).items():
         writer.add_record('IDLE', idle(writer.derive_formid(SITE, f'{rig.folder} IDLE {action}'), rig, t, action,
                                        event))
     if rig.guns:

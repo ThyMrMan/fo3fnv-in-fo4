@@ -2784,6 +2784,58 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
   Andy's `CutCake` idle (`Creatures\MisterGutsy\IdleAnims`) is still left
   out. Andy is on FO4's own Mister Gutsy rig (`encMrGutsy01Template`), and a
   creature idle converts only into one of our own rigs.
+- <a id="slide-strips"></a>**Projector slide strips (2026-11-21; sandbox and
+  laptop runs, not yet played by hand).** FO3's G.O.A.T. projector
+  (`vprojectorgoatslides01.nif`, played by `CG03GoatSlidesSCRIPT` as Brotch
+  asks each question) and FNV's Vault 11 projector (`v11projectorslides.nif`)
+  slide one long strip of flat unlit slides past the screen. Each of the ten
+  sequences moves node `Slide01` about 800 units, so the next slide sits at
+  the screen and the rest of the strip hides behind the wall. The strip is
+  8,900 units long (1,400 at the reference's 0.16 scale) and reaches far
+  below the classroom's room marker.
+  - **Measured in the hidden test instance:** with the strip in the mesh,
+    FO4 drew none of it, the rest slide included.
+    - The rest slide alone drew, as did a quad of the same size.
+    - Adding back any one strip shape hid the whole mesh.
+    - Shrinking every shape's stored bound to the screen did not bring it
+      back.
+  - **Fix:** `nif/slide_strip.py` rebuilds such a node as one node per stop
+    (rest, plus each sequence's end translation). Each node holds only the
+    triangles whose centre sits in the screen window at that stop. The
+    window is the box of the rest pose's triangles covering the screen's
+    centre.
+    - Each sequence keeps the node still and keys every stop node's scale:
+      1 for its end stop, 0 for the others.
+    - Each stop's scale is keyed from the stop the sequence's first key
+      shows to the stop its last key shows. Over the sequence's 0.3 s, one
+      slide shrinks as the next grows, instead of sliding. A sequence
+      whose first key matches no stop starts on its end stop. FO4 applies
+      the first sequence's start at load, so the rest stop (the G.O.A.T.
+      title) shows until Brotch's first question.
+    - The thin frame bands between slides (`vprojectorstrips01`), seen
+      only mid-slide, are left out.
+  - **Blast radius:** of 1,046 animated meshes with unlit shapes across
+    FO3, FNV and their DLC, exactly those two projectors are rebuilt.
+  - **Multiply blends keep no view falloff.** The rebuilt strip still drew
+    nothing until FNV's falloff was dropped. It uses (1, 0, 1, 0), the same
+    as the vanished pane in [falloff panes](#falloff-panes). The slides
+    blend by multiplying (`NiAlphaProperty` 0x1043: source ZERO,
+    destination SRC_COLOR).
+    - Flipping the normals did not help.
+    - Vanilla has 26 multiply-blended effect shapes in 34,995 meshes, and
+      none uses falloff.
+    - `convert_static._unlit` now drops the falloff on such a shape
+      (`multiplies`). 1,411 FO3, FNV and DLC meshes have one. Nearly all
+      are untextured vertex-colour shading overlays (dungeon and
+      architecture pieces, clutter, Anchorage, The Pitt), which likely drew
+      nothing before and now darken what they overlay, as in FO3/FNV. None
+      has been looked at in game.
+  - **Checked:**
+    - Sandbox, built FO3 plugin: the title at rest. Each Papyrus
+      `Activate` by Brotch raised the script's `stage` by 1 and changed the
+      slide.
+    - Laptop: `fo3_opening` from `cg03_brotch` passed every CG03 case,
+      `cg03_goat`'s ten questions included.
 - <a id="child-flee"></a>**Fallout 4 makes every child flee a fight (found
   2026-11-16, after play: FO3's Butch ran out of the diner into the hall
   during the sweetroll fight; hook built 2026-11-16, not yet played).** In Fallout4.exe 1.11.221 the

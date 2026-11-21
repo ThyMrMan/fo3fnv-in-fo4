@@ -16,10 +16,10 @@ from fo4_import.pipeline.elric_cache import write_new
 from fo4_import.pipeline.master_copies import master_dirs
 from fo4_import.pipeline.mesh_cache import mesh_files
 from fo4_import.pipeline.work_cache import cached
-from fo4_import.rig import assets, behavior, records
+from fo4_import.rig import assets, behavior, reactions, records
 from fo4_import.spike.creature_attacks import power_share, with_attacks, with_spell
 from fo4_import.spike.statics import stage_files
-from fo4_import.pipeline.export_index import asset_root, export_file
+from fo4_import.pipeline.export_index import asset_root, export_file, export_records
 from fo4_import.rig.table import rigs
 
 #: AnimTextData's project file data folder (the Creation Kit does not write a project's list).
@@ -76,8 +76,9 @@ class Rigs:
         if rig.folder in self.races:
             return self.races[rig.folder]
         bones = self.rig_bones(rig)
-        rig = records.with_slots(rig, self.templates)
         fnv_dir = asset_root(self.export_dir, 'meshes', rig.folder)
+        rig = reactions.with_hits(records.with_slots(rig, self.templates), self.templates,
+                                  export_records(self.export_dir, 'IDLE'), bones, fnv_dir)
         shipped = self.shipped(rig)
         ragdoll = (assets.ragdoll_bones(nif_file.read(shipped.read_bytes())) if shipped
                    else self.write_rig(rig, fnv_dir, bones))
@@ -92,7 +93,8 @@ class Rigs:
                 'footsteps': not sounds.feet, 'talks': talks, 'kind': int(rec.get('DATA.CreatureType', 0) or 0),
                 'parents': {b.name: bones[b.parent].name for b in bones if b.parent >= 0},
                 'strings': self.builder.equipment.strings,
-                'speeds': (maker.root_speed('WalkForward'), maker.root_speed('RunForward'))}
+                'speeds': (maker.root_speed('WalkForward'), maker.root_speed('RunForward'),
+                           maker.root_speed(behavior.BACK) if behavior.BACK in rig.clips else 0.0)}
         self.races[rig.folder] = race = records.write(self.builder.writer, rig, self.templates, made)
         self.skins[(rig.folder, body.lower())] = self.builder.writer.derive_formid(
             records.SITE, f'{rig.folder} {body.lower()} skin')

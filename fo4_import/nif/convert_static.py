@@ -123,6 +123,8 @@ SEEN_ALPHA, SOLID_ALPHA, TRANSLUCENT_SHARE = 8, 247, 0.5
 CUTOUT_REF, ALPHA_TEST_BIT = 128, 0x200
 #: The blend (src alpha, inverse src alpha) FNV gives an unlit shape fading by vertex alpha without an alpha property.
 VERTEX_ALPHA_BLEND = (0x10ED, 0)
+#: NiAlphaProperty's blend factor ZERO: as the source factor, a multiply blend (no view falloff in FO4).
+BLEND_ZERO = 1
 #: Barycentric points sampled per triangle when judging its texels: corners, edge midpoints, centre.
 TRIANGLE_SAMPLES = np.array([(1, 0, 0), (0, 1, 0), (0, 0, 1), (.5, .5, 0), (0, .5, .5), (.5, 0, .5), (1 / 3,) * 3])
 #: Lighting shader flags1 of a decal (Decal, Dynamic_Decal), as vanilla's blended decals carry them.
@@ -430,14 +432,14 @@ def _unlit(shader, alpha, two_sided: bool, fades: bool, normals: bool, material=
 
     One fading by vertex alpha (`fades`, sf_vertex_alpha) blends with no NiAlphaProperty, as FNV's soft
     shadows; an untextured one that fades blends by vertex alpha, flagged or not. `normals` keeps FNV's view
-    falloff; `material`'s alpha scales opacity. Blended with animated emission above 1: a neon tube.
+    falloff unless it multiplies; `material`'s alpha scales opacity. Animated emission above 1, blended: neon.
     See: docs/fork/fo4_pipeline.md#effects
     See: docs/fork/fo4_look.md#route-neon
     """
     fnv = shader.file_name.decode('cp1252')
     vertex_alpha = bool(shader.shader_flags.sf_vertex_alpha) or (not fnv and fades)
     falloff = tuple(getattr(shader, f'falloff_{k}') for k in ('start_angle', 'stop_angle', 'start_opacity',
-                                                               'stop_opacity')) if normals else None
+                                                               'stop_opacity')) if normals and not multiplies(alpha) else None
     data = {'texture': fo4_texture(fnv), 'vertex_alpha': vertex_alpha, 'two_sided': two_sided, 'falloff': falloff,
             'external': bool(shader.shader_flags.sf_external_emittance),
             'alpha': material.alpha if material is not None else 1.0}
@@ -447,6 +449,13 @@ def _unlit(shader, alpha, two_sided: bool, fades: bool, normals: bool, material=
     if alpha is not None and alpha.flags & 1 and mult > 1 and _controlled(material, 'BSMaterialEmittanceMultController'):
         part, data['neon'] = NEON_ALPHA, (color, fo4_glow('tube', mult))
     return ShapeMaterial('unlit', '', data, [fnv] if fnv else [], part, None)
+
+
+def multiplies(alpha) -> bool:
+    """Whether FNV NiAlphaProperty `alpha` blends with source factor ZERO.
+    See: docs/fork/fo4_pipeline.md#slide-strips
+    """
+    return alpha is not None and bool(alpha.flags & 1) and (alpha.flags >> 1) & 0xF == BLEND_ZERO
 
 
 def material_fades(material) -> bool:

@@ -729,6 +729,65 @@ clip. A trigger 0.2 s before the clip's end raises `returnToDefault`.
   counted `IDLE (own rig)`.
 - Not built: an idle while the creature moves or fights (the states are in
   the non-combat standing machine only); mirrored idles (FNV has none).
+- **Clips FNV never shipped.** `NVopeningSecuritron` and
+  `NVopeningSecuritronIdle` (VCG00 stages 50, 54 and 60 play them on Victor)
+  name `SpecialIdle_NVopening_Securitron*.kf`, which is in no FNV archive
+  and no loose file: only the thugs' opening clips exist. FNV played nothing
+  there; the build leaves them out (`no human clip`), so the script's idle
+  property is None and Papyrus logs the PlayIdle call. Nothing to build.
+
+## <a id="hit-reactions"></a>Hit reactions (built 2026-11-21, not yet played)
+
+**FNV.** A creature's hit reactions are idles in its folder under a
+`...HitReactions` group (`GetHitLocation != -1`), each gated by
+`GetHitLocation` (FNV part type: 0 torso, 1–2 head, 3–4 left arm, 5–6 right
+arm, 7–9 left leg, 10–12 right leg, 13 brain) and by that limb's condition
+actor value `<= 0`: they play when a limb is crippled. Some take the location
+from a parent group (the securitron's `NVSHitArmLeft` under `NVCHitWings`,
+3 or 4). Nine rigs have them: gecko, nightstalker, mantis, cazador, giant
+rat, giant ant, spore carrier, centaur, securitron; the queen ant, raven,
+spore plant and Think Tank have none.
+
+**FO4.** A crippled limb is the action `ActionLimbCritical` (legs:
+`ActionLegsCritical`). Create-a-Bot's IDLEs send `hitReactionStart` for
+both; the mole rat's root enters `HitReaction` on it from any state: a
+manual selector on `cHitReactionBodyPart` (the struck part's BPND part
+type, an 8-bit int), each clip under `bAnimationDriven` raising
+`ReevaluateGraphState` 0.2 s before its end (the same return the played
+get-up uses).
+
+**Built** (`rig/reactions.py`, `behavior.Builder.hit_reaction`):
+- Per template body part (`records.template_parts`: type and the rig's bone),
+  the FNV part covering that bone (`records.covering` over
+  `records.fnv_parts`), else the FNV part of the same name (`SAME_NAMED`:
+  the template's torso sits on the pelvis, above FNV's first part on Spine1;
+  the spore carrier's FNV body part data names another skeleton, so none of
+  its bones is covered). Its location's clip, the first idle in record
+  order, is the part's; none plays a clip raising `ReevaluateGraphState` at
+  once, as FNV plays nothing there.
+- The clips join the rig's clips as `Hit_<FNV file stem>`; root state 2,
+  wildcard `hitReactionStart`; the two critical actions' IDLEs send it
+  (`records.actions`). A rig without hit idles is unchanged.
+- FO4, not FNV's condition, decides when: both play on a crippled limb.
+
+## <a id="walk-back"></a>Walking backward (built 2026-11-21, not yet played)
+
+FO4 walks a creature backward through `ActionMoveBackward` and
+`ActionMoveForward` (the mole rat's IDLEs send `moveBackward` and
+`moveForward`; its walking machine swaps WalkForward and WalkBackward on
+them). There is no creature strafe action, so FNV's side steps
+(`mtleft`/`mtright`) have no route. Seven rigs have FNV's backward walk:
+mantis, giant rat, giant ant, queen ant, spore carrier, centaur and
+securitron (table role `WalkBackward`).
+
+- **Graph:** each locomotion machine gets `MovingBackward` (2) beside
+  `Moving`, entered on `moveBackward` and left on `moveForward` or
+  `moveStop`. It sits beside `Moving`, not in a machine under it, so the
+  speed file's entry (keyed by machine name) and its moving state stay
+  as they were.
+- **Records:** the two direction IDLEs (`records.actions`); the movement
+  type's back walk and run both take the clip's root speed (`records.sped`,
+  as `Yaoguai_Default_MT`'s 112.4 and 112.4).
 
 ## <a id="parity"></a>Stage 2 against the played gecko (2026-10-27)
 

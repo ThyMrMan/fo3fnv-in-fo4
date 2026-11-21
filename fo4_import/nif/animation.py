@@ -24,6 +24,7 @@ from fo4_import.nif.file import NifFile
 from fo4_import.nif.fnv_file import parent_map
 from fo4_import.nif.particles import HIDDEN, drives_particles, particle_block
 from fo4_import.nif.shader_anim import channel, idle_blend, interpolator, key_group, shader_block, shapes_by_name, timing
+from fo4_import.nif.slide_strip import restack
 
 #: Bones a BSTriShape vertex is weighted to.
 VERTEX_BONES = 4
@@ -94,7 +95,8 @@ def add_nodes(nif: NifFile, kept: list, root, flags: int) -> dict:
 def controllers(nif: NifFile, root, manager, nodes: dict, particles: dict, peaks: dict = None) -> int:
     """Append FNV `manager`'s blocks (sequences, interpolators, data, text keys, palette) for the kept `nodes`
     and converted `particles` controllers ({id(FNV): FO4}), unlit shapes' texel `peaks` (convert_static.texel_peaks)
-    scaling their emittance; the FO4 manager's index, set as the root's controller."""
+    scaling their emittance, film strips restacked (slide_strip); the FO4 manager's index, set as the root's
+    controller."""
     base = len(nif.blocks)
     multi = _multi_target(manager)
     at = {'manager': base, 'multi': base + 1, 'shapes': shapes_by_name(nif), 'made': {}, 'animated': {},
@@ -113,6 +115,7 @@ def controllers(nif: NifFile, root, manager, nodes: dict, particles: dict, peaks
         **(timing(multi) if multi else timing(manager)), 'next': NONE, 'target': 0,
         'targets': [nodes[id(t)] for t in (multi.extra_targets if multi else []) if id(t) in nodes]})
     nif.blocks[0][1]['controller'] = at['manager']
+    restack(nif, at['manager'])
     return at['manager']
 
 
@@ -155,7 +158,7 @@ def _sequence(nif: NifFile, seq, at: dict, root) -> int:
             continue
         if cb.interpolator is not None and not moves(cb):
             continue
-        blocks.append({'interpolator': _interpolator(nif, cb.interpolator), 'controller': at['multi'],
+        blocks.append({'interpolator': transform_interpolator(nif, cb.interpolator), 'controller': at['multi'],
                        'priority': cb.priority, 'node': _string(nif, cb.node_name),
                        'property': _string(nif, cb.property_type), 'controller_type': _string(nif, cb.controller_type),
                        'controller_id': _string(nif, cb.variable_1),
@@ -206,7 +209,7 @@ def _shown_at_start(interp) -> bool:
     return bool(keys[0].value) if keys else interp is None or interp.bool_value != 0
 
 
-def _interpolator(nif: NifFile, interp) -> int:
+def transform_interpolator(nif: NifFile, interp) -> int:
     """Append an FNV NiTransformInterpolator and its NiTransformData; its index (-1 for none)."""
     if interp is None:
         return NONE

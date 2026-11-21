@@ -406,7 +406,7 @@ that data written down once.
 Scale: thousands of stages a night. What it proves: each stage's machinery
 runs, not that a player can reach it.
 
-### <a id="l1-built"></a>Built (2026-11-18, not yet run in game)
+### <a id="l1-built"></a>Built (2026-11-18; five Fallout 3 runs 2026-11-19 to 2026-11-21, 267 to 56 failed checks)
 
 ```bash
 py -3.14 -m tools.live.fo4_quest_plan --game FalloutNV.esm --plugin <built FalloutNV.esm>
@@ -592,6 +592,27 @@ stay checks, on the cautious side: the start save (CG00 62, ControlRumble
 0), a plain MenuMode (CG01 0), a function that holds at 0 (CGTutorial 200
 and 218 test health and weapon condition below a value), and variables a
 script or line sets (CG03 30, MQ02 20, MQ11 30, MS01 70/200, MS10 150).
+
+<a id="fnv-run-1"></a>**Full FNV run (2026-11-21, laptop, start save
+`f3nvtest_vcg01_tags_traits_male`, build at `e45d56d6`):** 350 quest cases,
+646 stages; 42 of 2,066 checks failed and 17 waits were unmet. No failure
+is a converter bug in the quest itself:
+- **33 are VCG00 swept from a save after it.** The save stands in Doc
+  Mitchell's house with VCG00 done to 100, so its timers never run and its
+  fragments act on the unloaded cemetery actors ("no AI process", "does not
+  have any inventory"). The [opening case](fo4_story_tests.md#cases) plays
+  VCG00 for real; a sweep of it needs the character-creation save.
+- **4 are creature idles never built.** `PlayIdle` on None:
+  `NVopeningSecuritron`/`NVopeningSecuritronIdle` (VCG00 50/54/60, Victor)
+  and `LooseNVPHMCconnectionLost` (VMQHouseFail 1, Mr. House's screen).
+  Securitrons stand on FO4's Protectron rig and the screen is an unseen
+  speaker, and a creature idle converts only on one of our own rigs
+  ([idles](fo4_own_rig.md#idles)).
+- **5 are needs the sweep does not meet:** VCG01 20 (the Male/Female box's
+  button), VMQNCRFail 2 (VMQ02 objective 25 or 30 completed), CGTutorial
+  200/218 (health and weapon condition, as in FO3), and VDialogueVegasNorth
+  80 (stage 72 sets 80 only when stage 63 is done, which the sweep does not
+  set, so 72 rightly set 100).
 
 Known limits:
 - The errors in a stage's window include those of any stage its fragment set
@@ -1070,7 +1091,7 @@ then the reference.
 | 2 | S1 scripts-only build: the existing hotfix, per game, with the property guard | done 2026-11-17 | |
 | 3 | S3 checkpoint load hang (done 2026-11-17); start saves per quest group (with step 5) | S | |
 | 4 | S4 failure snapshot and live query, S5 repeats (done 2026-11-17); S6 two machines | S, under a day | |
-| 5 | `quest_plan.json` from the preflight's quest data; layer 1 stage sweep cases | M, 3 days | steps 3 to 4 |
+| 5 | `quest_plan.json` from the preflight's quest data; layer 1 stage sweep cases | done 2026-11-18; run on Fallout 3 ([unmet waits](#unmet-waits)) | steps 3 to 4 |
 | 6 | `talk`, `choose`, `bye` through the dialogue menu's test entry point | done 2026-11-18 | |
 | 7 | Layer 2 route generator; the first sweep, FNV's Goodsprings quests | built 2026-11-18, first runs ([l2](#l2-built)); next: quests in story order from one game | steps 5 to 6 |
 | 8a | [nv-rs spike](#nv-rs): build it, add the timeline, record FNV's opening, compare with the real game | M, 3 to 4 days | |

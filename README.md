@@ -9,7 +9,8 @@ it is rebuilt from your own copy of New Vegas on your own machine.
 > **Alpha.** The game is playable from Doc Mitchell's house onward, and
 > nearly every system is built. Much of it has never been played start to
 > finish, so expect bugs, and expect updates to need a new game. Back up your
-> saves. Fallout 3 is not supported yet.
+> saves. Fallout 3 is only its opening so far (Vault 101, birth to the vault
+> door).
 
 > [!IMPORTANT]
 > **No Bethesda assets are included.** This project ships only code. It reads
@@ -53,7 +54,7 @@ ThyMrMan/tes4skyrim for it.
   item condition and repair, critical hits, Damage Threshold, sneak attacks,
   grenades and mines, V.A.T.S. tuned toward FNV's.
 - **Also:** FNV's radio stations, terminals, lockpicking and hacking by skill,
-  and FNV's own intro movie.
+  the casino games and Caravan, and FNV's own intro movie.
 
 Where play differs from FNV, on purpose or not, is listed in
 [docs/fork/fo4_drift.md](docs/fork/fo4_drift.md).
@@ -75,21 +76,23 @@ reach, the weather, glowing signs and neon.
 
 ## Not done yet
 
-- **Casino games and Caravan:** all built on our own menu; slots and
-  roulette work, blackjack and Caravan aren't played yet
+- **Casino games and Caravan:** all built on our own menu; slots, roulette
+  and blackjack work, Caravan isn't played yet
   ([plan](docs/fork/fo4_casino_plan.md)).
-- **Fallout 3:** a first spike (Vault 101 and the opening) is built, not
-  played. The rest of the Capital Wasteland isn't converted yet. Keep it in
-  its own Mod Organizer profile: with New Vegas loaded too, both openings
-  start at once.
+- **Fallout 3:** the opening (Vault 101, from the birth to the vault door)
+  is built. Our automated story runs play it on a test machine, and every
+  quest stage of the build is swept there too. The rest of the Capital
+  Wasteland isn't converted yet. Keep it in its own Mod Organizer profile:
+  with New Vegas loaded too, both openings start at once.
 - **Mod builds:** about 20 New Vegas mods (YUP, NVMIM, Willow, JSawyer
   Ultimate, the New Vegas Bounties series and others) convert against the
   built game. The first play with all of them from Doc Mitchell's house
   found three bugs, now fixed; some mod scripts still don't compile.
 - **Known gaps:** a few hundred dialogue lines whose conditions Fallout 4
-  can't check, some creature animations (hit reactions and staggers on FNV's
-  own rigs), FNV's third-person gun animations, precombines in the densest
-  areas (Freeside, the Strip), and maps for Freeside and the Strip.
+  can't check, staggers and sounds on FNV's own creature rigs (their
+  crippled-limb reactions and backward walks are built, not played), FNV's
+  third-person gun animations, precombines in the densest areas (Freeside,
+  the Strip), and maps for Freeside and the Strip.
 
 The full list (broken, missing, and built but not yet played) is in
 [docs/fork/ROADMAP.md](docs/fork/ROADMAP.md#fo4-state). Please report what you

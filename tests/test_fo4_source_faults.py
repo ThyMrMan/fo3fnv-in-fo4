@@ -190,7 +190,7 @@ def test_a_talking_machine_part_that_faults_is_left_out(tmp_path, monkeypatch):
         _mesh(tmp_path, f'creatures\\eyebot\\{name}')
     monkeypatch.setattr(TM, 'bone_worlds', lambda path: {})
     monkeypatch.setattr(TM, 'part_pose', lambda path, worlds: {})
-    monkeypatch.setattr(TM, 'write_assets', lambda d, model, *a, **k: _faulty() if 'a.nif' in model else ('m', None))
+    monkeypatch.setattr(TM, 'speaker_assets', lambda d, part, *a: _faulty() if 'a.nif' in part[0] else ('m', None))
     builder = _stand_in_builder(writer=SimpleNamespace(derive_formid=lambda site, key: 7,
                                                        add_record=lambda sig, rec: None))
     machines = TM.TalkingMachines(builder, tmp_path, tmp_path)

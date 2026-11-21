@@ -24,7 +24,7 @@ class Rig:
     """One creature's entry: its folder, project name, template records and files, clips, attacks and bones, and its
     guns: (ranged clip role, equip slot, bones whose subtrees the clip plays on, FNV node they fire from), the slot
     an EQUP EditorID until records.with_slots makes it the index in its race's slots, adding `slots` (EQUP FormIDs)
-    its template race lacks."""
+    its template race lacks; `hits`, (FO4 body part type, hit clip role or '') pairs from reactions.with_hits."""
     folder: str
     project: str
     template: dict
@@ -35,6 +35,7 @@ class Rig:
     pose_bones: tuple
     guns: tuple = ()
     slots: tuple = ()
+    hits: tuple = ()
 
     @property
     def fire_nodes(self) -> dict:

@@ -8,7 +8,7 @@ import pytest
 
 from fo4_import.havok import graph as G
 from fo4_import.havok import packfile, packfile_write
-from fo4_import.rig import assets, behavior, build, records
+from fo4_import.rig import assets, behavior, build, reactions, records
 from fo4_import.rig import gun_mods
 from fo4_import.rig.table import Rig, rigs, weapon_node
 from fo4_import.nif.blocks import Reader, read_tri_shape
@@ -37,9 +37,9 @@ def test_a_parts_vats_name_is_fnvs_part_covering_its_bone():
     localized name reads through the strings, a plain one as itself."""
     parents = {'Bip01 Head': 'Bip01 Neck1', 'Bip01 Neck1': 'Bip01 Spine1', 'Bip01 Spine1': 'Root'}
     names = {'bip01 neck1': 'Head', 'bip01 spine1': 'Torso'}
-    assert records.part_name('Bip01 Head', names, parents) == 'Head'
-    assert records.part_name('Bip01 Spine1', names, parents) == 'Torso'
-    assert records.part_name('Root', names, parents) is None
+    assert records.covering('Bip01 Head', names, parents) == 'Head'
+    assert records.covering('Bip01 Spine1', names, parents) == 'Torso'
+    assert records.covering('Root', names, parents) is None
     assert records.localized(struct.pack('<I', 7), {7: b'Head'}) == 'Head'
     assert records.localized(b'Torso\0', {}) == 'Torso'
 
@@ -96,8 +96,38 @@ def test_old_speeds_become_the_new_layout():
     """A 17-float SPED gives forward walk, run, sprint (run x 1.75) and its six rotation rates twice."""
     old = [0.0] * 8 + [1.0, 2.0, 3.0, 4.0, 5.0, 6.0] + [0.0] * 3
     new = records.sped(old, 60.0, 500.0)
-    assert len(new) == 28 and new[8:12] == [0.0, 60.0, 500.0, 875.0]
+    assert len(new) == 28 and new[8:12] == [0.0, 60.0, 500.0, 875.0] and new[12:16] == [0.0] * 4
     assert new[16:] == [1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 4.0, 4.0, 5.0, 5.0, 6.0, 6.0]
+    assert records.sped(old, 60.0, 500.0, 40.0)[12:16] == [0.0, 40.0, 40.0, 0.0]
+
+
+def test_a_rig_answers_hit_and_walking_direction_actions_only_with_their_clips():
+    """The crippled-limb actions send hitReactionStart only with hit reactions; the direction actions send
+    moveBackward and moveForward only with a backward walk."""
+    plain = type('Rig', (), {'hits': (), 'clips': {}})()
+    full = type('Rig', (), {'hits': ((0, 'Hit_X'),), 'clips': {behavior.BACK: 'b.kf'}})()
+    assert records.actions(plain) == records.ACTIONS
+    added = {k: v for k, v in records.actions(full).items() if k not in records.ACTIONS}
+    assert added == {'ActionLimbCritical': 'hitReactionStart', 'ActionLegsCritical': 'hitReactionStart',
+                     'ActionMoveBackward': 'moveBackward', 'ActionMoveForward': 'moveForward'}
+
+
+def test_a_backward_walk_sits_beside_moving_so_the_speed_file_keeps_its_state(monkeypatch):
+    """With a backward walk, moving goes to MovingBackward (2) on moveBackward and back on moveForward, both stop on
+    moveStop; moving stays the machine's parametric blend, its first transition moveStop."""
+    rig = type('Rig', (), {'project': 'Test', 'clips': {behavior.BACK: 'b.kf'}})()
+    maker = behavior.Builder(rig, Path('.'), {}, None)
+    monkeypatch.setattr(maker, 'triggers', lambda role, cyclic: [])
+    monkeypatch.setattr(maker, 'root_speed', lambda role: 100.0)
+    monkeypatch.setattr(maker, 'standing', lambda prefix, idle, talks=False: maker.g.clip('S', 'S.hkt', G.LOOPING))
+    g = maker.g
+    states = [g.get(s) for s in g.get(maker.locomotion('Combat', 'CombatIdle'))['states']]
+    hops = {s['name']: [(g.events[t['eventId']], t['toStateId']) for t in g.get(s['transitions'])['transitions']]
+            for s in states}
+    assert hops == {'Standing': [('moveStart', 1)], 'Moving': [('moveStop', 0), ('moveBackward', 2)],
+                    'MovingBackward': [('moveStop', 0), ('moveForward', 1)]}
+    assert g.get(states[1]['generator'])['flags'] & G.FLAG_PARAMETRIC
+    assert g.get(states[2]['generator'])['animationName'] == f'Animations\\{behavior.BACK}.hkt'
 
 
 def test_spells_join_the_list_after_rnam():
@@ -145,6 +175,79 @@ def test_a_shot_names_its_slot_and_the_attack_ends_after_it(monkeypatch):
     assert short.fire_triggers('Gun', 3) == [(behavior.ATTACK_BLEND, (behavior.FIRE, '3'), False)]
     assert short.ranged_end('Gun')[0] > behavior.ATTACK_BLEND
     assert ranged_builder(monkeypatch, [0.03], 0.6).ranged_end('Gun')[0] == pytest.approx(0.4)
+
+
+def hit_test(op: int, value: float, ors: bool = False) -> str:
+    """An FNV GetHitLocation condition's raw hex (`op`: CTDA op bits)."""
+    return struct.pack('<B3xfI20x', op | int(ors), value, 391).hex()
+
+
+def idle_rec(fid: int, parent: int, model: str, tests: list) -> dict:
+    """An FNV IDLE record as the export reads it, with raw conditions `tests`."""
+    rec = {'FormID': f'{fid:08X}', 'ANAM.Parent': f'{parent:08X}', 'Model.MODL': model,
+           'ConditionCount': str(len(tests))}
+    return {**rec, **{f'Condition[{i}].Raw': t for i, t in enumerate(tests)}}
+
+
+def test_a_hit_idle_takes_its_locations_from_itself_and_its_parents():
+    """An idle's GetHitLocation tests AND with its parents' (the securitron's arm idle tests only its parent's
+    3-or-4); a range (>= 7, <= 9) gives each location in it; an idle testing no location is no hit reaction."""
+    group = idle_rec(1, 0, 'creatures\\x\\idleanims', [hit_test(0x20, -1.0)])
+    wings = idle_rec(2, 1, 'creatures\\x\\idleanims', [hit_test(0, 3.0, True), hit_test(0, 4.0)])
+    arm = idle_rec(3, 2, 'creatures\\x\\idleanims\\arm.kf', [])
+    legs = idle_rec(4, 1, 'creatures\\x\\idleanims\\legs.kf', [hit_test(0x60, 7.0), hit_test(0xA0, 9.0)])
+    by_id = {int(r['FormID'], 16): r for r in (group, wings, arm, legs)}
+    assert reactions.locations(reactions.lineage(arm, by_id)) == [3, 4]
+    assert reactions.locations(reactions.lineage(legs, by_id)) == [7, 8, 9]
+    assert reactions.locations([idle_rec(5, 0, 'a.kf', [])]) == []
+
+
+def test_each_template_part_plays_the_hit_clip_of_the_fnv_part_on_its_bone(monkeypatch, tmp_path):
+    """A template part takes the clip FNV plays for the FNV part covering its bone, or for the same-named FNV part
+    when its bone is above them all (the template's torso on the root); one FNV has no clip for gets ''; the played
+    clips join the rig's clips under their roles."""
+    (tmp_path / 'idleanims').mkdir()
+    for name in ('torso.kf', 'leg.kf'):
+        (tmp_path / 'idleanims' / name).write_bytes(b'')
+    idles = (idle_rec(1, 0, 'creatures\\x\\IdleAnims\\Torso.kf', [hit_test(0, 0.0)]),
+             idle_rec(2, 0, 'creatures\\x\\IdleAnims\\Leg.kf', [hit_test(0, 7.0)]))
+    rig = Rig(folder='creatures\\x', project='X', template={}, clips={'Idle': 'mtidle.kf'}, attacks={}, parts={},
+              default_part='', pose_bones=())
+    bone = type('Bone', (), {})
+    bones = []
+    for name, parent in (('Root', -1), ('Spine', 0), ('LegL', 1), ('Head', 1)):
+        b = bone()
+        b.name, b.parent = name, parent
+        bones.append(b)
+    monkeypatch.setattr(records, 'fnv_parts', lambda folder: [('spine', 'Torso', 0), ('legl', 'Left Leg', 7),
+                                                              ('head', 'Head', 1)])
+    monkeypatch.setattr(records, 'template_parts', lambda rig, t: [(0, 'Root'), (1, 'Head'), (10, 'LegL')])
+    out = reactions.with_hits(rig, None, idles, bones, tmp_path)
+    assert out.hits == ((0, 'Hit_Torso'), (1, ''), (10, 'Hit_Leg'))
+    assert out.clips == {'Idle': 'mtidle.kf', 'Hit_Torso': 'IdleAnims\\Torso.kf', 'Hit_Leg': 'IdleAnims\\Leg.kf'}
+
+
+def test_a_hit_reaction_picks_its_clip_by_the_struck_part_type(monkeypatch):
+    """HitReaction selects on cHitReactionBodyPart (an 8-bit int, as the template's) over every part type up to the
+    highest: a part with a clip plays it, raising ReevaluateGraphState 0.2 s before its end; a part without one
+    plays a clip returning at once; one clip serves every part that plays it."""
+    rig = type('Rig', (), {'project': 'Test', 'hits': ((0, 'Hit_Torso'), (1, ''), (3, 'Hit_Torso')),
+                           'clips': {'Hit_Torso': 'x.kf'}})()
+    maker = behavior.Builder(rig, Path('.'), {}, None)
+    monkeypatch.setattr(maker, 'triggers', lambda role, cyclic: [])
+    g = maker.g
+    state = g.get(maker.hit_reaction())
+    assert (state['stateId'], state['name']) == (behavior.HIT_STATE, 'HitReaction')
+    selector = g.get(g.get(state['generator'])['generator'])
+    kids = selector['generators']
+    assert len(kids) == 4 and kids[0] == kids[3] != kids[1] == kids[2]
+    bind = g.get(selector['variableBindingSet'])['bindings'][0]
+    assert g.variables[bind['variableIndex']] == ('cHitReactionBodyPart', G.INT8, 0)
+    torso, none = g.get(kids[0]), g.get(kids[1])
+    back = g.get(torso['triggers'])['triggers'][0]
+    assert (back['localTime'], back['relativeToEndOfClip'], g.events[back['event']['id']]) == (
+        behavior.HIT_LEAD, 1, 'ReevaluateGraphState')
+    assert g.get(none['triggers'])['triggers'][0]['localTime'] == 0.0
 
 
 def test_a_dynamic_idle_plays_on_a_tagging_generator_and_returns_to_idle():

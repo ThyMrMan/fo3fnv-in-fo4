@@ -51,6 +51,10 @@ CONTRACT_AFTER = [('iSyncTurnState', G.INT32, 1), ('iIsInSneak', G.INT32, 0), ('
                   ('camerafromz', G.REAL, 0.0), ('iCombatState', G.INT32, 0), ('iSyncIdleLocomotion', G.INT32, 0)]
 ROOT_WILDCARDS = [('Ragdoll', 1), ('RagdollInstant', 1), ('g_InitializeGraph', 0), ('g_InitializeGraphInstant', 0),
                   ('DeathAnimation', 3)]
+#: The backward walk's clip role, and the events walking it and walking forward again (ActionMoveBackward, Forward).
+BACK, DIRECTION_EVENTS = 'WalkBackward', ('moveBackward', 'moveForward')
+#: The crippled-limb event, the root state it enters and the template's lead of its clips' ReevaluateGraphState.
+HIT_EVENT, HIT_STATE, HIT_LEAD = 'hitReactionStart', 2, -0.2
 #: The event a gun's fire IDLE sends, per equip slot (the robots' rightArmFireSingle and the like).
 FIRE_START = 'rangedAttackStart{}'
 LIMP = {'maxForce': 0.0, 'tau': 0.8, 'damping': 1.0, 'proportionalRecoveryVelocity': 2.0,
@@ -166,11 +170,19 @@ class Builder:
         return self.g.blend(f'{prefix}MoveBlend', kids, 'Speed', G.FLAG_SYNC | G.FLAG_PARAMETRIC)
 
     def locomotion(self, prefix: str, idle: str, talks: bool = False) -> str:
-        """Standing (0) and moving (1), starting where iSyncIdleLocomotion says; standing() with `talks`."""
+        """Standing (0) and moving (1), starting where iSyncIdleLocomotion says; standing() with `talks`; with a BACK
+        clip, walking backward (2) between DIRECTION_EVENTS, beside moving so the speed file's moving state stays.
+        See: docs/fork/fo4_own_rig.md#walk-back
+        """
         g = self.g
         fx = g.blend_effect(f'{prefix}MoveTransition', 0.2)
+        back, ahead = DIRECTION_EVENTS
+        backs = BACK in self.rig.clips
         states = [g.state(0, 'Standing', self.standing(prefix, idle, talks), to=[('moveStart', 1)], effect=fx),
-                  g.state(1, 'Moving', self.moving(prefix), to=[('moveStop', 0)], effect=fx)]
+                  g.state(1, 'Moving', self.moving(prefix), to=[('moveStop', 0)] + [(back, 2)] * backs, effect=fx)]
+        if backs:
+            states.append(g.state(2, 'MovingBackward', self.clip(BACK, G.LOOPING),
+                                  to=[('moveStop', 0), (ahead, 1)], effect=fx))
         start = g.bindings([('startStateId', ('iSyncIdleLocomotion', G.INT32, 0))])
         return g.machine(f'{prefix}LocomotionSM', states, 0, binding=start)
 
@@ -317,13 +329,33 @@ class Builder:
         body = g.add('hkbModifierGenerator', name='Death_MG', userData=1, generator=hold, modifier=mods)
         return g.state(3, 'DeathAnimation', body, enter=('AddRagdollToWorld',))
 
+    def hit_reaction(self) -> str:
+        """HitReaction (HIT_STATE), under bAnimationDriven: per cHitReactionBodyPart (the struck FO4 part type) its
+        rig.hits clip, raising ReevaluateGraphState HIT_LEAD before its end as the template's; a part without one
+        returns at once.
+        See: docs/fork/fo4_own_rig.md#hit-reactions
+        """
+        g, roles = self.g, dict(self.rig.hits)
+        back = (HIT_LEAD, 'ReevaluateGraphState', True)
+        clips = {role: self.clip(role, G.SINGLE, [back]) for role in sorted(set(roles.values()) - {''})}
+        none = g.clip('NoHitReaction', 'Animations\\CombatIdle.hkt', G.SINGLE, [(0.0, 'ReevaluateGraphState', False)])
+        kids = [clips.get(roles.get(part, ''), none) for part in range(max(roles) + 1)]
+        pick = g.bindings([('selectedGeneratorIndex', ('cHitReactionBodyPart', G.INT8, 0))])
+        selector = g.add('hkbManualSelectorGenerator', name='HitReactionMSG', generators=kids, variableBindingSet=pick)
+        body = g.with_modifiers('HitReaction', [g.is_active('HitReaction_AnimDriven', ['bAnimationDriven'])], selector)
+        return g.state(HIT_STATE, 'HitReaction', body)
+
     def build(self, template_names: tuple) -> G.Graph:
         """The finished root graph; `template_names` is (events, variables) to carry after its own."""
         g = self.g
         for v in CONTRACT + [(f'iState_{self.rig.project}', G.INT32, 0)] + CONTRACT_AFTER:
             g.var(*v)
         states = [g.state(0, 'Creature', self.creature()), self.ragdoll_and_getup(), self.death()]
-        machine = g.machine('Root', states, 0, ROOT_WILDCARDS, g.blend_effect('InstantBlend', 0.0))
+        wildcards = list(ROOT_WILDCARDS)
+        if self.rig.hits:
+            states.append(self.hit_reaction())
+            wildcards.append((HIT_EVENT, HIT_STATE))
+        machine = g.machine('Root', states, 0, wildcards, g.blend_effect('InstantBlend', 0.0))
         events, variables = template_names
         mine = {v[0] for v in g.variables}
         return g.finish(machine, events=[e for e in events if e not in g.events],

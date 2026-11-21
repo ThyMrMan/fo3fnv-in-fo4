@@ -240,7 +240,12 @@ scoped build of Vault 101 from it, as here.
 
 1. Play the spike: a new game from the main menu, through the birth, Baby
    Steps, the birthday, the G.O.A.T. and the escape to the vault door
-   ([what only play can check](#opening)).
+   ([what only play can check](#opening)). The story runs now play it
+   strict on the test machine ([cases](fo4_story_tests.md#cases)): through
+   the G.O.A.T. (its projector slides included) the cases pass; CG04's
+   walk to the vault door still sticks on its path (2026-11-21). The stage
+   sweep is down to waits it cannot meet
+   ([triage](fo4_test_layers_plan.md#unmet-waits)).
 2. The whole Capital Wasteland: `--world Wasteland --whole` and the
    reached worldspaces, as FNV's [whole map](fo4_pipeline.md#whole-map).
 3. Fallout 3's five DLC, as FNV's ([plugin layout](fo4_plugin_layout.md#dlc)).

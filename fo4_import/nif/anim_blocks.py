@@ -65,6 +65,18 @@ def pack_multi_target(b: dict) -> bytes:
     return _pack_controller(b) + struct.pack(f'<H{len(b["targets"])}i', len(b['targets']), *b['targets'])
 
 
+def read_transform_controller(r: Reader) -> dict:
+    """NiTransformController: controller, interpolator."""
+    out = _controller(r)
+    out['interpolator'] = r.take('i')
+    return out
+
+
+def pack_transform_controller(b: dict) -> bytes:
+    """NiTransformController's bytes."""
+    return _pack_controller(b) + struct.pack('<i', b['interpolator'])
+
+
 #: ControlledBlock at 20.2.0.7: interpolator, controller, priority, then five strings (_BLOCK_KEYS).
 _BLOCK = 'iiBiiiii'
 _BLOCK_KEYS = ('interpolator', 'controller', 'priority', 'node', 'property', 'controller_type', 'controller_id',
@@ -230,6 +242,7 @@ def pack_palette(b: dict) -> bytes:
 ANIM_BLOCKS = {
     'NiControllerManager': (read_manager, pack_manager),
     'NiMultiTargetTransformController': (read_multi_target, pack_multi_target),
+    'NiTransformController': (read_transform_controller, pack_transform_controller),
     'NiControllerSequence': (read_sequence, pack_sequence),
     'NiTransformInterpolator': (read_transform_interpolator, pack_transform_interpolator),
     'NiTransformData': (read_transform_data, pack_transform_data),

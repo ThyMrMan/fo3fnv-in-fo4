@@ -8,7 +8,7 @@ import struct
 
 from fo4_import.havok.packfile import ARRAYS, FLOATS, PRIM, Classes, classes
 
-BOOL, INT32, REAL = 0, 3, 4
+BOOL, INT8, INT32, REAL = 0, 1, 3, 4
 FLAG_SYNC, FLAG_PARAMETRIC = 0x1, 0x10
 LOOPING, SINGLE = 1, 0
 #: FLAG_IS_LOCAL_WILDCARD: on all of vanilla's wildcard transitions; Havok ignores a wildcard without it.
