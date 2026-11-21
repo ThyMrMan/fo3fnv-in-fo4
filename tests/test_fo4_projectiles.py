@@ -17,7 +17,8 @@ from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
 #: FalloutNV.esm and the DLCs whose projectiles the table names.
-FNV_PLUGINS = ('FalloutNV', 'GunRunnersArsenal', 'DeadMoney', 'HonestHearts', 'OldWorldBlues', 'LonesomeRoad')
+SOURCE_PLUGINS = ('FalloutNV', 'GunRunnersArsenal', 'DeadMoney', 'HonestHearts', 'OldWorldBlues', 'LonesomeRoad',
+                  'Fallout3')
 LASER, PLASMA, SLUG_PROJ, ODD = 0x14B0F, 0x15C2E, 0x157B5A, 0x99
 BEAM, BOLT, SHOT = 0x9C663, 0x125C9B, 0x1F674
 CELL, SLUG = 0x14B0E, 0x157B59
@@ -93,12 +94,12 @@ def test_without_override_drops_only_override_projectile():
 
 @pytest.mark.skipif(not FALLOUT4_ESM.exists(), reason='needs Fallout4.esm')
 def test_the_table_names_real_projectiles():
-    """Every target is a Fallout4.esm projectile; every key an FNV or FNV DLC one (when the exports are here)."""
+    """Every target is a Fallout4.esm projectile; every key an FNV, FNV DLC or FO3 one (when the exports are here)."""
     fo4 = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode('cp1252') for r, _ in walk(FALLOUT4_ESM.read_bytes(),
                                                                                                     b'PROJ')}
     table = P.load_table()
     assert set(table.values()) <= fo4
-    exports = [P.TABLE.parents[2] / 'export' / f'{name}.esm' for name in FNV_PLUGINS]
+    exports = [P.TABLE.parents[2] / 'export' / f'{name}.esm' for name in SOURCE_PLUGINS]
     if all((export / 'PROJ.txt').exists() for export in exports):
         assert set(table) <= {r['EditorID'] for export in exports for r in export_records(export, 'PROJ')}
 

@@ -134,6 +134,7 @@ class SourceInfo:
     raw: tuple = ()
     challenge: int = 0
     follow_ups: tuple = ()
+    result: str = ''
 
 
 def strip_comment(line: str) -> str:
@@ -348,6 +349,8 @@ class SourceGame:
         self.places, self.space_ids, self.parents = {}, {}, {}
         self.stages, self.stage_flags = {}, defaultdict(int)
         self.quest_conditions = {}
+        #: {(stage setter owner `Quest|stage`, log index as str): (result text, [decoded log conditions])}.
+        self.stage_logs = {}
         self.fallout = False
         self._read(export_dir)
 
@@ -484,22 +487,25 @@ class SourceGame:
             self.stages.setdefault(edid.lower(), []).append(stage)
             for j in range(get_int(rec, f'Stage[{i}].LogCount')):
                 self.stage_flags[(edid.lower(), stage)] |= get_int(rec, f'Stage[{i}].Log[{j}].Flags')
-                text = rec.get(f'Stage[{i}].Log[{j}].ResultScript', '')
+                text, log = rec.get(f'Stage[{i}].Log[{j}].ResultScript', ''), f'Stage[{i}].Log[{j}]'
+                self.stage_logs[(f'{edid}|{stage}', str(j))] = (text, [
+                    decode_condition(bytes.fromhex(rec[f'{log}.Condition[{k}].Raw']))
+                    for k in range(get_int(rec, f'{log}.ConditionCount')) if rec.get(f'{log}.Condition[{k}].Raw')])
                 self._add('stage', f'{edid}|{stage}', str(j), text)
                 if any(q.lower() == edid.lower() for code, _, _ in coded_lines(text) for q in STOPQUEST.findall(code)):
                     self.stops.add((edid.lower(), stage))
 
     def _read_info(self, rec: dict) -> None:
         """Record one INFO's setters, dialogue links and conditions."""
-        fid = int(rec['FormID'], 16)
-        self._add('info', rec['FormID'].upper(), '', info_result_script(rec))
+        fid, result = int(rec['FormID'], 16), info_result_script(rec)
+        self._add('info', rec['FormID'].upper(), '', result)
         self.prompts[fid] = get_str(rec, 'Prompt')
         raw = tuple(bytes.fromhex(rec[f'Condition[{i}].Raw']) for i in range(get_int(rec, 'ConditionCount'))
                     if rec.get(f'Condition[{i}].Raw'))
         self.infos[fid] = SourceInfo(fid, int(rec.get('ParentDIAL', '0'), 16),
                                      int(rec.get('QSTI.Quest', '0') or '0', 16), [decode_condition(d) for d in raw],
                                      _fids(rec, 'Choice'), _fids(rec, 'LinkFrom'), get_int(rec, 'DATA.Flags'), raw,
-                                     get_int(rec, 'DNAM.SpeechChallenge'), tuple(_fids(rec, 'FollowUp')))
+                                     get_int(rec, 'DNAM.SpeechChallenge'), tuple(_fids(rec, 'FollowUp')), result)
         self.external_topics.update(_fids(rec, 'AddTopic'))
 
     def _topics_named_by_scripts(self) -> None:

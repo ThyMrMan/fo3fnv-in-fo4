@@ -2,6 +2,7 @@
 
     errors [seconds] [script prefix ...]   # fail on errors converted scripts raised since the last errors or load
     check <step> [| note]                  # run any step; a failure is printed and kept, the case goes on
+    unmet <step> [| note]                  # check a wait on a setter the sweep cannot satisfy: kept apart, not failed
     load <sandbox save> [seconds]          # load a save mid-run, as the Load menu does
     report                                 # fail listing every check that failed in this run
 
@@ -102,6 +103,8 @@ class Sweep:
 
     errors: ErrorWindow
     failed: list = dataclasses.field(default_factory=list)
+    #: `unmet` steps that did not hold (note, step, why): waits on a need the sweep never meets, reported apart.
+    unmet: list = dataclasses.field(default_factory=list)
     checked: int = 0
     background: frozenset = frozenset()
     #: Notes whose talk broke at a gate step (GATES): the rest of that talk is cut short.
@@ -138,10 +141,11 @@ def errors(game, rest: str) -> None:
                                                      '; '.join('%dx %s' % (n, key) for key, n in found.items())))
 
 
-def check(game, rest: str, run_step) -> None:
-    """Runs step `<verb> <rest> [| note]` with `run_step`; a failure is printed and kept for `report`, not raised.
-    Once a gate step (GATES) of a note failed, that note's SKIPPED steps are skipped and its `heard` looks only
-    BROKEN_HEAR_SECONDS. See: docs/fork/fo4_test_layers_plan.md#fail-fast
+def check(game, rest: str, run_step, unmet: bool = False) -> None:
+    """Runs step `<verb> <rest> [| note]` with `run_step`; a failure is printed and kept for `report` (apart, with
+    `unmet`), not raised. Once a gate step (GATES) of a note failed, that note's SKIPPED steps are skipped and its
+    `heard` looks only BROKEN_HEAR_SECONDS.
+    See: docs/fork/fo4_test_layers_plan.md#fail-fast
     """
     step, _, note = (part.strip() for part in rest.partition(NOTE))
     verb, _, inner = step.partition(' ')
@@ -157,9 +161,9 @@ def check(game, rest: str, run_step) -> None:
     try:
         run_step(game, verb, inner.strip())
     except CaseFailed as err:
-        state.failed.append((note, step, str(err)))
+        (state.unmet if unmet else state.failed).append((note, step, str(err)))
         state.broken |= {note} if note and verb in GATES else set()
-        print('    CHECK FAILED %s: %s' % (note or step, err), flush=True)
+        print('    %s %s: %s' % ('UNMET' if unmet else 'CHECK FAILED', note or step, err), flush=True)
 
 
 def load(game, rest: str, ready) -> None:
@@ -199,8 +203,12 @@ def queue_load(bridge, save: str) -> None:
 
 
 def report(game) -> None:
-    """Fails listing every `check` that failed in this run (note, step, why); passes when none did."""
+    """Lists the `unmet` waits that did not hold, then fails listing every `check` that failed in this run (note,
+    step, why); passes when none did."""
     state = sweep_of(game)
+    if state.unmet:
+        print('    %d waits unmet, each on a need the sweep never meets:\n%s' % (len(state.unmet), '\n'.join(
+            '      %s: `%s`: %s' % entry for entry in state.unmet)), flush=True)
     if state.failed:
         raise CaseFailed('%d of %d checks failed:\n%s' % (len(state.failed), state.checked, '\n'.join(
             '      %s: `%s`: %s' % entry for entry in state.failed)))

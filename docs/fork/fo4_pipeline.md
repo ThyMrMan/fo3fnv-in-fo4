@@ -5753,6 +5753,17 @@ SET with value 2 = 440). So:
   its missile flies flat); missiles to `MissileProjectile`; the Fat Man to
   `FatManProjectile`. A target Fallout4.esm lacks fails the build; an FNV
   projectile left out is counted (`projectile not mapped`).
+- <a id="fo3-projectiles"></a>Fallout 3's own projectile names (2026-11-20,
+  19 entries; the build had counted all 19 as not mapped) follow the same
+  rules: .32 rounds to `Projectile38`, .44 to `Projectile45Caliber`, 5.56
+  and the sniper rifle's to `AssaultRifleProjectile`, the silenced 10mm to
+  `Projectile10mmSuppressor`, the Miss Launcher's lobbed shell to
+  `BroadsiderProjectile`, the MIRV and the satellite nuke (FNV's
+  `SatcomNukeProjectile` too) to `FatManProjectile`. Three have no FO4
+  counterpart and take the nearest look: the Rock-It Launcher the
+  `JunkJetProjectile` of the gun it is built on, the dart gun the
+  `SyringerProjectile`, the Mesmetron's slow bolt `PlasmaProjectileSmall`
+  (how FO3 paralyzes with it is not traced; this maps only the bolt).
 - A converted gun whose template is playable takes its FNV projectile's as
   its `FNAM` override and FNV's projectile count (`DNAM.ProjectileCount`)
   as `FNAM`'s; vanilla's splitters and plasma shotgun barrels multiply that

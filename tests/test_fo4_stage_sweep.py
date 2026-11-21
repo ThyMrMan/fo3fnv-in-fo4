@@ -299,6 +299,16 @@ def test_a_timer_wait_gives_the_timer_its_authored_length(plan):
     assert W.automatic(quest, entry, set())[0] == 60 + W.TIMER_MARGIN
 
 
+def test_a_wait_on_a_need_the_sweep_cannot_meet_is_unmet(plan):
+    """A timer setter with needs is waited for as `unmet`, naming them; without needs it stays a `check`."""
+    quest = plan['quests'][0]
+    entry = next(s for s in quest['stages'] if s['stage'] == 30)
+    assert W.stage_steps(quest, entry, set())[1].startswith('check alone')
+    entry['setters'][0]['needs'] = ['Player.GetInCell SomeCell']
+    assert W.stage_steps(quest, entry, set())[1].startswith('unmet alone')
+    assert W.stage_steps(quest, entry, set())[1].endswith('needing Player.GetInCell SomeCell')
+
+
 class Talker:
     """A bridge whose dialogue menu stays open until Tab is pressed, and whose stage is done once it closes."""
 

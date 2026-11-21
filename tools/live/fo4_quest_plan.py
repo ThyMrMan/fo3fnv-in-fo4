@@ -23,6 +23,7 @@ from types import SimpleNamespace
 from tes5_import.base.tes5_reader import records, subrecords, zstr
 from tes5_import.base.text_reader import get_str, parse_export_file
 from tools.live.fo4_quest_routes import Routes
+from tools.live.fo4_setter_needs import COUNTED, ELSEIF, ENDIF, IF, NUMBER_SET, Needs
 from tools.validate.fo4_quest_readiness import RECORD_PREFIX
 from tools.validate.preflight.quest_progression import reached_stages, source_live
 from tools.validate.preflight.quest_source import (COMPLETE, COMPLETE_QUEST, FAIL_QUEST, START, VARIABLE, SourceGame,
@@ -32,14 +33,8 @@ from tools.validate.preflight.quest_source import (COMPLETE, COMPLETE_QUEST, FAI
 TIMER = re.compile(r'\bgetsecondspassed\b', re.I)
 #: The script blocks a quest script's timer runs in.
 TIMER_BLOCKS = ('gamemode', 'menumode')
-#: A timer: `set t to t - GetSecondsPassed` (a countdown) or `+` (a count up): (variable, sign).
-COUNTED = re.compile(r'\bset\s+(\w+)\s+to\s+\(?\s*\1\s*([-+])\s*getsecondspassed', re.I)
 #: A count up's end: `t > 5` or `t >= 5`, a variable as `%s`.
 REACHES = r'\b%s\s*>=?\s*(\d+(?:\.\d+)?|\.\d+)'
-#: A number set to a variable on a code line, `set [quest.]var to 2.5`: (quest or '', var, number).
-NUMBER_SET = re.compile(r'\bset\s+(?:(\w+)\.)?(\w+)\s+to\s+(\d+(?:\.\d+)?|\.\d+)\s*$', re.I)
-#: The opener of an `if` frame, a branch of one, and its close, on a code line.
-IF, ELSEIF, ENDIF = re.compile(r'if\b', re.I), re.compile(r'elseif\b', re.I), re.compile(r'endif\b', re.I)
 #: Where the plan goes when --out is not given: under this, `<game>/quest_plan.json`.
 OUT_ROOT = Path('temp') / 'stage_sweep'
 
@@ -160,12 +155,16 @@ def script_fields(site, source, texts: dict, lengths: dict) -> dict:
     return out
 
 
-def setter(site, source, texts: dict, live, routes, depth: int = DEPTH, lengths: 'dict | None' = None) -> dict:
-    """One source setter as plan data: its kind, where it sits, its line, whether its container runs, and for a
-    line or an object script how a player makes it run (`routes`, fo4_quest_routes), with what it waits on
-    (prerequisites()) while `depth` lasts; `lengths` (timer_lengths()) times a timer."""
+def setter(site, source, texts: dict, live, routes, depth: int = DEPTH, lengths: 'dict | None' = None,
+           needs: 'Needs | None' = None) -> dict:
+    """One source setter as plan data: its kind, where it sits, its line, whether its container runs, what it
+    needs that the sweep cannot give (`needs`, when any), and for a line or an object script how a player makes it
+    run (`routes`, fo4_quest_routes), with what it waits on (prerequisites()) while `depth` lasts; `lengths`
+    (timer_lengths()) times a timer."""
     lengths = {} if lengths is None else lengths
     entry = {'kind': site.kind, 'line': site.raw, 'live': bool(live(site))}
+    unmet = needs.of(site) if needs else []
+    entry.update({'needs': unmet} if unmet else {})
     if site.kind == 'stage':
         quest, stage = site.owner.split('|')
         entry.update(quest=quest, stage=int(stage))
@@ -178,7 +177,7 @@ def setter(site, source, texts: dict, live, routes, depth: int = DEPTH, lengths:
     if entry['kind'] == 'object script':
         entry['route'] = routes.script(site.owner, site.part)
     if 'route' in entry:
-        prerequisites(entry, lambda sites: [setter(s, source, texts, live, routes, depth - 1, lengths)
+        prerequisites(entry, lambda sites: [setter(s, source, texts, live, routes, depth - 1, lengths, needs)
                                             for s in sites], source, depth)
     return entry
 
@@ -226,6 +225,7 @@ def build_plan(export_dir: Path, built: 'dict | None') -> dict:
     source = SourceGame(str(export_dir))
     reached, live = source_reached(source)
     texts, routes, lengths = script_texts(export_dir), Routes(source, export_dir), timer_lengths(source)
+    needs = Needs(source, texts, Path(export_dir).name)
     by_quest = {}
     for site in [*source.setters, *source.completers]:
         by_quest.setdefault(site.quest.lower(), {}).setdefault(site.stage, []).append(site)
@@ -235,7 +235,8 @@ def build_plan(export_dir: Path, built: 'dict | None') -> dict:
         if not (stages or START in sites or lower in source.start_enabled):
             continue
         entry = quest_entry(edid, stages, sites, reached, built,
-                            partial(setter, source=source, texts=texts, live=live, routes=routes, lengths=lengths))
+                            partial(setter, source=source, texts=texts, live=live, routes=routes, lengths=lengths,
+                                    needs=needs))
         entry['start_enabled'] = lower in source.start_enabled
         for stage in entry['stages']:
             stage['ends'] = stage_end(source.stage_flags[(lower, stage['stage'])])

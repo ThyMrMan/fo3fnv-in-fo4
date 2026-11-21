@@ -55,34 +55,45 @@ def how(setter: dict) -> str:
     return '%s %s %s' % (setter['kind'], setter['script'], setter['block'])
 
 
+def needed(setters: list) -> list:
+    """The first setter's needs when every one of `setters` has some; else []."""
+    return setters[0]['needs'] if all(s.get('needs') for s in setters) else []
+
+
 def automatic(quest: dict, entry: dict, before: set) -> tuple:
-    """(seconds, setter) when stage `entry` follows on its own: the result script of an earlier swept stage of the
-    quest (`before`: (quest lower, stage)) or the quest's timer sets it; else (0, ''). A timer is given its
-    longest authored length and TIMER_MARGIN, at least TIMER_SECONDS."""
+    """(seconds, setter, needs) when stage `entry` follows on its own: the result script of an earlier swept stage
+    of the quest (`before`: (quest lower, stage)) or the quest's timer sets it; else (0, '', []). A timer is given
+    its longest authored length and TIMER_MARGIN, at least TIMER_SECONDS; `needs` is needed()."""
     own = quest['source'].lower()
     live = [s for s in entry['setters'] if s['live'] and s.get('quest', '').lower() == own]
     by_stage = [s for s in live if s['kind'] == 'stage' and (own, s['stage']) in before]
     if by_stage:
-        return AUTO_SECONDS, "%s stage %d's result script" % (by_stage[0]['quest'], by_stage[0]['stage'])
+        return (AUTO_SECONDS, "%s stage %d's result script" % (by_stage[0]['quest'], by_stage[0]['stage']),
+                needed(by_stage))
     timers = [s for s in live if s['kind'] == 'timer']
     if timers:
         seconds = max(TIMER_SECONDS, max(s.get('seconds', 0) for s in timers) + TIMER_MARGIN)
-        return round(seconds), "%s's %s timer" % (timers[0]['script'], timers[0]['block'])
-    return 0, ''
+        return round(seconds), "%s's %s timer" % (timers[0]['script'], timers[0]['block']), needed(timers)
+    return 0, '', []
 
 
 def stage_steps(quest: dict, entry: dict, before: set) -> list:
-    """The case lines for one stage: a comment naming its setters, the wait when it follows on its own, the
-    setstage (skipped when the wait saw the stage set, as a second run would meet a stopped quest) and its checks."""
+    """The case lines for one stage: a comment naming its setters, the wait when it follows on its own (`unmet`, not
+    `check`, when its setter needs what the sweep cannot give), the setstage (skipped when the wait saw the stage
+    set, as a second run would meet a stopped quest) and its checks.
+    See: docs/fork/fo4_test_layers_plan.md#setter-needs
+    """
     fo4, stage = quest['fo4'], entry['stage']
     note, done = '%s stage %d' % (fo4, stage), 'GetStageDone %s %d == 1' % (fo4, stage)
     setters = '; '.join(how(s) for s in entry['setters'][:SHOWN]) or 'no setter in the source'
     more = ' and %d more' % (len(entry['setters']) - SHOWN) if len(entry['setters']) > SHOWN else ''
     lines = ['# stage %d, set by %s%s' % (stage, setters, more)]
-    seconds, by = automatic(quest, entry, before)
+    seconds, by, needs = automatic(quest, entry, before)
     setstage = 'run setstage %s %d' % (fo4, stage)
     if seconds:
-        lines.append('check alone %d %s | %s: not set by %s' % (seconds, done, note, by))
+        why = ', needing %s' % ' and '.join(needs) if needs else ''
+        lines.append('%s alone %d %s | %s: not set by %s%s' % ('unmet' if needs else 'check', seconds, done, note,
+                                                               by, why))
         setstage = 'unless %s | %s' % (done, setstage)
     return lines + [setstage,
                     'check until %d GetStageDone %s %d == 1 | %s' % (STAGE_SECONDS, fo4, stage, note),

@@ -556,6 +556,43 @@ is set, so they are flaky, not caused by the fix. The one-off "cannot
 speak a None topic info" `Say` errors move between stages and speakers from
 run to run (CG02 22/30/35, MS01 62).
 
+<a id="later-waits"></a>**The later quests' waits, triaged (run 9, 2026-11-20).** Run 9 left
+41 waits and no error check (CG03 40's walk-up bind, fixed after it:
+[walk-up before its quest](fo4_pipeline.md#walk-up-before-quest)). 26 are
+the [unmet waits](#unmet-waits) above. The other 15, read against the
+source around each SetStage, all wait on a condition the sweep never meets;
+none is a converter bug:
+- A kill or count: MS01 200 (mutants dealt with), MS04 45 (5 nest
+  guardians), MS04 50 (queen hit, Lesko dead), MS18 50 (5 mutants or every
+  Ranger dead), MS11 50 (stage 40's log entry that sets it is conditioned
+  on `GetDead` Mister Burke, so it passes only in runs where he died).
+- A place or sight: MS01 251 (player in an interior, away from Big Town a
+  day), MS04 20 (line of sight to Fred Wilks's body), MS18 20 (player in
+  Our Lady of Hope).
+- A scene state: MQ11 30 (Liberty Prime's activation, `PrimeActivate == 2`),
+  MS01 70 (a training scene finished), MS10 100/150 (the Treeminders
+  hostile, Harold burning), MS18 40 (the roof panel fixed).
+- A "function" stage: MS08 stage 1 sets `clue4` only for the clue type its
+  caller set first, so stage 20 stays unset with the defaults.
+
+<a id="setter-needs"></a>**Waits the sweep cannot meet, marked (built 2026-11-21, not yet
+run).** `tools/live/fo4_setter_needs.py` reads the conditions around each
+setter's SetStage (each enclosing `if`'s taken branch, and a stage log
+entry's own conditions) and the plan keeps the ones the sweep cannot meet
+as the setter's `needs`. A condition holds for the sweep when it tests a
+stage or a quest, a timer the script counts, a variable at 0 or at a value
+a stage result, a line or the setter's own script sets, or a function at
+the 0 it returns before anything happens. A `MenuMode <n>` block is a need;
+a plain `MenuMode` is not (CG00 0 and 61 pass under it). When every setter
+a wait would use has needs, the case writes `unmet` instead of `check`: the
+same wait, but a stage that does not come is listed apart in the report
+("waits unmet") and does not fail the run. On run 9's plan, 30 of the 41
+failed waits are marked, and none of the waits that passed. The other 11
+stay checks, on the cautious side: the start save (CG00 62, ControlRumble
+0), a plain MenuMode (CG01 0), a function that holds at 0 (CGTutorial 200
+and 218 test health and weapon condition below a value), and variables a
+script or line sets (CG03 30, MQ02 20, MQ11 30, MS01 70/200, MS10 150).
+
 Known limits:
 - The errors in a stage's window include those of any stage its fragment set
   in turn, and errors that reach the log more than 1 s late fall into the

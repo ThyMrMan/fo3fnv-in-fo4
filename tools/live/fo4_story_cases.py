@@ -66,7 +66,7 @@ QUEST = re.compile(r'GetStage(?:Done)?\s+(\w+)', re.IGNORECASE)
 #: Lines of the trace a failure snapshot repeats.
 SNAPSHOT_LINES = 12
 #: Steps that run another step, which fills in its own source records: a record missing fails only that step.
-WRAPPERS = ('unless', 'check')
+WRAPPERS = ('unless', 'check', 'unmet')
 #: `${NAME}`, or `${NAME=a:x,b:y}` choosing x or y by NAME's value.
 FILL = re.compile(r'\$\{(\w+)(?:=([^}]*))?\}')
 
@@ -397,6 +397,7 @@ def run_step(game: Game, verb: str, rest: str) -> None:
              'activate': lambda: activate(bridge, rest, front), 'look': lambda: aim(bridge, rest.split()[0]),
              'walk': lambda: walk(bridge, rest, front), 'shoot': lambda: shoot(bridge, rest, front),
              'errors': lambda: sweep.errors(game, rest), 'check': lambda: sweep.check(game, rest, run_step),
+             'unmet': lambda: sweep.check(game, rest, run_step, True),
              'load': lambda: sweep.load(game, rest, ready), 'report': lambda: sweep.report(game)}
     if verb not in steps:
         raise CaseFailed('unknown step %r' % verb)
