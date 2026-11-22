@@ -46,6 +46,12 @@ LEGACY_FORMATS = {b'DXT1': 71, b'DXT3': 74, b'DXT5': 77, b'ATI1': 80, b'BC4U': 8
 ISLAND_PADDING = 8
 #: Seconds texconv may take on one texture before the call fails.
 TEXCONV_TIMEOUT = 120
+#: Threads texel_map's k-d tree search splits its texels over (-1: every core); the result is the same for any count.
+QUERY_THREADS = -1
+#: Added to FNV's colour and its stock skin before their ratio (fnv_ratios), so near-black texels can't blow it up.
+RATIO_PAD = 8.0
+#: Texels per_texel works on at a time: small enough to stay in cache, so pooled workers don't fight over memory.
+CHUNK = 8192
 #: UV layouts (mesh and texture size) texel_cover keeps per process: each sex's face and rear head (a 1024 face: 37 MB).
 COVERS = 8
 
@@ -85,14 +91,35 @@ def fnv_texture(base_path: Path, egt_path: Path, fgts: np.ndarray) -> tuple:
     return base, _resized(egt_offset(egt_path.read_bytes(), fgts), base.shape[:2])
 
 
+def per_texel(fn, *arrays):
+    """fn(*arrays), for an fn that works row by row, run CHUNK rows at a time and joined (the same values).
+    See: docs/fork/fo4_facegen_plan.md#skin-speed
+    """
+    parts = [fn(*(a[i:i + CHUNK] for a in arrays)) for i in range(0, max(len(arrays[0]), 1), CHUNK)]
+    if isinstance(parts[0], tuple):
+        return tuple(np.concatenate(p) for p in zip(*parts))
+    return np.concatenate(parts)
+
+
 def bilinear(image: np.ndarray, uv: np.ndarray) -> np.ndarray:
     """Bilinear samples of `image` at UVs (u right, v down, 0..1)."""
-    h, w = image.shape[:2]
+    return per_texel(lambda part: sampled(image, bilinear_at(image.shape[:2], part)), uv)
+
+
+def bilinear_at(shape: tuple, uv: np.ndarray) -> tuple:
+    """(rows above, columns left, rows below, columns right, column weights, row weights) of bilinear samples at
+    UVs `uv` in an image of `shape` (rows, columns): sampled() takes them for any image of that shape."""
+    h, w = shape
     x = np.clip(uv[:, 0] * w - 0.5, 0, w - 1)
     y = np.clip(uv[:, 1] * h - 0.5, 0, h - 1)
     x0, y0 = np.floor(x).astype(int), np.floor(y).astype(int)
     x1, y1 = np.minimum(x0 + 1, w - 1), np.minimum(y0 + 1, h - 1)
-    fx, fy = (x - x0)[:, None], (y - y0)[:, None]
+    return y0, x0, y1, x1, (x - x0)[:, None], (y - y0)[:, None]
+
+
+def sampled(image: np.ndarray, at: tuple) -> np.ndarray:
+    """`image` sampled at bilinear_at()'s `at`."""
+    y0, x0, y1, x1, fx, fy = at
     top = image[y0, x0] * (1 - fx) + image[y0, x1] * fx
     bottom = image[y1, x0] * (1 - fx) + image[y1, x1] * fx
     return top * (1 - fy) + bottom * fy
@@ -103,7 +130,7 @@ def texel_points(points: np.ndarray, uv: np.ndarray, tris: np.ndarray, size: int
     See: docs/fork/fo4_facegen_plan.md#skin-speed
     """
     rows, cols, corners, bary = texel_cover(uv, tris, size)
-    return rows, cols, np.matmul(bary[:, None, :], points[corners])[:, 0]
+    return rows, cols, per_texel(lambda b, c: np.matmul(b[:, None, :], points[c])[:, 0], bary, corners)
 
 
 @functools.partial(by_content, kept=COVERS)
@@ -144,13 +171,18 @@ def texel_map(fo4: tuple, fnv_mesh: tuple, shape: tuple, frame: np.ndarray = Non
     mean, triangles, fnv_uvs = fnv_mesh
     fnv_surface = mean_surface(mean, triangles)
     s, r, t = align(points if frame is None else frame, mean, fnv_surface)
-    rows, cols, where = texel_points(points, uv, tris, shape[0])
+    rows, cols, where = shared_texel_points(points, uv, tris, shape[0])
     placed = s * where @ r.T + t
-    _, idx = point_tree(fnv_surface[0]).query(placed)
-    owner = triangles[fnv_surface[1][idx]]
-    bary = projected(placed, mean[owner])
-    fnv_uv = (bary[:, :, None] * fnv_uvs[owner]).sum(1)
+    _, idx = point_tree(fnv_surface[0]).query(placed, workers=QUERY_THREADS)
+    fnv_uv = per_texel(functools.partial(surface_uv, (mean, triangles[fnv_surface[1]], fnv_uvs)), placed, idx)
     return rows, cols, fnv_uv, padding(rows, cols, shape)
+
+
+def surface_uv(mesh: tuple, placed: np.ndarray, idx: np.ndarray) -> np.ndarray:
+    """UVs of `placed` on `mesh` = (vertices, triangles, UVs) at its triangles `idx`."""
+    vertices, triangles, uvs = mesh
+    owner = triangles[idx]
+    return (projected(placed, vertices[owner])[:, :, None] * uvs[owner]).sum(1)
 
 
 def projected(points: np.ndarray, corners: np.ndarray) -> np.ndarray:
@@ -182,14 +214,29 @@ def island_padding(rows: np.ndarray, cols: np.ndarray, shape: tuple) -> tuple:
 padding = by_content(island_padding)
 
 
+def fnv_ratios(pieces: tuple, fnv_uv: np.ndarray) -> tuple:
+    """_ratios at FNV UVs `fnv_uv`, worked per_texel."""
+    return per_texel(functools.partial(_ratios, pieces), fnv_uv)
+
+
+def _ratios(pieces: tuple, fnv_uv: np.ndarray) -> tuple:
+    """(FNV's colour with its FaceGen offset, and with its race skin too, each over its stock skin, all plus
+    RATIO_PAD) at FNV UVs `fnv_uv`; pieces as face_colours takes them.
+    See: docs/fork/fo4_look_races_plan.md#face
+    """
+    base, offset, skin = pieces
+    at = functools.cache(lambda shape: bilinear_at(shape, fnv_uv))
+    stock = sampled(base, at(base.shape[:2])) + RATIO_PAD
+    shifted = np.maximum(stock + sampled(offset, at(offset.shape[:2])), 1.0)
+    raced = shifted if skin is None else np.maximum(shifted + sampled(skin, at(skin.shape[:2])), 1.0)
+    return shifted / stock, raced / stock
+
+
 def face_colours(fo4_image: np.ndarray, fo4: tuple, fnv: FnvHead, pieces: tuple, variant: str) -> tuple:
     """(FO4's face texture `fo4_image` (RGB or RGBA, any size) as floats with `variant`'s FNV colour on its face
-    texels, the skin tone scale it needs, texel_map's padding).
-
-    The game tints face and body by the skin tone, so the FaceGen colour's
-    overall shift goes into it: the texture is scaled back per channel to
-    FO4's median over the face. Both add the race's own skin after (FNV
-    draws it on the face only).
+    texels, the skin tone scale it needs, texel_map's padding). T1 scales FO4's face by fnv_ratios, so FO4's
+    features keep their hue; T2 puts FNV's colour in place. The FaceGen colour's overall shift goes into the
+    tone; the race's own skin is added after (FNV draws it on the face only).
     pieces = (stock skin, FaceGen offset, race skin minus stock or None).
     See: docs/fork/fo4_facegen_plan.md#race-skin
     """
@@ -197,11 +244,15 @@ def face_colours(fo4_image: np.ndarray, fo4: tuple, fnv: FnvHead, pieces: tuple,
     rows, cols, fnv_uv, edge = texel_map(fo4, (fnv.mean, fnv.triangles, fnv.uvs), fo4_image.shape[:2])
     out = fo4_image.astype(float)
     fo4_median = np.median(out[rows, cols, :3], 0)
-    whole = None if variant == 'T1' else base + offset
-    out[rows, cols, :3] = bilinear(offset, fnv_uv) + out[rows, cols, :3] if whole is None else bilinear(whole, fnv_uv)
-    tone = np.median(out[rows, cols, :3], 0) / fo4_median
-    if skin is not None:
-        out[rows, cols, :3] += bilinear(skin, fnv_uv)
+    if variant == 'T1':
+        shifted, raced = fnv_ratios(pieces, fnv_uv)
+        out[rows, cols, :3] *= shifted
+        tone = np.median(out[rows, cols, :3], 0) / fo4_median
+        out[rows, cols, :3] *= raced / shifted
+    else:
+        out[rows, cols, :3] = bilinear(base + offset, fnv_uv)
+        tone = np.median(out[rows, cols, :3], 0) / fo4_median
+        out[rows, cols, :3] += 0 if skin is None else bilinear(skin, fnv_uv)
     out[rows, cols, :3] /= tone
     return out, tone, edge
 

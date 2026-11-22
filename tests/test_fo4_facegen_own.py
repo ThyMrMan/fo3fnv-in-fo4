@@ -215,31 +215,33 @@ def test_another_npcs_record_does_not_remake_a_face(tmp_path, monkeypatch):
 
 
 def test_the_second_pass_writes_head_meshes_only(tmp_path, monkeypatch):
-    """heads() over every NPC asks for face textures; over the refitted forms, FaceGeom NIFs only.
+    """heads() over every NPC asks for face textures, all but the _d of a fitted NPC the skin step draws again; over
+    the refitted forms, FaceGeom NIFs only.
 
     See: docs/fork/fo4_facegen_plan.md#second-pass
     """
     asked = []
     monkeypatch.setattr(facegen_skin, 'pool', lambda job, work, forms: [work(f) for f in forms])
     monkeypatch.setattr(facegen_skin, 'shared', lambda: {'src': None, 'plugin': 'p.esp', 'data': tmp_path})
+    monkeypatch.setattr(facegen_skin, 'fitted_npcs', lambda path, export: [facegen_skin.Face(0x802, 'a', False, False)])
     monkeypatch.setattr(facegen_own, 'write_face', lambda *a: asked.append(a[4]) or facegen_own.WRITTEN)
-    monkeypatch.setattr(facegen_own, 'own_npcs', lambda path: [0x801])
+    monkeypatch.setattr(facegen_own, 'own_npcs', lambda path: [0x801, 0x802])
     monkeypatch.setattr(facegen, 'clear', lambda plugin, data_dir: None)
     job = (None, tmp_path, 'p.esp', None)
     facegen.heads(job, True)
     facegen.heads(job, True, [0x800])
-    assert asked == [True, False]
+    assert asked == [('d', 'msn', 's'), ('msn', 's'), ()]
 
 
 def test_a_mesh_only_face_keeps_its_own_entry(tmp_path, monkeypatch):
     """With and without textures, one NPC's faces are kept apart: neither pass takes the other's files."""
     monkeypatch.setattr(work_cache, 'CACHE', tmp_path / 'cache')
     monkeypatch.setattr(facegen_own, 'texconv', lambda: 'texconv')
-    monkeypatch.setattr(facegen_own, 'face_files', lambda src, plugin, form_id, textures: {'f': bytes([textures])})
+    monkeypatch.setattr(facegen_own, 'face_files', lambda src, plugin, form_id, kinds: {'f': bytes([len(kinds)])})
     src = _Src({}, {('p.esp', 0x800): Rec('p.esp', b'NPC_', [(b'ACBS', b'a')])})
     for _ in range(2):
-        assert facegen_own.cached_files(src, 'p.esp', 0x800, True)[0] == {'f': bytes([1])}
-        assert facegen_own.cached_files(src, 'p.esp', 0x800, False)[0] == {'f': bytes([0])}
+        assert facegen_own.cached_files(src, 'p.esp', 0x800, ('d', 'msn', 's'))[0] == {'f': bytes([3])}
+        assert facegen_own.cached_files(src, 'p.esp', 0x800, ())[0] == {'f': bytes([0])}
 
 
 def test_a_failed_ck_fallback_is_reported_and_our_heads_kept(tmp_path, monkeypatch):

@@ -34,6 +34,11 @@ FNV_EYE_PART = 6
 HAIR_LAYER = 2
 #: Per race head part key, the head texture FNV's playable races share: the skin FO4's face bases stand for.
 STOCK_SKIN = {'MalePart[0]': 'characters\\male\\headhuman.dds', 'FemalePart[0]': 'characters\\female\\headhuman.dds'}
+#: Per race body part key, the body texture FNV's playable races share: what race_shade measures a race against.
+STOCK_BODY = {'MalePart[0]': 'characters\\male\\upperbodymale.dds',
+              'FemalePart[0]': 'characters\\female\\upperbodyfemale.dds'}
+#: A stock texel no brighter than this in every channel is padding outside the UV islands, not skin.
+PADDING_LEVEL = 16
 
 
 @dataclass
@@ -93,6 +98,27 @@ def fnv_face(export_dir: Path, edid: str) -> tuple:
     return fnv, (stock, offset, skin - stock)
 
 
+def race_shade(export_dir: Path, edid: str) -> np.ndarray:
+    """Per channel, FNV NPC `edid`'s race body texture over the stock body (STOCK_BODY): the race's overall
+    shade, which the skin tone carries; ones for a race on the stock body.
+    See: docs/fork/fo4_look_races_plan.md#face
+    """
+    _, race, part = npc_race(export_dir, edid)
+    textures = race.get(part + '.Texture')
+    stock = asset(export_dir, 'textures', STOCK_BODY[part])
+    body = asset(export_dir, 'textures', textures[1]) if isinstance(textures, list) and len(textures) > 1 else stock
+    return np.ones(3) if body == stock or not body.is_file() else body_shade(body, stock)
+
+
+@cache
+def body_shade(body: Path, stock: Path) -> np.ndarray:
+    """Per channel, the median of `body` over the median of `stock` (resized to it), on `stock`'s skin texels."""
+    race = rgb(body)
+    clean = rgb(stock, race.shape[:2])
+    skin = clean.max(2) > PADDING_LEVEL
+    return np.median(race[skin], 0) / np.median(clean[skin], 0)
+
+
 def fnv_shine(export_dir: Path, edid: str) -> np.ndarray:
     """FNV NPC `edid`'s skin shine as an FO4 specular map image (spec_image, float) in its head's UVs: the alpha
     of the race head texture's normal map (else the head mesh's own) at the head material's glossiness.
@@ -104,7 +130,7 @@ def fnv_shine(export_dir: Path, edid: str) -> np.ndarray:
     normal = asset(export_dir, 'textures', first(race[part + '.Texture'])[:-4] + '_n.dds')
     if not normal.is_file():
         textures = next(b.textures for b in blocks if type(b).__name__ == 'BSShaderTextureSet')
-        normal = asset(export_dir, '', str(textures[1]))
+        normal = asset(export_dir, '', textures[1].decode())
     return spec_image(normal.read_bytes(), smoothness(glossiness)).astype(float)
 
 

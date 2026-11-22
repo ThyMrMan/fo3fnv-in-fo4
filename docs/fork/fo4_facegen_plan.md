@@ -207,6 +207,93 @@ swap lists; xEdit `wbDefinitionsFO4.pas`), present in Fallout4.esm's ARMAs.
 Unverified in game: that an outfit's bare skin takes the wearer's skin
 texture through them.
 
+<a id="race-skins"></a>**Built: raider races on FO4's dirty skin (2026-11-21,
+not yet played).** Census of each exported race's body (the second
+`{sex}Part[0]` entry; the export lists head parts, then body parts, under
+the same keys):
+
+| Body texture | Races | NPCs |
+|---|---|---|
+| Stock (`characters\male\upperbodymale.dds`, `female\upperbodyfemale.dds`) | the playable races, Old and OldAged, DM's Christine, OWB's Lobotomites | most |
+| Raider (`characters\raider\…`, `raiderfemale\…`) | four Raider races | FNV 538, FO3 214 |
+| Ghoul, child | own routes (ghoul and child bodies) | |
+| Their own (HH's six tribes, LR's MarkedMenGhoul, NVWillow) | step 2: a skin per race | HH 159, LR 84 |
+
+FNV's Old and OldAged races use the stock body: only their heads are aged
+([age face set](#age-face-set)), so they get no old skin. Fallout4.esm's
+human skins name their textures in the body addon (`NAM0`/`NAM1`):
+`SkinRaider` (19 NPCs) uses SkinNaked's clean textures, and only
+`SkinNakedDirty` (337) has dirty ones. FNV's raider body is its stock body
+darkened by 46 (male) and 39 (female) of 255, at 256 px; FO4's dirty body is
+its clean one darkened by 11 and 13. So `npcs.RACE_SKINS` maps both raider
+textures to `SkinNakedDirty`, given as `WNAM` to the converted human of
+such a race (`Npcs._skin`), before the tags vanilla's 1,162 `WNAM` come
+right before. The faces stage's neck fade reads the NPC's skin, so their
+faces blend into the dirty body.
+
+<a id="skin-swap-test"></a>**Test plugin: does an outfit's bare skin take
+the wearer's skin? (2026-11-21, played: no).** Only 22 of
+Fallout4.esm's 739 `ARMA` set a skin texture (`NAM0`/`NAM1`): the naked
+bodies and hands, synths, and one piece of clothing (Cait's bandolier,
+`SkinBodyMale_1`). Vanilla's raider harness
+(`Armor_GunnerRaider_Underwear2`) draws its bare skin the way our
+converted outfits do, a shader type 5 shape on the clean `FemaleBody_d.dds`,
+and the dirty-skinned raiders wear it. `spike.skin_swap_test` writes
+`F3NV_SkinSwapTest.esl` (masters Fallout4.esm, FalloutHelpers.esl,
+FalloutNV.esm) with five copies of DoctorAmari that stand where placed:
+
+| NPC | Skin | Outfit | Shows |
+|---|---|---|---|
+| Skin test 1 | clean | FNV's prewar negligee | the control |
+| Skin test 2 | SkinNakedDirty | the negligee | whether our outfit's skin takes the wearer's |
+| Skin test 3 | clean | a negligee copy whose addon names the dirty body textures | whether the addon's fields drive it |
+| Skin test 4 | clean | vanilla's harness | vanilla's control |
+| Skin test 5 | SkinNakedDirty | the harness | what vanilla does |
+
+If 5 is dirty and 2 is not, our outfits miss what vanilla's have; if both
+are, race skins carry into outfits for free; if 3 is dirty, an outfit can
+name a race's skin itself. Their faces may draw dark: the copies have no
+FaceGen, which doesn't touch the body.
+
+**Played (user, 2026-11-21): only test 3 is dirty.** 2 and 5 draw clean
+bare skin. The wearer's skin (`WNAM`) never reaches an outfit's
+bare-skin parts, not even vanilla's harness. Only the outfit's own addon
+fields (`NAM0`/`NAM1`) change them, as Cait's bandolier does. So vanilla's
+337 dirty raiders look dirty only when stripped, and so do ours (step 1,
+[race-skins](#race-skins)). One catch: the skin step fades a face's neck
+into its skin's body texture (`facegeom.body_addon` reads `WNAM`). A
+clothed raider's face is therefore faded to the dirty body while the
+outfit around the neck draws the clean one.
+
+**FNV does carry the wearer's skin into outfits.**
+`BipedAnimHelper::ApplySkinTextures` (`references/fnv_decomp`,
+`bipedanim.cpp`, FNV 0x004AF490) walks every shape of each equipped biped
+model. It sets texture 0 to the race's body texture for the NPC
+(`TESRace::GetSkinTextures`) on every lighting property with flag bit 10
+whose shape name starts with one of five skin names
+(`GetBipedObjectFromShaderProperty`: upper body or a hand). FNV's
+`armor\raiderarmor04\outfitm.nif` has one such shape, `Arms01` (shader
+type 14 `SHADER_SKIN`, flags `82000403`), authored on the stock
+`characters\male\UpperBodyMale.dds`; `outfitf.nif` is the same with the
+female body. So in FNV a clothed raider's bare arms are dirty. FO3 has the
+same raider races (the head and body textures above).
+
+Fallout 4 has no such swap. In Fallout4.esm the only addons naming a skin
+texture are the skins' own (naked, old, ghoul, child, synth), Cait's
+bandolier and the BoS officer's under-armor (`SkinBodyMale_1`). Each names
+one fixed texture for every race it serves. The DLC masters add none
+dirty either: Far Harbor's Chase jacket, Nuka-World's glowing ghoul and
+animatronic skins, and Vault-Tec Workshop's armor-rack mannequin. A dirty
+raider stays dirty only where the skin itself draws: the body when stripped,
+and the hands (`NakedHandsDirty`, `SkinNakedDirty`'s hand addon), which most
+outfits leave bare. One addon field differs: three synth arm pieces
+(`AA_Synth_LArm_*`) name a "Skin Texture Swap List" (`NAM2`), and its one
+entry is the material swap `SynthArmorDirty`. That swap dirties the armor's
+own materials, not the skin. When the engine applies it is undocumented (the
+CK wiki lists the field bare) and not yet traced. So matching FNV means outfit
+addons that name the dirty textures (test 3's mechanism), worn only by
+dirty-skinned NPCs.
+
 **Order:** phase 1 (write the FaceGeom NIF ourselves, checked against a CK
 export), then phase 2 (shape) and phase 3 (texture) together, since
 Willow's look needs both; phase 4 (hair and head parts); then race bodies,
@@ -1470,6 +1557,78 @@ Planned once the step times and miss reasons are in (not built):
    change, and lose to a mod's later override.
 3. **The heads' cache key**, fixed by what the miss reasons show.
 
+#### <a id="skin-cache"></a>The skin step kept per NPC (2026-11-21)
+
+The 2026-11-14 and 11-15 chain runs took 1,208 and 1,235 s for the faces
+stage, of which the skin step took 1,021 and 1,056 s (85%). Their heads
+came almost all from the work cache (2,380 and 2,381 of 2,382), but the
+skin redrew every face. `facegen_skin_cache.skin_face` now keeps each
+NPC's skin in the work cache (site `face_skin`):
+
+- **Key:** the NPC record, its plugin's masters, texconv, the skin tone
+  templates, and the bytes of the FaceGeom NIF and face textures the heads
+  step left. The skin reads those and rewrites them in place.
+- **Checked on use:** the profile's records and files it read
+  (`Sources.seen`, as the heads cache), and the export's files: head
+  meshes, `.egt`, race skins, brow and hair textures, found by record.
+  `pipeline.file_access` records them through Python's `open` audit event.
+  Reads accumulate per process, so an entry also lists what earlier faces
+  in its worker read into a memo. The temp folder (texconv's hand-offs),
+  code, and every folder `Sources` reads (the profile's mod folders and the
+  game's Data, which `Sources.seen` already covers) are left out. Hashing
+  those too ran a DLC's or mod's faces out of memory: each worker read its
+  master's multi-gigabyte archives whole (Better Brotherhood, 2026-11-21).
+- **Kept:** every file the skin wrote under the mod folder (face `_d`, own
+  face sets' `_s`, the rear head texture, the FaceGeom NIF) and the skin
+  tone the plugin patch takes.
+
+#### <a id="addon-faces"></a>Faces for the DLC and mods (2026-11-21)
+
+The chain ran the faces stage for `FalloutNV.esm` only, so every DLC, pack
+and mod NPC had no FaceGen and the game drew it from the record. The stage
+itself works on a plugin with masters: on a scratch copy of Dead Money it
+wrote 63 heads (46 NPCs not exported, as the CK), refit and skinned 19,
+and failed none, in 81 s.
+
+- **Which plugins:** `build_plan.faces_due` runs the stage for a built
+  plugin whose faces never ran when it has a fitted NPC (`facegen.fitted`:
+  an `NPC_` with sculpt regions), with arguments from its build stamp's
+  `--export`. As before, it runs again after a rebuild (`faces_stale`).
+  When a master's faces ran after its own, only its overrides step runs
+  again, since it takes their patches (below,
+  [faces-as-built](#faces-as-built)).
+- **Profile:** the stage reads records and files through an MO2 profile,
+  so the plugin's masters must be enabled in it. `F3NV_MO2_PROFILE` names
+  the profile; otherwise MO2's selected one is used. The CK fallback runs
+  in the same profile (`ModOrganizer.exe -p`).
+- **Overridden NPCs:** the stage patches sliders and skin tone (FMRS,
+  MSDV, QNAM, TEND) only into the records of the plugin that adds an NPC,
+  and FO4 draws an override with that plugin's FaceGen. Before this, an
+  add-on's override kept its unpatched values, so its tone missed its
+  FaceGen: measured on the built plugins, YUP's 267 `NPC_` overrides had
+  191 with face fields unlike FalloutNV's (118 QNAM and TEND), Goodies 12
+  of 40, NVBII 3 of 3, Dead Money 2 of 2. `facegen_inherit` (the stage's
+  last step before packing) copies the adding plugin's patched values into
+  every converted face (`FMRI`) the plugin overrides, so it matches the
+  FaceGen drawn. On scratch copies all of YUP's 209 and Goodies' 21 fitted
+  overrides then equal their master's. FO4 FormIDs are hashed, so the FNV
+  records pair by EditorID.
+- **Overrides that change a face** are reported: their authored FNV face
+  (`face_fits.FIT_FIELDS`, sex, head parts) differs from the adding
+  plugin's. YUP has 23 (21 hair length, 2 eyes). They get the adding
+  plugin's values too, matching the FaceGen they are drawn with. Drawing
+  their own face needs FaceGen under the adding plugin's folder name in
+  the overriding mod, which nothing builds yet. An override the FNV plugin
+  does not hold (Dead Money's two) was made by the converter from the
+  master's record, so its face is the master's.
+
+**Skin cache, measured** on the scratch Dead Money (19 skinned faces), each
+run from the unpatched built plugin: the plugin and all 63 FaceGen files
+were byte-identical with the cache empty and full. The skin step took
+29.1 s empty and 19.4 s full. What remains is the workers' start (each
+builds the profile's `Sources`), a fixed cost that the 2,382-face base
+game spreads thin.
+
 ### <a id="ck-face-shader"></a>The CK's face bake, read from its shader (2026-11-12)
 
 The two rules the sections above left out (the lips and the island) and
@@ -1727,6 +1886,27 @@ green gives 2.9; the decoded rule, 0.9.
   `build_plan --run` runs a stale plugin's faces again with the recorded
   arguments before planning and right after each rebuild, and
   `tools/release/fo4_chain.py` does the same for its faces step.
+- <a id="faces-as-built"></a>**Every run starts from the plugin as built
+  (2026-11-21).** The refit, skin and overrides steps patch the plugin in
+  place, and a rerun on the same build used to read those patches back.
+  That had two effects:
+  - **Cache misses:** the heads and skin caches key on the NPC record, so
+    they missed. The rerun of 20 New Vegas add-ons, none of them rebuilt,
+    took about 53 minutes: Goodies drew 43 of 54 heads again and took
+    none of its 43 skins from the cache.
+  - **Double refit:** the refit started from its own last answer.
+
+  The stage's first act (`facegen.as_built`, before the `running` stamp)
+  now copies a freshly built plugin to `<plugin>.built` beside the faces
+  stamp, with `<plugin>.built.txt` naming that build. A later run on the
+  same build copies it back first. A plugin that some faces run already
+  patched before this existed has no copy, and the stage says so. Its next
+  rebuild makes one.
+- **A master's faces running later reruns only the overrides step.** That
+  step is the only one reading the master's faces. `build_plan.faces_due`
+  passes `--overrides-only`, which runs `facegen_inherit` on the plugin as
+  the last run left it, and skips the restore, heads, skin and packing. The
+  stamp keeps the full arguments, so a later stale run is a full run.
 
 ## <a id="benefits"></a>What it would give
 

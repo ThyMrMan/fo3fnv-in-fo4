@@ -19,8 +19,8 @@ from PIL import Image
 
 from fo4_import.face import facegeom
 
-#: xEdit's TETI slot enum: Skin Tone, Brows.
-SKIN_TONE_SLOT, BROW_SLOT = 12, 23
+#: xEdit's TETI slot enum: Neck (a mask), Skin Tone, Brows.
+NECK_SLOT, SKIN_TONE_SLOT, BROW_SLOT = 6, 12, 23
 #: Blend operations (TTEB, TTEC): Default (the layer replaces), Multiply, Overlay, Soft Light, Hard Light.
 DEFAULT, MULTIPLY, OVERLAY, SOFT_LIGHT, HARD_LIGHT = range(5)
 #: NPC TETI data type of a layer with a colour (the other, 2, is value-only).
@@ -107,6 +107,13 @@ def race_options(race: facegeom.Rec, female: bool) -> dict:
         elif current is not None:
             _option_fields(current, tag, data)
     return {index: Option(**fields) for index, fields in out.items()}
+
+
+def neck_mask(src: facegeom.Sources, race: facegeom.Rec, female: bool, size: int) -> np.ndarray:
+    """The race's NECK_SLOT mask, 0..1 at `size` square; zeros without one."""
+    options = race_options(race, female).values()
+    path = next((o.texture for o in options if o.slot == NECK_SLOT and o.texture), '')
+    return texture(src, path, size)[..., RED] if path else np.zeros((size, size), np.float32)
 
 
 def npc_layers(npc: facegeom.Rec) -> list:

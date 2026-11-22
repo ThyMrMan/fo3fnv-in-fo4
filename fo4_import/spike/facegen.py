@@ -8,7 +8,7 @@ from where MO2 put them (creation_kit) into the mod folder. Each fitted NPC's
 sliders are refitted to that export's miss (facegen_skin.refine) and the CK
 exports again. The face textures (2048 square, one mip) are re-encoded at
 vanilla's sizes and formats with full mips, then each fitted NPC gets FNV's
-skin, its rear head texture and skin tone (facegen_skin.skin). Last, the
+skin, its rear head texture and skin tone (facegen_skin_cache.skin). Last, the
 FaceGeom NIFs go into the plugin's Main archive and the face textures into
 its Textures archive, as vanilla ships both, and the loose copies leave the
 mod folder (the build's own come back first, so the Main archive keeps them).
@@ -48,9 +48,9 @@ from fo4_import.nif import file as nif_file
 from fo4_import.pipeline import creation_kit
 from fo4_import.pipeline.build_steps import stamp_path
 from fo4_import.pipeline.stage_timer import charged, report, sample
-from fo4_import.spike import facegen_own, facegen_skin
+from fo4_import.spike import facegen_inherit, facegen_own, facegen_skin, facegen_skin_cache
 from fo4_import.spike.imagespace import LUT_FOLDER
-from tes5_import.base.tes5_reader import walk
+from tes5_import.base.tes5_reader import subrecords, walk
 
 #: The CK's export target: X64, since W32 writes hair cloth physics the 64-bit game misreads (see the module doc).
 CK_TARGET = 'X64'
@@ -65,11 +65,20 @@ CK_TIMEOUT, CK_FACE_SECONDS = 900, 6.0
 FACES_SUFFIX = '.faces.json'
 #: How a CK fallback that left NPCs without FaceGen starts its report line (the stage then fails).
 FALLBACK_FAILED = 'CK fallback failed'
+#: The plugin as its build wrote it, kept beside the faces stamp, and the file naming which build that copy is.
+BUILT_SUFFIX, BUILT_OF_SUFFIX = '.built', '.built.txt'
+#: The argument running only the overrides step (build_plan, when only a master's faces ran since).
+OVERRIDES_ONLY = '--overrides-only'
 
 
 def npc_count(plugin_path: Path) -> int:
     """How many NPC_ records the plugin at `plugin_path` holds."""
     return sum(1 for _ in walk(plugin_path.read_bytes(), b'NPC_', bodies=()))
+
+
+def fitted(plugin_path: Path) -> bool:
+    """Whether the plugin holds an NPC_ with sculpt regions (FMRI)."""
+    return any(tag == b'FMRI' for rec, _ in walk(plugin_path.read_bytes(), b'NPC_') for tag, _ in subrecords(rec.body))
 
 
 def ck_timeout(faces: int) -> float:
@@ -125,6 +134,26 @@ def faces_stale(plugin_path: Path) -> 'str | None':
     if kept.get('base_build') != now:
         return f'its faces ran on build {kept.get("base_build")}, the plugin is now build {now}'
     return None
+
+
+def as_built(plugin_path: Path) -> str:
+    """Put the plugin back as its build wrote it, from the copy kept of this build, before this stage patches it;
+    keep that copy when no faces run has patched this build yet. What was done.
+    See: docs/fork/fo4_facegen_plan.md#faces-as-built
+    """
+    now, kept = base_build(plugin_path), faces_path(plugin_path)
+    copy, of = kept.with_name(plugin_path.name + BUILT_SUFFIX), kept.with_name(plugin_path.name + BUILT_OF_SUFFIX)
+    if now is None:
+        return 'no finished build: the plugin as it is'
+    if copy.is_file() and of.is_file() and of.read_text(encoding='utf-8') == now:
+        shutil.copyfile(copy, plugin_path)
+        return 'restored from the copy of its build'
+    if (faces_stamp(plugin_path) or {}).get('base_build') == now:
+        return 'already patched by a faces run on this build, no copy kept: rebuild it to start from its build'
+    copy.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(plugin_path, copy)
+    of.write_text(now, encoding='utf-8')
+    return 'as built, copy kept'
 
 
 def expected_faces(plugin: str, data_dir: Path) -> set:
@@ -292,11 +321,11 @@ def fallback(plugin: str, data_dir: Path, failed: dict) -> list:
     return lines
 
 
-def own_export(job: tuple, forms: list, textures: bool = True) -> list:
-    """Write our own FaceGen for `forms` (facegen_own.export_own; face textures only with `textures`), the failed
-    ones from the CK (fallback); report lines, each failure with its error."""
+def own_export(job: tuple, forms: list, textures: bool = True, redrawn: frozenset = frozenset()) -> list:
+    """Write our own FaceGen for `forms` (facegen_own.export_own; face textures only with `textures`, no _d for
+    `redrawn`), the failed ones from the CK (fallback); report lines, each failure with its error."""
     data_dir, plugin = job[1], job[2]
-    written, kept, skipped, failed, misses = facegen_own.export_own(job, forms, textures)
+    written, kept, skipped, failed, misses = facegen_own.export_own(job, forms, textures, redrawn)
     lines = [f'own FaceGen written: {written + kept} ({kept} from the work cache), not exported (as the CK): '
              f'{skipped}, failed: {len(failed)}']
     lines += [f'  work cache missed {count}: {why}' for why, count in misses.most_common()]
@@ -333,10 +362,10 @@ def pack(data_dir: Path, plugin: str, keep_loose: bool) -> None:
 
 
 def heads(job: tuple, own: bool, forms: list = None, ck: bool = True) -> bool:
-    """Write the plugin's FaceGen heads: ours (own_export) for every NPC, the old ones cleared first, or only the
-    FaceGeom NIFs of refitted `forms` (the refit changes sliders, which no face texture reads); else the CK's
-    export of every NPC (not `ck`: an earlier run's, collected); printed. False when a CK fallback left NPCs
-    without FaceGen.
+    """Write the plugin's FaceGen heads: ours (own_export) for every NPC, the old ones cleared first, without the _d
+    the skin step draws again (a fitted NPC without its own face set), or only the FaceGeom NIFs of refitted
+    `forms` (the refit changes sliders, which no face texture reads); else the CK's export of every NPC (not `ck`:
+    an earlier run's, collected); printed. False when a CK fallback left NPCs without FaceGen.
     See: docs/fork/fo4_facegen_plan.md#second-pass
     """
     data_dir, plugin = job[1], job[2]
@@ -345,14 +374,17 @@ def heads(job: tuple, own: bool, forms: list = None, ck: bool = True) -> bool:
         return True
     if forms is None:
         clear(plugin, data_dir)
-    lines = own_export(job, facegen_own.own_npcs(data_dir / plugin) if forms is None else forms, forms is None)
+    redrawn = frozenset(f.form_id for f in facegen_skin.fitted_npcs(data_dir / plugin, job[0]) if not f.own)
+    lines = own_export(job, facegen_own.own_npcs(data_dir / plugin) if forms is None else forms, forms is None,
+                       redrawn)
     for line in lines:
         print(line, flush=True)
     return not any(line.startswith(FALLBACK_FAILED) for line in lines)
 
 
 def steps(args, data_dir: Path, export_dir: Path) -> bool:
-    """Restore, heads, refit, heads of the refitted, skin and pack, each charged to its stage (stage_timer);
+    """Restore, heads, refit, heads of the refitted, skin, overrides' faces (facegen_inherit) and pack, each charged
+    to its stage (stage_timer);
     False when a CK fallback left NPCs without FaceGen.
     See: docs/fork/fo4_facegen_plan.md#stage-times
     """
@@ -367,10 +399,18 @@ def steps(args, data_dir: Path, export_dir: Path) -> bool:
     if not args.own_facegen:
         print('face textures at vanilla size:', charged('faces vanilla textures', vanilla_textures, args.plugin,
                                                          data_dir))
-    for line in charged('faces skin', facegen_skin.skin, job, faces):
+    for line in charged('faces skin', facegen_skin_cache.skin, job, faces):
         print(line)
+    overrides(args, data_dir, export_dir)
     charged('faces pack', pack, data_dir, args.plugin, args.keep_loose)
     return whole
+
+
+def overrides(args, data_dir: Path, export_dir: Path) -> bool:
+    """The overrides step (facegen_inherit.inherit), printed; True."""
+    for line in charged('faces overrides', facegen_inherit.inherit, data_dir, args.plugin, export_dir):
+        print(line)
+    return True
 
 
 def main():
@@ -385,19 +425,23 @@ def main():
                     help="Don't run the CK first: collect the FaceGen an earlier CK run left where MO2 puts it")
     ap.add_argument('--own-facegen', action='store_true',
                     help="Write the FaceGen heads ourselves; the Creation Kit only for NPCs that fail")
+    ap.add_argument(OVERRIDES_ONLY, action='store_true',
+                    help="Only give the faces this plugin overrides its master's values again (a master's ran since)")
     ap.add_argument('plugin', help='Plugin file name')
     args = ap.parse_args()
     data_dir, export_dir = Path(args.data), Path(args.export)
-    plugin_path = data_dir / args.plugin
-    write_faces_stamp(plugin_path, 'running', sys.argv[1:], Path(os.getcwd()))
+    plugin_path, argv = data_dir / args.plugin, [a for a in sys.argv[1:] if a != OVERRIDES_ONLY]
+    if not args.overrides_only:
+        print('plugin:', as_built(plugin_path), flush=True)
+    write_faces_stamp(plugin_path, 'running', argv, Path(os.getcwd()))
     stop = sample()
-    whole = steps(args, data_dir, export_dir)
+    whole = overrides(args, data_dir, export_dir) if args.overrides_only else steps(args, data_dir, export_dir)
     stop()
     for line in report():
         print(line)
     if not whole:
         raise SystemExit(f'faces of {args.plugin}: a CK fallback left NPCs without FaceGen (lines above)')
-    write_faces_stamp(plugin_path, 'finished', sys.argv[1:], Path(os.getcwd()))
+    write_faces_stamp(plugin_path, 'finished', argv, Path(os.getcwd()))
 
 
 if __name__ == '__main__':

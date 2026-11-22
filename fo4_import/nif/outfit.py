@@ -18,7 +18,9 @@ outfit is carried across in three steps:
   join: within SEAM_REACH) is moved onto FO4's matching body edge, the move
   fading out over SEAM_BLEND, so bare skin meets FO4's hands; a skin
   shape's open loop wholly within LOOP_REACH of it moves whole (female
-  necks cut off FNV's edge), so its neck meets FO4's head.
+  necks cut off FNV's edge), so its neck meets FO4's head. FNV's male body
+  has no neck edge: there a skin shape's open-edge vertices within
+  LOOP_REACH of FO4's neck edge itself move onto it.
 - **Skin.** Each vertex takes the weights of FO4's body at its nearest
   surface point (four largest), on the body's bones and their bind data;
   the body's skeleton nodes come along. Each triangle goes to the body-part
@@ -65,7 +67,7 @@ from fo4_import.nif.retarget import Rig, bone_moves, retargeted
 from fo4_import.pipeline.export_index import asset_root, export_file
 
 #: The work cache site of worn outfits and its hand-bumped version: raise it whenever worn() makes other bytes.
-WORN_SITE, OUTFIT_VERSION = 'versioned_outfit_worn', 1
+WORN_SITE, OUTFIT_VERSION = 'versioned_outfit_worn', 3
 #: Per sex: FO4's body (in Fallout 4 - Meshes.ba2) and FNV's body (under the export's meshes).
 FO4_BODIES = {'male': 'meshes\\actors\\character\\characterassets\\malebody.nif',
               'female': 'meshes\\actors\\character\\characterassets\\femalebody.nif'}
@@ -276,9 +278,7 @@ class BodyFit:
         edge, loops = np.unique(open_pairs), [np.unique(loop) for loop in _loops(open_pairs)] if skin else []
         moves, at = [], []
         for fnv_edge, fo4_segments in self.seams or ():
-            tree = cKDTree(fnv_edge)
-            whole = [loop for loop in loops if tree.query(fnv_points[loop])[0].max() < LOOP_REACH]
-            on = np.unique(np.concatenate([edge[tree.query(fnv_points[edge])[0] < SEAM_REACH], *whole]))
+            on = _on_seam((fnv_edge, fo4_segments), points, fnv_points, edge, loops)
             moves += [_nearest_on_segments(points[v], *fo4_segments) - points[v] for v in on]
             at += list(on)
         if not at:
@@ -446,10 +446,23 @@ def _loops(edges: np.ndarray) -> list:
     return [edges[label == k] for k in np.unique(label)]
 
 
+def _on_seam(seam: tuple, points: np.ndarray, fnv_points: np.ndarray, edge: np.ndarray, loops: list) -> np.ndarray:
+    """The vertices that move onto `seam`'s FO4 edge: open-edge ones within SEAM_REACH of its FNV edge (FNV's
+    frame) and skin `loops` wholly within LOOP_REACH of it; with no FNV edge (FNV's male neck), a skin shape's
+    open-edge ones within LOOP_REACH of the FO4 edge itself, as placed."""
+    fnv_edge, fo4_segments = seam
+    if fnv_edge is None:
+        rim = np.concatenate([np.zeros(0, int), *loops])
+        return np.unique(rim[cKDTree(fo4_segments[0]).query(points[rim])[0] < LOOP_REACH]) if len(rim) else rim
+    tree = cKDTree(fnv_edge)
+    whole = [loop for loop in loops if tree.query(fnv_points[loop])[0].max() < LOOP_REACH]
+    return np.unique(np.concatenate([edge[tree.query(fnv_points[edge])[0] < SEAM_REACH], *whole])).astype(int)
+
+
 def _seams(points: np.ndarray, tris: np.ndarray, fnv_body: tuple, anchors: np.ndarray) -> list:
-    """[(FNV edge points in FNV's frame, FO4 edge segments (a, b))]: FO4's body edges (wrists, neck) each with
-    the FNV body edge whose retargeted centre is nearest it, when each is the other's nearest; an FO4 edge FNV's
-    body lacks (FNV's has no neck edge) gets none.
+    """[(FNV edge points in FNV's frame or None, FO4 edge segments (a, b))]: FO4's body edges (wrists, neck) each
+    with the FNV body edge whose retargeted centre is nearest it, when each is the other's nearest; an FO4 edge
+    FNV's body lacks (FNV's male body has no neck edge) with None.
     See: docs/fork/fo4_spikes.md#spike-4-outfits
     """
     fnv_points, fnv_tris = fnv_body
@@ -457,8 +470,9 @@ def _seams(points: np.ndarray, tris: np.ndarray, fnv_body: tuple, anchors: np.nd
     fo4_loops = _loops(open_edges(points, tris))
     apart = np.linalg.norm(np.array([anchors[np.unique(loop)].mean(0) for loop in fnv_loops])[:, None]
                            - np.array([points[np.unique(loop)].mean(0) for loop in fo4_loops])[None], axis=2)
-    return [(fnv_points[np.unique(fnv_loops[f])], (points[loop[:, 0]], points[loop[:, 1]]))
-            for k, loop in enumerate(fo4_loops) if apart[(f := int(apart[:, k].argmin()))].argmin() == k]
+    paired = [int(apart[:, k].argmin()) for k in range(len(fo4_loops))]
+    return [(fnv_points[np.unique(fnv_loops[f])] if apart[f].argmin() == k else None,
+             (points[loop[:, 0]], points[loop[:, 1]])) for k, (loop, f) in enumerate(zip(fo4_loops, paired))]
 
 
 def _nearest_on_segments(point: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.ndarray:

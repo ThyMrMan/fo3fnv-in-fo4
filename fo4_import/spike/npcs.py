@@ -42,6 +42,7 @@ from fo4_import.spike.head_parts import choose, head_parts_edit
 from fo4_import.spike.npc_skills import merged_prps, with_skills
 from fo4_import.spike.own_heads import OwnHeads
 from fo4_import.spike.placement import place, placement, starts_disabled
+from fo4_import.spike.race_skins import RaceSkins
 from fo4_import.spike.stand_in_fields import checked
 from fo4_import.spike.voice_types import with_voice
 from fo4_import.spike.void_actors import VOID_FOLDER, VoidActors
@@ -82,6 +83,8 @@ FEMALE, PERSISTENT, NO_AI_ACQUIRE = 0x1, 0x400, 0x2000000
 CHILD_RACE = 0x4
 #: Fallout4.esm's old face texture set per sex (female?): SkinHeadFemaleOld, SkinHeadOldMale.
 OLD_FACE_SETS = {True: 0x03C655, False: 0x128C59}
+#: The tags vanilla's WNAM (all 1,162) comes right before.
+SKIN_BEFORE = (b'ATKR', b'ANAM', b'ECOR', b'PRPS', b'PRKZ', b'PRKR', b'FTYP', b'NTRM', b'COCT', b'CNTO', b'AIDT')
 #: FNV ARMO biped flag Upper Body: a worn piece that clothes the body.
 UPPER_BODY = 0x4
 #: new_id keys of a converted NPC and its placed actor (the spike's, kept so no FormID moves).
@@ -357,7 +360,7 @@ class Npcs:
         races = export_records(export_dir, 'RACE')
         self.races = {int(r['FormID'], 16): r.get('EditorID', '') for r in races}
         self.child_races = {int(r['FormID'], 16) for r in races if int(r.get('DATA.Flags', 0)) & CHILD_RACE}
-        self.old_races = old_races(races)
+        self.old_races, self.race_skins = old_races(races), RaceSkins(builder, export_dir, races)
         self.bodies = bodies(builder.fo4, builder.table.rules.body)
         self.assets, self.made, self.voices = None, {}, creatures.voices
         self.lists = {int(r['FormID'], 16): r for sig in ('LVLN', 'LVLC') for r in export_records(export_dir, sig)}
@@ -393,7 +396,7 @@ class Npcs:
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, body.body, body.flags, f'FNV_{npc["EditorID"]}', npc.get('FULL', ''),
             (FACE_FIELDS if face else frozenset()) | BODY_TIES, morphs,
-            composed(edit, with_class(self.classes.of(int(traits.get('CNAM.Class', '0'), 16))),
+            composed(edit, self._skin(traits, kind, female), with_class(self.classes.of(int(traits.get('CNAM.Class', '0'), 16))),
                      with_factions(self._factions(fnv)), self._packages(fnv),
                      self._inventory(fnv, struct.unpack('<I', child)[0] if child else 0),
                      with_voice(self.voices.of(int(traits.get('VTCK.Voice', '0'), 16))), self._actor_data(fnv),
@@ -421,6 +424,14 @@ class Npcs:
         female = bool(int(traits.get('ACBS.Flags', 0)) & FEMALE)
         kind = self._body(int(traits.get('RNAM.Race', '0'), 16), female)
         return kind, female, kind.startswith('human') and basis_hash(female) is not None
+
+    def _skin(self, traits: dict, kind: str, female: bool):
+        """WNAM edit giving a human of an FNV race with its own body or hand textures that race's skin; else None.
+        See: docs/fork/fo4_look_races_plan.md#body
+        """
+        skin = self.race_skins.skin(int(traits.get('RNAM.Race', '0'), 16)) if kind.startswith('human') else None
+        self.builder.counts['human NPC on its race\'s FO4 skin'] += bool(skin)
+        return R.with_sub(b'WNAM', struct.pack('<I', skin), SKIN_BEFORE) if skin else None
 
     def _body(self, race: int, female: bool) -> str:
         """The body kind of an NPC of FNV race `race`: a child, ghoul or human of that sex."""

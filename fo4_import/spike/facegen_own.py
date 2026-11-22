@@ -35,25 +35,33 @@ def own_npcs(plugin_path: Path) -> list:
     return sorted(rec.form_id & 0xFFFFFF for rec, _ in walk(data, b'NPC_') if rec.form_id >> 24 == own)
 
 
-def face_textures(face: face_tint.Face) -> dict:
-    """{kind: RGBA uint8} of the face's _d, _msn and _s, each drawn at vanilla's size for it (VANILLA_FACE)."""
+def face_textures(face: face_tint.Face, kinds: tuple) -> dict:
+    """{kind: RGBA uint8} of the face's textures of `kinds` (of _d, _msn, _s), each at vanilla's size (VANILLA_FACE)."""
     out = {}
-    for kind, (_, size) in VANILLA_FACE.items():
+    for kind in kinds:
+        size = VANILLA_FACE[kind][1]
         values = face_tint.face_diffuse(face, size) if kind == 'd' else face_tint.face_map(face, kind, size)
         rgb = np.asarray(face_tint.as_image(values))
         out[kind] = np.dstack([rgb, np.full(rgb.shape[:2], 255, np.uint8)])
     return out
 
 
-def face_files(src: facegeom.Sources, plugin: str, form_id: int, textures: bool = True) -> 'dict | None':
-    """{path under Data: bytes} of NPC `form_id`'s FaceGeom NIF and (`textures`) face textures, as the CK names
-    them; None for an NPC the CK exports none for."""
+def drawn_kinds(form_id: int, textures: bool, redrawn: frozenset) -> tuple:
+    """Kinds the heads step draws: not the _d of a face in `redrawn`.
+    See: docs/fork/fo4_facegen_plan.md#own-stage
+    """
+    return tuple(k for k in VANILLA_FACE if textures and not (k == 'd' and form_id in redrawn))
+
+
+def face_files(src: facegeom.Sources, plugin: str, form_id: int, kinds: tuple = tuple(VANILLA_FACE)) -> 'dict | None':
+    """{path under Data: bytes} of NPC `form_id`'s FaceGeom NIF and face textures of `kinds`, as the CK names them;
+    None for an NPC the CK exports none for."""
     npc, race, female, _ = facegeom.npc_face(src, plugin, form_id)
     if not facegeom.exported(npc, race):
         return None
     stem = f'{form_id:08X}'
     files = {(own_facegen.GEOM_DIR / plugin / f'{stem}.nif').as_posix(): facegeom.build(src, plugin, form_id)}
-    for kind, rgba in face_textures(face_tint.Face(src, npc, race, female)).items() if textures else ():
+    for kind, rgba in face_textures(face_tint.Face(src, npc, race, female), kinds).items():
         files[(own_facegen.FACE_DIR / plugin / f'{stem}_{kind}.dds').as_posix()] = vanilla_dds(rgba, kind)
     return files
 
@@ -105,19 +113,19 @@ def texconv() -> str:
     return hashlib.sha1(TEXCONV.read_bytes()).hexdigest()
 
 
-def cached_files(src: facegeom.Sources, plugin: str, form_id: int, textures: bool = True) -> tuple:
+def cached_files(src: facegeom.Sources, plugin: str, form_id: int, kinds: tuple = tuple(VANILLA_FACE)) -> tuple:
     """(face_files(), why the work cache could not give it: '' when it did, else miss_reason()): kept by the NPC
     record, its plugin's masters and texconv, and used while every other record and file it read (reads) and the
     code that made it are unchanged.
     See: docs/fork/fo4_facegen_plan.md#own-cache
     """
     npc = src.records.get((plugin.lower(), form_id & 0xFFFFFF))
-    inputs = (plugin.lower(), form_id, held(npc), src.masters.get(plugin.lower()), texconv(), textures)
+    inputs = (plugin.lower(), form_id, held(npc), src.masters.get(plugin.lower()), texconv(), kinds)
     kept = work_cache.lookup(SITE, __name__, inputs)
     if kept is not None and unchanged(src, kept[0]):
         return kept[1], ''
     why = miss_reason(src, inputs, kept)
-    make = functools.partial(face_files, src, plugin, form_id, textures)
+    make = functools.partial(face_files, src, plugin, form_id, kinds)
     (files, ran), read = reading(src, functools.partial(ran_while, make))
     work_cache.store(SITE, __name__, inputs, (read, files), ran)
     return files, why
@@ -136,11 +144,11 @@ def miss_reason(src: facegeom.Sources, inputs: tuple, kept) -> str:
     return 'read file changed' if item else 'unknown'
 
 
-def write_face(src: facegeom.Sources, plugin: str, form_id: int, data_dir: Path, textures: bool = True,
+def write_face(src: facegeom.Sources, plugin: str, form_id: int, data_dir: Path, kinds: tuple = tuple(VANILLA_FACE),
                misses: list = None) -> str:
-    """Write NPC `form_id`'s FaceGeom NIF and (`textures`) face textures (cached_files) under `data_dir`; WRITTEN,
+    """Write NPC `form_id`'s FaceGeom NIF and face textures of `kinds` (cached_files) under `data_dir`; WRITTEN,
     KEPT (from the cache) or SKIPPED (none exported). A face the cache could not give adds why to `misses`."""
-    files, miss = cached_files(src, plugin, form_id, textures)
+    files, miss = cached_files(src, plugin, form_id, kinds)
     for rel, data in (files or {}).items():
         (data_dir / rel).parent.mkdir(parents=True, exist_ok=True)
         (data_dir / rel).write_bytes(data)
@@ -149,23 +157,24 @@ def write_face(src: facegeom.Sources, plugin: str, form_id: int, data_dir: Path,
     return SKIPPED if files is None else WRITTEN if miss else KEPT
 
 
-def own_face(form_id: int, textures: bool = True) -> tuple:
-    """(FormID, WRITTEN, SKIPPED or the error, why the work cache missed or '') of write_face in a facegen_skin
-    worker; never raises."""
+def own_face(form_id: int, textures: bool = True, redrawn: frozenset = frozenset()) -> tuple:
+    """(FormID, WRITTEN, SKIPPED or the error, why the work cache missed or '') of write_face (drawn_kinds) in a
+    facegen_skin worker; never raises."""
     worker, misses = facegen_skin.shared(), []
+    kinds = drawn_kinds(form_id, textures, redrawn)
     try:
-        status = write_face(worker['src'], worker['plugin'], form_id, worker['data'], textures, misses)
+        status = write_face(worker['src'], worker['plugin'], form_id, worker['data'], kinds, misses)
     except Exception as e:
         status = f'{type(e).__name__}: {e}'
     return form_id, status, misses[0] if misses else ''
 
 
-def export_own(job: tuple, forms: list, textures: bool = True) -> tuple:
+def export_own(job: tuple, forms: list, textures: bool = True, redrawn: frozenset = frozenset()) -> tuple:
     """(written, kept, skipped, {FormID: error}, Counter of why the work cache missed) of own_face over `forms`
-    (with `textures` or not) in facegen_skin's pool sharing `job` (kept: written from the work cache); a pool that
-    breaks (a worker killed) fails every face."""
+    (with `textures` or not, `redrawn` without _d) in facegen_skin's pool sharing `job` (kept: written from the work
+    cache); a pool that breaks (a worker killed) fails every face."""
     try:
-        results = facegen_skin.pool(job, functools.partial(own_face, textures=textures), forms)
+        results = facegen_skin.pool(job, functools.partial(own_face, textures=textures, redrawn=redrawn), forms)
     except BrokenProcessPool as e:
         results = [(form_id, f'worker pool broke: {e}', '') for form_id in forms]
     failed = {form_id: status for form_id, status, _ in results if status not in (WRITTEN, KEPT, SKIPPED)}

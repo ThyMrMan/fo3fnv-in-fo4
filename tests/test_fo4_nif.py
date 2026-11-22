@@ -463,14 +463,15 @@ def test_a_skin_loop_near_fnvs_body_edge_moves_whole():
 
 def test_a_body_edge_fnv_lacks_gets_no_seam():
     """FO4's wrists and neck against FNV's wrists alone: each wrist pairs with its own, the neck with none (it
-    took the left wrist on a tie, pulling left sleeves onto the neck)."""
+    took the left wrist on a tie, pulling left sleeves onto the neck), and comes with None."""
     def rims(xs):
         """One open triangle per x: (points, triangles)."""
         pts = np.array([(x + dx, 0.0, dz) for x in xs for dx, dz in ((0, 0), (1, 0), (0, 1))], float)
         return pts, np.arange(len(pts)).reshape(-1, 3)
     fo4, fnv = rims((-10.0, 0.0, 10.0)), rims((-10.0, 10.0))
     seams = O._seams(*fo4, fnv, fnv[0])
-    assert [(round(e[:, 0].mean()), round(a[:, 0].mean())) for e, (a, _) in seams] == [(-10, -10), (10, 10)]
+    assert [(None if e is None else round(e[:, 0].mean()), round(a[:, 0].mean())) for e, (a, _) in seams] == [
+        (-10, -10), (None, 0), (10, 10)]
 
 
 def test_fnv_24_unit_steps_with_float_noise_are_marked():

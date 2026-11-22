@@ -20,12 +20,12 @@ import numpy as np
 from core.build_resources import pool_workers
 from core.process_job import join_pool_job
 from fo4_import.base.install import FALLOUT4_ESM, masters_of
-from fo4_import.face import facegeom, npc_skin, own_facegen, sculpt, slider_fit, tint
+from fo4_import.face import face_tint, facegeom, npc_skin, own_facegen, sculpt, slider_fit, tint
 from fo4_import.face.bake import face_shape
 from fo4_import.pipeline import creation_kit
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.face_fit import brow_overlay, record_subrecords
-from fo4_import.spike.fnv_npc import fnv_face, fnv_shine, npc_head
+from fo4_import.spike.fnv_npc import fnv_face, fnv_shine, npc_head, race_shade
 from tes5_import.base.tes5_reader import subrecords, walk
 
 #: How every FaceGen test plugin's description starts, so the stage reads past them.
@@ -49,19 +49,23 @@ class Face:
 
 
 def fitted_faces(data_dir: Path, plugin: str, export_dir: Path) -> list:
-    """The plugin's fitted NPCs (module doc) whose FaceGeom the export wrote and that FNV made as NPCs (`export_dir`'s
-    NPC_ records), by FormID. One the export skips (facegeom.exported) or a converted creature has no FNV FaceGen
-    to refit or skin to.
+    """fitted_npcs() whose FaceGeom NIF the heads step wrote.
     See: docs/fork/fo4_facegen_plan.md#own-stage
     """
-    out, geom, data = [], data_dir / own_facegen.GEOM_DIR / plugin, (data_dir / plugin).read_bytes()
+    geom = data_dir / own_facegen.GEOM_DIR / plugin
+    return [f for f in fitted_npcs(data_dir / plugin, export_dir) if (geom / f'{f.form_id:08X}.nif').is_file()]
+
+
+def fitted_npcs(plugin_path: Path, export_dir: Path) -> list:
+    """The plugin's fitted NPCs (module doc) that FNV made as NPCs (`export_dir`'s NPC_ records), by FormID; a
+    converted creature has no FNV FaceGen to refit or skin to."""
+    out, data = [], plugin_path.read_bytes()
     npcs = {own_facegen.FNV_PREFIX + r['EditorID'] for r in export_records(export_dir, 'NPC_') if 'EditorID' in r}
     slot = len(masters_of(data))
     for rec, _ in walk(data, b'NPC_'):
         subs = dict(subrecords(rec.body))
         edid = facegeom.zstr(subs.get(b'EDID', b'\0'))
-        has_geom = (geom / f'{rec.form_id & 0xFFFFFF:08X}.nif').is_file()
-        if b'FMRI' in subs and edid in npcs and has_geom:
+        if b'FMRI' in subs and edid in npcs:
             female = bool(struct.unpack_from('<I', subs[b'ACBS'])[0] & FEMALE)
             own = b'FTST' in subs and struct.unpack('<I', subs[b'FTST'])[0] >> 24 == slot
             out.append(Face(rec.form_id & 0xFFFFFF, edid[len(own_facegen.FNV_PREFIX):], female, own))
@@ -81,10 +85,14 @@ def description(data: bytes) -> str:
     return next((facegeom.zstr(d) for t, d in subrecords(data[24:24 + size]) if t == b'SNAM'), '')
 
 
+def profile_dirs(data_dir: Path) -> tuple:
+    """(mod folders, load order) the CK sees, but `data_dir` (module doc)."""
+    return without_tests(*own_facegen.profile_order(creation_kit.profile_dir(), creation_kit.MO2, (data_dir.name,)))
+
+
 def sources(plugin_path: Path, data_dir: Path) -> facegeom.Sources:
     """The plugin's records and files as the CK sees them (module doc)."""
-    dirs, order = own_facegen.profile_order(creation_kit.profile_dir(), creation_kit.MO2, (data_dir.name,))
-    dirs, order = without_tests(dirs, order)
+    dirs, order = profile_dirs(data_dir)
     return facegeom.Sources(plugin_path, [data_dir, *dirs], order)
 
 
@@ -94,7 +102,7 @@ def _start(job: tuple) -> None:
     export_dir, data_dir, plugin, layers = job
     templates = own_facegen.template_tones(FALLOUT4_ESM.read_bytes(), layers)
     _worker.update(export=export_dir, data=data_dir, plugin=plugin, src=sources(data_dir / plugin, data_dir),
-                   templates={f: np.array(struct.unpack('<4f', t[0])[:3]) for f, t in templates.items()}, bodies={})
+                   templates={f: np.array(struct.unpack('<4f', t[0])[:3]) for f, t in templates.items()})
 
 
 def shared() -> dict:
@@ -151,27 +159,20 @@ def refit_face(face: Face) -> 'tuple | None':
     return face.form_id, rows, [picked.get(k, 0.0) for k in weights], slider_fit.rms(actual - goal)
 
 
-def body(npc, race, female: bool, slot: int) -> tuple:
-    """own_facegen.body of the NPC's body texture set slot `slot`, read once per worker per texture."""
-    src = _worker['src']
-    key = (facegeom.body_textures(src, npc, race, female)[slot], female)
-    if key not in _worker['bodies']:
-        _worker['bodies'][key] = own_facegen.body(src, npc, race, female, slot)
-    return _worker['bodies'][key]
-
-
 def skin_of(face: Face) -> npc_skin.Skin:
     """The face's npc_skin.Skin, read through the worker's Sources and export."""
     src, export = _worker['src'], _worker['export']
     npc, race, female, _ = facegeom.npc_face(src, _worker['plugin'], face.form_id)
-    textures = facegeom.body_textures(src, npc, race, female)
+    textures = facegeom.body_textures(src, race, race, female)
     size = npc_skin.template_face(female).shape[0]
     brows = None if face.own else brow_overlay(export, face.edid, face_shape(sculpt.load_basis(female)[2]), size)
     return npc_skin.Skin(female, fnv_face(export, face.edid), face.own, brows,
-                         fnv_shine(export, face.edid) if face.own else None, body(npc, race, female, 0),
-                         body(npc, race, female, npc_skin.SPECULAR) if face.own else None,
+                         fnv_shine(export, face.edid) if face.own else None,
+                         face_tint.neck_mask(src, race, female, size),
+                         np.array(struct.unpack('<4f', npc.first(b'QNAM'))[:3]),
                          (src.read('textures\\' + textures[0]), src.read('textures\\' + textures[npc_skin.SPECULAR])),
-                         _worker['templates'][female])
+                         _worker['templates'][female], race_shade(export, face.edid),
+                         npc_skin.untinted_face(src, facegeom.face_diffuse(src, npc, race, female), size))
 
 
 def skin_face(face: Face) -> tuple:
@@ -184,11 +185,12 @@ def skin_face(face: Face) -> tuple:
     return face.form_id, qnam, lines
 
 
-def patch(plugin_path: Path, edits: dict) -> None:
-    """Apply `edits` {FormID: edit(raw, [(tag, data offset, size)])} to the plugin's NPC_ records where they lie."""
+def patch(plugin_path: Path, edits: dict, mask: int = 0xFFFFFF) -> None:
+    """Apply `edits` {FormID & `mask`: edit(raw, [(tag, data offset, size)])} to the plugin's NPC_ records where
+    they lie."""
     raw = bytearray(plugin_path.read_bytes())
     for rec, _ in walk(bytes(raw), b'NPC_'):
-        edit = edits.get(rec.form_id & 0xFFFFFF)
+        edit = edits.get(rec.form_id & mask)
         if edit:
             edit(raw, record_subrecords(raw, rec.offset, rec.size))
     plugin_path.write_bytes(bytes(raw))
@@ -231,11 +233,3 @@ def refine(job: tuple, faces: list) -> list:
     misses = [miss for *_, miss in fits]
     return [f'sliders refitted to the export: {len(fits)} faces, rms miss median {np.median(misses):.3f}, '
             f'max {max(misses):.3f}; overridden by a later plugin, left: {len(results) - len(fits)}'] if fits else []
-
-
-def skin(job: tuple, faces: list) -> list:
-    """Write every face's skin, FaceGeom and skin tone (patched into the plugin); report lines."""
-    data_dir, plugin, layers = job[1], job[2], job[3]
-    done = pool(job, skin_face, faces)
-    patch(data_dir / plugin, {fid: tone_edit(qnam, layers) for fid, qnam, _ in done})
-    return [f'{fid:08X} {line}' for fid, _, lines in done for line in lines] + [f'faces skinned: {len(done)}']

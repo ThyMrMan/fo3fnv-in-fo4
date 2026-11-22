@@ -395,11 +395,22 @@ def exported(npc: Rec, race: Rec) -> bool:
         struct.unpack_from('<I', data, RACE_FLAGS_AT)[0] & FACEGEN_HEAD)
 
 
-def _face_material(src: Sources, npc: Rec, race: Rec, female: bool) -> str:
-    """The material of the NPC's face set (FTST), else the race's default."""
+def _face_set(src: Sources, npc: Rec, race: Rec, female: bool) -> 'Rec | None':
+    """The NPC's face texture set (FTST), else the race's default."""
     owner, tag = (npc, b'FTST') if npc.first(b'FTST') else (race, FACE_SETS[female])
-    txst = src.get(owner, owner.first(tag)) if owner.first(tag) else None
+    return src.get(owner, owner.first(tag)) if owner.first(tag) else None
+
+
+def _face_material(src: Sources, npc: Rec, race: Rec, female: bool) -> str:
+    """The material of the NPC's face set (_face_set)."""
+    txst = _face_set(src, npc, race, female)
     return zstr(txst.first(b'MNAM', b'\0')) if txst else ''
+
+
+def face_diffuse(src: Sources, npc: Rec, race: Rec, female: bool) -> str:
+    """The face set's (_face_set) untinted diffuse, under Textures; '' if none."""
+    txst = _face_set(src, npc, race, female)
+    return txst_slots(src, txst)[0] if txst else ''
 
 
 @dataclass

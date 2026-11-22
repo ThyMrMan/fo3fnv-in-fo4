@@ -1,6 +1,6 @@
 """A test mod of our own FaceGen for a few NPCs, read through an MO2 profile's load order as the CK reads it: our
 FaceGeom NIF (facegeom) with FNV's shape baked in (bake), the face and rear head textures drawn from FNV's colour
-on both sides of the hairline and faded to the body at the neck (skin_seams), and a plugin overriding the NPCs
+on both sides of the hairline, its extras faded out at the neck (skin_seams), and a plugin overriding the NPCs
 with the skin tone those textures are drawn with.
 
     py -3.14 -m fo4_import.face.own_facegen --profile <MO2 profile folder> --export <an FNV export>
@@ -21,12 +21,12 @@ import numpy as np
 from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM
 from fo4_import.base.source import record_dir
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record
-from fo4_import.face import facegeom, hair, skin_seams, tint
+from fo4_import.face import face_tint, facegeom, hair, npc_skin, skin_seams, tint
 from fo4_import.face.bake import bake, face_shape, positions, seam_tree, triangles, uvs
 from fo4_import.face.texture import dds_like, vanilla_face_texture, write_dds
 from fo4_import.nif import file as nif_file
 from fo4_import.pipeline import creation_kit
-from fo4_import.spike.fnv_npc import fnv_face
+from fo4_import.spike.fnv_npc import fnv_face, race_shade
 from tes5_import.base.tes5_reader import subrecords, walk, zstr
 from tes5_import.base.writer import pack_subrecord
 
@@ -74,16 +74,6 @@ def find(dirs: list, name: str) -> Path:
     return next((d / name for d in dirs if (d / name).is_file()), FALLOUT4_DIR / 'Data' / name)
 
 
-def body(src: facegeom.Sources, npc: facegeom.Rec, race: facegeom.Rec, female: bool, slot: int = 0) -> tuple:
-    """(positions, UVs, RGB texture) of the NPC's body: its skin's body addon's model and skin texture set
-    slot `slot` (0 diffuse, 7 specular)."""
-    addon = facegeom.body_addon(src, npc, race)
-    mesh = nif_file.read(src.read('meshes\\' + zstr(addon.first(b'MOD3' if female else b'MOD2'))))
-    raw = max((b for k, b in mesh.blocks if k in facegeom.SHAPES and isinstance(b, bytes)), key=len)
-    rgb = hair.image(src.read('textures\\' + facegeom.body_textures(src, npc, race, female)[slot]))[..., :3]
-    return positions(raw), uvs(raw), rgb.astype(float)
-
-
 def with_rear(job: Job, name: tuple, nif_bytes: bytes, rear: tuple) -> bytes:
     """The FaceGeom NIF with each skin-tint part (the rear head) on its own texture (skin_seams.rear_texture),
     written under the test mod as `<FormID>_rear_d`, and drawn with the NPC's skin tint; `name` = (plugin, stem),
@@ -104,23 +94,21 @@ def with_rear(job: Job, name: tuple, nif_bytes: bytes, rear: tuple) -> bytes:
     return nif_file.write(nif)
 
 
-def write_skin(job: Job, who: tuple, nif: bytes, colour: tuple) -> tuple:
-    """Write the NPC's face _d and rear head texture; (T1's tone scale, the NIF on its rear texture). `who` =
-    (plugin, stem, npc, race, female), `colour` = (FNV head, pieces)."""
+def write_skin(job: Job, who: tuple, nif: bytes, colour: tuple, shade: np.ndarray) -> tuple:
+    """Write the NPC's face _d and rear head texture; (its QNAM over the template's, the NIF on its rear texture).
+    `who` = (plugin, stem, npc, race, female), `colour` = (FNV head, pieces), `shade` the race's (race_shade)."""
     plugin, stem, npc, race, female = who
     face, seam = face_shape(nif), seam_tree(nif)
     template = np.array(struct.unpack('<4f', job.templates[female][0])[:3])
-
-    def tint_of(scale):
-        """The skin tint (QNAM) the plugin gives for tone `scale`."""
-        return np.clip(template * scale, 0.0, 1.0)
-    neck = (seam, body(job.src, npc, race, female), tint_of)
-    rgba, tone = skin_seams.face_texture(tint.load_basis(female)[2], face, *colour, neck)
+    baseline = tint.load_basis(female)[2]
+    neck = face_tint.neck_mask(job.src, race, female, baseline.shape[0])
+    head = npc_skin.untinted_face(job.src, facegeom.face_diffuse(job.src, npc, race, female), baseline.shape[0])
+    rgba, qnam = skin_seams.face_texture(baseline, face, *colour, (neck, template, shade, head))
     folder = job.out / FACE_DIR / plugin
     folder.mkdir(parents=True, exist_ok=True)
     write_dds(rgba, folder / f'{stem}_d.dds')
     vanilla_face_texture(folder / f'{stem}_d.dds')
-    return tone, with_rear(job, (plugin, stem), nif, (face[0], colour, (seam, (template, tint_of(tone)))))
+    return qnam / template, with_rear(job, (plugin, stem), nif, (face[0], colour, (seam, (template, qnam), (face[1], neck))))
 
 
 def write_npc(job: Job, plugin: str, form_id: int) -> tuple:
@@ -134,7 +122,8 @@ def write_npc(job: Job, plugin: str, form_id: int) -> tuple:
                 if facegeom.part_type(p) == facegeom.EYES_PART)
     tone = None
     if not npc.first(b'FTST'):
-        tone, nif = write_skin(job, (plugin, stem, npc, race, female), nif, (fnv, pieces))
+        shade = race_shade(record_dir(job.export, plugin), edid)
+        tone, nif = write_skin(job, (plugin, stem, npc, race, female), nif, (fnv, pieces), shade)
     geom = job.out / GEOM_DIR / plugin / f'{stem}.nif'
     geom.parent.mkdir(parents=True, exist_ok=True)
     geom.write_bytes(bake(nif, fnv, job.shape, eyes))

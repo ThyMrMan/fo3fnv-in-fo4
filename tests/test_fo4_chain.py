@@ -286,7 +286,7 @@ def test_build_plan_runs_the_faces_again_right_after_a_rebuild(tmp_path, monkeyp
         return 0
     monkeypatch.setattr(BP.subprocess, 'call', faces)
     assert BP.run([plugin]) == 0
-    assert calls == ['build', ['--own-facegen', 'FalloutNV.esm']]
+    assert calls == ['build', ['--data', str(plugin.parent), '--own-facegen', 'FalloutNV.esm']]
 
 
 def test_the_chain_reruns_faces_on_another_base_build(tmp_path, monkeypatch):

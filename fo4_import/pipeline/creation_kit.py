@@ -21,6 +21,8 @@ from fo4_import.pipeline.build_inputs import asked
 
 #: The MO2 instance the CK runs through: F3NV_MO2 (the app sets it from its MO2 mod source), else the developer's.
 MO2 = Path(os.environ.get('F3NV_MO2') or r'C:\Modlists\fo3fnv-in-fo4')
+#: Environment: the MO2 profile the CK runs in and the faces stage reads through, in place of MO2's selected one.
+PROFILE_ENV = 'F3NV_MO2_PROFILE'
 #: The questions the build asks MO2 (build_inputs.asked): which mod holds a Data file, where the CK's files land.
 HOLDING, OUTPUT = 'mo2 holding', 'mo2 output'
 CK_EXECUTABLE, CK_PROCESS = 'Creation Kit', 'CreationKit.exe'
@@ -46,7 +48,9 @@ def run(arguments: str, timeout: float, what: str) -> None:
         raise SystemExit(f'MO2 sends the Creation Kit\'s new files to mod "{target.name}", which the selected '
                          f'profile has disabled: enable it, or clear the Creation Kit\'s write target, then rebuild')
     started = time.time()
-    subprocess.Popen([str(MO2 / 'ModOrganizer.exe'), 'run', '-e', CK_EXECUTABLE, '-a', arguments], **POPEN_FLAGS)
+    chosen = ['-p', os.environ[PROFILE_ENV]] if os.environ.get(PROFILE_ENV) else []
+    subprocess.Popen([str(MO2 / 'ModOrganizer.exe'), *chosen, 'run', '-e', CK_EXECUTABLE, '-a', arguments],
+                     **POPEN_FLAGS)
     while time.time() < started + timeout:
         time.sleep(CK_POLL)
         if not running():
@@ -84,7 +88,9 @@ def newest_file(folder: Path) -> float:
 
 
 def profile_dir() -> Path:
-    """MO2's selected profile's folder."""
+    """The folder of the profile PROFILE_ENV names, else MO2's selected one."""
+    if os.environ.get(PROFILE_ENV):
+        return MO2 / 'profiles' / os.environ[PROFILE_ENV]
     main = configparser.ConfigParser(interpolation=None, strict=False)
     main.read(MO2 / 'ModOrganizer.ini', encoding='utf-8')
     profile = main.get('General', 'selected_profile', fallback='')

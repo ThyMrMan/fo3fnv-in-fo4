@@ -13,12 +13,13 @@ from PIL import Image
 
 from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.face import texture as TX
-from fo4_import.face import skin_seams, tint
+from fo4_import.face import race_body, skin_seams, skin_tint, tint
 from fo4_import.face.fnv_head import FnvHead
 from fo4_import.face.sculpt import FACE_FIELDS
 from fo4_import.face.texture import fnv_texture
 from fo4_import.spike import fnv_npc
 from fo4_import.spike import npcs as N
+from fo4_import.spike import race_skins
 from fo4_import.spike import records as R
 from fo4_import.spike import replacements
 from fo4_import.spike.face_fit import tint_fit
@@ -93,12 +94,53 @@ def test_a_mod_race_skin_without_an_egt_reaches_the_tint_fit():
     assert (np.asarray(values) > 0.005).any() and np.array_equal(tone, np.ones(3)) and captured > 0
 
 
-def test_a_skin_tint_with_a_zero_channel_keeps_the_texture_finite():
-    """untinted divides through the tint and keeps the base in a channel the tint zeroes, never inf or NaN."""
-    drawn, base = np.full((2, 3), 0.5), np.full((2, 3), 0.25)
-    out = skin_seams.untinted(drawn, base, (0.5, 0.0, 1.0))
-    assert np.isfinite(out).all() and np.allclose(out[:, 1], 0.25)
-    assert np.allclose(out[:, 0], 0.5 / (0.5 * skin_seams.SKIN_TINT_DRAW[0]))
+def test_the_skin_tint_soft_light_inverts_at_every_tint():
+    """untinted undoes tinted and tint_for finds the tint, at tints 0, low, 0.5, high and 1."""
+    texture = np.array([[20.0, 95.0, 200.0]] * 5)
+    tint = np.array([[0.0] * 3, [0.3] * 3, [0.5] * 3, [0.8] * 3, [1.0] * 3])
+    drawn = skin_tint.tinted(texture, tint)
+    assert np.allclose(skin_tint.untinted(drawn, tint), texture, atol=1e-6)
+    assert np.allclose(skin_tint.tinted(texture[2], 0.5), texture[2])
+    assert np.allclose(skin_tint.tint_for(drawn[1], texture[1]), 0.3)
+
+
+def test_the_race_dirt_fades_in_from_the_neck_as_vanillas_dirty_skin_does():
+    """fade_curve: 0 where vanilla's dirty body equals its clean one at the neck, rising with distance, then 1.
+
+    See: docs/fork/fo4_look_races_plan.md#body-transfer
+    """
+    distance = np.tile(np.arange(20.0), (20, 1))
+    clean = np.full((20, 20, 3), 120.0)
+    dirty = clean - np.minimum(distance, 10.0)[..., None] * 2
+    fade = race_body.fade_curve(distance, clean, dirty)[..., 0]
+    assert fade[0, 0] == 0 and fade[0, -1] == 1 and (np.diff(fade[0]) >= 0).all() and 0 < fade[0, 3] < 1
+
+
+def test_a_faded_out_race_dirt_draws_the_clean_body():
+    """drawn_dirt: weight 0 keeps the clean texture; weight 1 draws the clean body's drawing times the dirt."""
+    clean = np.random.default_rng(4).integers(40, 220, (8, 8, 4)).astype(np.uint8)
+    tint, dirt = np.array([0.46, 0.47, 0.57]), np.array([0.8, 0.85, 0.9])
+    assert np.abs(race_body.drawn_dirt(clean, dirt, 0.0, tint).astype(int) - clean).max() <= 1
+    drawn = skin_tint.tinted(race_body.drawn_dirt(clean, dirt, 1.0, tint)[..., :3].astype(float), tint)
+    assert np.allclose(drawn, skin_tint.tinted(clean[..., :3].astype(float), tint) * dirt, atol=2.5)
+
+
+def test_race_dirt_skips_what_is_dark_in_both_fnv_textures():
+    """dirt: stock texels darker than bare skin (underwear) take their nearest skin texel's dirt, not their noise."""
+    stock = np.full((32, 32, 3), 160.0)
+    stock[:, 24:] = 20.0
+    race = stock * 0.7
+    race[:, 24:] = 5.0
+    out = race_body.dirt(race, stock, np.ones(3))
+    assert np.allclose(out[:, 28], 0.7, atol=0.01) and np.allclose(out[:, :16], 0.7, atol=0.01)
+
+
+def test_a_race_on_fnvs_stock_textures_has_no_look_skin():
+    """race_textures: None for each part on FNV's stock texture, the raider's own paths otherwise."""
+    stock = {f'{p}.Texture': ['head.dds', race_skins.STOCK[p]] for p in race_skins.PARTS}
+    raider = dict(stock, **{'MalePart[0].Texture': ['head.dds', 'Characters\\Raider\\UpperBodyMale.dds']})
+    assert race_skins.race_textures(stock) == (None,) * 4
+    assert race_skins.race_textures(raider) == ('characters\\raider\\upperbodymale.dds', None, None, None)
 
 
 def _old_texel_points(points: np.ndarray, uv: np.ndarray, tris: np.ndarray, size: int) -> tuple:
@@ -134,7 +176,7 @@ def test_texel_points_from_the_kept_cover_match_the_per_triangle_points():
 
 
 def test_the_neck_fade_matches_the_unbounded_search():
-    """neck_weight (box-filtered, bounded search) and faded (body drawn only where it shows) give the plain sums.
+    """neck_weight (box-filtered, bounded search) gives the plain unbounded weights.
 
     See: docs/fork/fo4_facegen_plan.md#skin-speed
     """
@@ -144,6 +186,3 @@ def test_the_neck_fade_matches_the_unbounded_search():
     plain = np.clip(1.0 - seam.query(points)[0] / skin_seams.NECK_BLEND, 0.0, 1.0)[:, None]
     weight = skin_seams.neck_weight(points, seam)
     assert weight.tobytes() == plain.tobytes() and 0 < np.count_nonzero(weight) < len(points)
-    own, body = rng.uniform(0, 255, (4000, 3)), rng.uniform(0, 255, (4000, 3))
-    mixed = skin_seams.faded(own, weight, lambda near: body[near])
-    assert mixed.tobytes() == (own * (1 - weight) + body * weight).tobytes()

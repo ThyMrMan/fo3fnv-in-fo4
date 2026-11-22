@@ -639,12 +639,12 @@ class Equipment:
             inputs = outfit.worn_key(static, fnv_path, sex, first, self.body_inputs[sex])
             write_new(self.builder.data_dir / 'Meshes' / name, versioned(
                 outfit.WORN_SITE, outfit.OUTFIT_VERSION, inputs,
-                lambda: outfit.worn(static, fnv_path, self._body(sex), first)))
+                lambda: outfit.worn(static, fnv_path, self.body(sex), first)))
             out.append(name)
         self.worn_paths[model, sex] = tuple(out)
         return self.worn_paths[model, sex]
 
-    def _body(self, sex: str):
+    def body(self, sex: str):
         """outfit.body_fit() of `sex`, made once."""
         if sex not in self.bodies:
             self.bodies[sex] = outfit.body_fit(self.builder.export_dir, sex)

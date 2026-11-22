@@ -75,7 +75,7 @@ every face is made by our own FaceGen. Since then:
 | Outfits and clothing | New Vegas's clothes and armor fitted onto Fallout 4's body | Partial | 21 of 98 armors use Fallout 4 stand-in models. The wrist seam shows, loose cloth sits off the body, and cut-off limbs don't cut the clothes. | [clothing](fo4_build_next.md#human-clothing) |
 | Headgear | Hats, masks and glasses on New Vegas's own models | Works | | [headgear](fo4_spikes.md#spike-4-headgear) |
 | Own FaceGen heads and hair | Each NPC's face files written by the build itself instead of the Creation Kit, plus mods' own hairstyles | Built, not played | The 2026-11-13 build's faces are all ours: 2,382 heads and their face textures, none failed, so the Creation Kit fallback never ran (869 s with the work cache, against 39 minutes to 4.3 hours for the Creation Kit). Offline they match the Creation Kit's within a median 0.076 units and about 1 to 3 of 255 in color. Still the Creation Kit's: `texconv` for the face textures. Not built: mods' own hairstyles. The remaining Fallout 4 face shape is accepted drift (Willow, 2026-11-11). | [own stage](fo4_facegen_plan.md#own-stage) |
-| DLC and mod faces | Face files for the NPCs the story DLC, packs and mods add | Not built | The faces step runs only for `FalloutNV.esm`; the DLC and mod builds ship no FaceGen (Dead Money's and Honest Hearts' archives hold none), so their own NPCs (Christine, Joshua Graham, Ulysses, Willow and others) have none. | [own stage](fo4_facegen_plan.md#own-stage) |
+| DLC and mod faces | Face files for the NPCs the story DLC, packs and mods add | Built, not played | `build_plan` runs the faces stage for every built plugin with converted faces (all four story DLC, Gun Runners' Arsenal and 17 mods have run), and again after a master's faces change. An NPC a mod overrides takes its master's patched skin tone and sliders, matching the FaceGen the game draws (YUP 209, Goodies 21). An override that changes the face itself (YUP: 23, hair length or eyes) still draws its master's face. The skin step is kept per NPC, so a rebuild redraws only changed faces. | [DLC and mods](fo4_facegen_plan.md#addon-faces), [skin cache](fo4_facegen_plan.md#skin-cache) |
 | Body choice (CBBE, BodySlide) | Choosing which body converted outfits fit | Partial | Only the vanilla body in the build. Researched: the cause of the scrambled bare skin with CBBE is found; a hook fits outfits to any body's mesh, and a writer makes BodySlide projects that BodySlide 5.9.1 builds without clicks. Neither is in the build yet. | [body plan](fo4_bodies_cbbe.md) |
 | Super mutants and nightkin | New Vegas's mutants in their own armor | Partial | Fallout 4's mutant body and head, tinted, under New Vegas's armor. Pistols, the Multiplas rifle, shotguns, the gatling laser and the railway rifle map to super mutant animations (built, not played); grenade launchers still fight unarmed. | [super mutants](fo4_build_next.md#super-mutants) |
 | Ghouls and glowing ones | Feral ghouls, and glowing ones with their aura and healing | Works | | [ghouls](fo4_creature_audit.md#ghouls) |
@@ -222,7 +222,7 @@ every face is made by our own FaceGen. Since then:
 
 | Feature | What it is | State | Notes | Doc |
 |---|---|---|---|---|
-| Story DLC | Dead Money, Honest Hearts, Old World Blues, Lonesome Road | Built, not played | Dead Money's casino games are missing; its vending machines' chips aren't played. Their own NPCs have no FaceGen (see DLC and mod faces). When two DLC change the same thing, the last one loaded wins. Every DLC, pack and mod now rebuilds in its own MO2 folder through `build_plan`, only when something it read changed. | [DLC](fo4_plugin_layout.md#dlc-build), [build plan](fo4_plugin_layout.md#build-plan) |
+| Story DLC | Dead Money, Honest Hearts, Old World Blues, Lonesome Road | Built, not played | Dead Money's casino games are missing; its vending machines' chips aren't played. Their own NPCs have our own FaceGen (see DLC and mod faces). When two DLC change the same thing, the last one loaded wins. Every DLC, pack and mod now rebuilds in its own MO2 folder through `build_plan`, only when something it read changed. | [DLC](fo4_plugin_layout.md#dlc-build), [build plan](fo4_plugin_layout.md#build-plan) |
 | Gun Runners' Arsenal and courier packs | The weapon and gear packs | Built, not played | | [packs](fo4_plugin_layout.md#courier-packs) |
 
 ### <a id="fo4-app"></a>The app and installing
@@ -238,7 +238,8 @@ every face is made by our own FaceGen. Since then:
 
 - Holes and dark blocks in distant land, closing up as you approach (skirts
   over the tile seams built, not played). ([terrain LOD](fo4_pipeline.md#terrain-lod))
-- The DLC's and mods' own NPCs have no FaceGen.
+- An NPC a mod overrides with a changed face (YUP: 23) is drawn with its
+  master's face.
   ([own stage](fo4_facegen_plan.md#own-stage))
 - No distant objects in 14 worlds: one in Honest Hearts, seven in Lonesome
   Road, Old World Blues' Big MT, and five in the New Vegas Bounties II and
@@ -290,8 +291,8 @@ Please report what you find in
   rebuilds; planned ([plan](fo4_regression.md#order)).
 - **Casino games and Caravan:** all built; Caravan not yet played
   ([plan](fo4_casino_plan.md)).
-- **Faces for the DLC and mods** with our own FaceGen, then making it the
-  default and dropping the Creation Kit fallback ([own stage](fo4_facegen_plan.md#own-stage)).
+- **Our own FaceGen as the default:** play the DLC and mod faces, then drop
+  the Creation Kit fallback ([own stage](fo4_facegen_plan.md#own-stage)).
 - **Crafting on our own menu:** New Vegas's recipe menu with skill
   requirements and quantity ([plan](fo4_crafting_plan.md#recommendation)).
 - **Fallout 3's child player:** play the child-race test, then build the age
@@ -304,6 +305,10 @@ Please report what you find in
   walks; then staggers and sounds ([own rig](fo4_own_rig.md#hit-reactions)).
 - **Body choice:** CBBE and BodySlide bodies for converted outfits
   ([plan](fo4_bodies_cbbe.md)).
+- **Race looks:** raider grime, tribal tattoos, burns and mods' race skins
+  on Fallout 4's own system: face extras fade out before the neck, each FNV
+  body set becomes an NPC skin, outfits stay clean as in vanilla; faces
+  first ([plan](fo4_look_races_plan.md#order)).
 - **The look:** grass color, Strip neon, the night horizon glow, New Vegas's
   color tone, distant trees and water ([plan](fo4_look.md)).
 - **Terrain LOD of our own:** skirts first to close the gaps between

@@ -6,7 +6,7 @@ masters' builds as they are now.
     py -3.14 -m fo4_import.pipeline.build_plan --verify <plugin>       # rebuild a current plugin; same bytes?
 
 A plugin is current, needs a build (with the first changed input), or waits for a master that does. --run also
-runs a plugin's faces stage again after its rebuild (spike/facegen.faces_stale), stops when a build flips a plugin
+runs a plugin's faces stage when due (faces_due: never run, stale, or older than a master's), stops when a build flips a plugin
 that does not depend on it (a hidden input), and refuses a plugin whose master is a scratch copy under temp/. Each
 plugin is rebuilt by the module its stamp names (pipeline.run, or pipeline.overlay for an asset overlay).
 
@@ -35,6 +35,7 @@ from fo4_import.pipeline.code_identity import changed, identity, rebase
 from fo4_import.pipeline.code_tag import ROOT
 from fo4_import.pipeline.ran_code import ARCHIVES, MESHES, SCRIPTS
 from fo4_import.pipeline.stage_timer import clocked
+from fo4_import.spike import facegen
 from tes5_import.base.tes5_reader import walk
 
 CURRENT, BUILD, AFTER = 'current', 'build', 'after'
@@ -500,20 +501,48 @@ def leaked(rows: list, before: dict, built: Path, plugins: list) -> 'tuple | Non
     return next(((p, why) for p, why in flipped if p.resolve() not in deps), None)
 
 
+def faces_due(plugin: Path, plugins: list) -> 'tuple | None':
+    """(why, the faces stage's arguments, its folder) when `plugin`'s faces must run: stale (facegen.faces_stale),
+    run before a master's among `plugins` (only its overrides step: it takes their patched faces), or never run
+    on a built plugin with fitted NPCs (arguments from its build stamp's export); None otherwise.
+    See: docs/fork/fo4_facegen_plan.md#addon-faces
+    """
+    kept = facegen.faces_stamp(plugin)
+    if kept is None:
+        export = stamp_options(plugin).get('--export')
+        if not export or facegen.base_build(plugin) is None or not facegen.fitted(plugin):
+            return None
+        return 'its faces never ran', ['--export', export[0], '--data', str(plugin.parent), '--own-facegen',
+                                       plugin.name], ROOT
+    names = {m.lower() for m in file_masters(plugin)}
+    later = [m.name for m in map(Path, plugins) if m.name.lower() in names
+             and ((facegen.faces_stamp(m) or {}).get('ended') or '') > (kept.get('ended') or '')]
+    stale, argv = facegen.faces_stale(plugin), in_folder(kept['argv'], plugin)
+    if stale or not later:
+        return (stale, argv, kept.get('cwd') or ROOT) if stale else None
+    return f'its master {later[0]}\'s faces ran after its own', [facegen.OVERRIDES_ONLY, *argv], kept.get('cwd') or ROOT
+
+
+def in_folder(argv: list, plugin: Path) -> list:
+    """Faces stage arguments `argv` with `--data` set to `plugin`'s own folder."""
+    if '--data' not in argv:
+        return ['--data', str(plugin.parent), *argv]
+    at = argv.index('--data') + 1
+    return argv[:at] + [str(plugin.parent)] + argv[at + 1:]
+
+
 def faces_again(plugins: list) -> int:
-    """Run the faces stage again (its recorded arguments) for each of `plugins` whose faces ran on another build
-    of it; the first failing run's exit code, else 0.
+    """Run the faces stage (faces_due's arguments) for each of `plugins`, in order, whose faces are due; the
+    first failing run's exit code, else 0.
     See: docs/fork/fo4_facegen_plan.md#faces-stamp
     """
-    from fo4_import.spike import facegen
     for plugin in map(Path, plugins):
-        reason = facegen.faces_stale(plugin)
-        if reason is None:
+        due = faces_due(plugin, plugins)
+        if due is None:
             continue
-        kept = facegen.faces_stamp(plugin)
-        print(f'== faces of {plugin.name} again: {reason}', flush=True)
-        code = subprocess.call([sys.executable, '-m', 'fo4_import.spike.facegen', *kept['argv']],
-                               cwd=kept.get('cwd') or ROOT)
+        reason, argv, cwd = due
+        print(f'== faces of {plugin.name}: {reason}', flush=True)
+        code = subprocess.call([sys.executable, '-m', 'fo4_import.spike.facegen', *argv], cwd=cwd)
         if code:
             return code
     return 0
