@@ -145,7 +145,6 @@ def _kept_face(tmp_path, monkeypatch) -> tuple:
     """(run, made): run(npc ACBS, race DATA, texture) writes face 800 through the work cache in tmp_path, giving
     (status, written bytes); made lists each face made, not kept."""
     monkeypatch.setattr(work_cache, 'CACHE', tmp_path / 'cache')
-    monkeypatch.setattr(facegen_own, 'texconv', lambda: 'texconv')
     made = []
 
     def make(src, plugin, form_id, textures=True):
@@ -187,8 +186,8 @@ def test_a_cache_miss_says_why(tmp_path, monkeypatch):
     for build in ((b'a', b'r', b'tex'), (b'a', b'r', b'tex'), (b'a', b'r2', b'tex'), (b'a', b'r2', b'new'),
                   (b'b', b'r2', b'new')):
         run(*build, misses=misses)
-    assert misses == ['no entry (NPC record, masters or texconv)', 'read RACE record changed', 'read file changed',
-                      'no entry (NPC record, masters or texconv)']
+    assert misses == ['no entry (NPC record or masters)', 'read RACE record changed', 'read file changed',
+                      'no entry (NPC record or masters)']
 
 
 def test_another_plugin_in_the_load_order_keeps_the_face(tmp_path, monkeypatch):
@@ -236,7 +235,6 @@ def test_the_second_pass_writes_head_meshes_only(tmp_path, monkeypatch):
 def test_a_mesh_only_face_keeps_its_own_entry(tmp_path, monkeypatch):
     """With and without textures, one NPC's faces are kept apart: neither pass takes the other's files."""
     monkeypatch.setattr(work_cache, 'CACHE', tmp_path / 'cache')
-    monkeypatch.setattr(facegen_own, 'texconv', lambda: 'texconv')
     monkeypatch.setattr(facegen_own, 'face_files', lambda src, plugin, form_id, kinds: {'f': bytes([len(kinds)])})
     src = _Src({}, {('p.esp', 0x800): Rec('p.esp', b'NPC_', [(b'ACBS', b'a')])})
     for _ in range(2):

@@ -29,7 +29,7 @@ from PIL import Image
 from fo4_import.face import facegeom, hair, skin_seams, tint
 from fo4_import.face.bake import face_shape, positions, seam_tree, triangles, uvs, with_uvs
 from fo4_import.face.texture import (ISLAND_PADDING, VANILLA_FACE, bilinear, dds_as, dds_like, texel_map,
-                                     texel_points, vanilla_face_texture, write_dds)
+                                     texel_points, vanilla_dds)
 from fo4_import.nif import file as nif_file
 
 #: The rear head texture's size: its UV island (268 x 375 texels of the 2048 body texture) at about 1.5 x.
@@ -75,8 +75,7 @@ def own_face_texture(diffuse: Path, face_geo: tuple, colour: tuple) -> np.ndarra
     rgba = hair.image(diffuse.read_bytes()).astype(float)
     scale = whole_scale(rgba[..., :3], face_geo, colour)
     rgba[..., :3] /= scale
-    write_dds(np.clip(rgba, 0, 255).astype(np.uint8), diffuse)
-    vanilla_face_texture(diffuse)
+    diffuse.write_bytes(vanilla_dds(np.clip(rgba, 0, 255).astype(np.uint8), 'd'))
     return scale
 
 
@@ -104,8 +103,7 @@ def base_face_texture(skin: Skin, diffuse: Path, face_geo: tuple) -> np.ndarray:
         rgba = rgba.astype(float)
         rgba[..., :3] = rgba[..., :3] * (1 - alpha) + skin.brows[..., :3] * alpha
         rgba = np.clip(rgba, 0, 255).astype(np.uint8)
-    write_dds(rgba, diffuse)
-    vanilla_face_texture(diffuse)
+    diffuse.write_bytes(vanilla_dds(rgba, 'd'))
     return qnam
 
 

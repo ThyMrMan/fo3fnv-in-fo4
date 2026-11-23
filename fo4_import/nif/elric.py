@@ -110,7 +110,9 @@ def graft(ours: NifFile, processed: NifFile) -> NifFile:
 
 
 def _run(sources: dict, work: Path) -> tuple:
-    """One Elric run over {name: bytes}; (return code, {name: output bytes})."""
+    """One Elric run over {name: bytes}; (return code, {name: output bytes}); (1, {}) without Elric installed."""
+    if not (ELRIC / 'Elrich.exe').is_file():
+        return 1, {}
     shutil.rmtree(work, ignore_errors=True)
     src, out = work / 'Meshes', work / 'Out'
     src.mkdir(parents=True)

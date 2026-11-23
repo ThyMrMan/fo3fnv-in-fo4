@@ -1513,6 +1513,51 @@ workers, held down by memory, with 15 GB free): 2,382 written, 1,220
 skipped, 0 errors in 680 s (0.29 s a written face, 11 minutes). All 9,528
 files are byte-identical to the previous code's.
 
+#### <a id="own-dds-encoder"></a>Our own DDS encoder replaces texconv (2026-11-23)
+
+**Code:** `fo4_import/base/dds_encode.py`, called by `face/texture.py`
+(`vanilla_dds`, `write_dds`, `dds_like`, `dds_as`, `vanilla_face_texture`) and
+`spike/terrain_lod.lod_texture`.
+
+The face and terrain LOD textures went through the Creation Kit's
+`Tools/Elric/texconv.exe`, which ties the stage to Windows and to the CK.
+Now they go through our encoder. The Faces stage no longer needs the CK,
+except the fallback for NPCs our FaceGen fails on.
+
+- **Formats.** BC1, BC3 and BC5 only, with legacy four-CCs (`DXT1`, `DXT5`,
+  and `BC5U` as texconv wrote it). A census of every texture BA2 in
+  Fallout 4's Data found only these three in `textures\actors` (BC1 4,062,
+  BC3 973, BC5 3,391), apart from 58 uncompressed BGRA files that
+  `dds_layout` never accepted. Any other format raises.
+- **BC1:** endpoints on each block's principal color axis, inset by a
+  sixteenth of the range, then refit by least squares on the chosen
+  indices; the closer of the two fits is kept. Indices come from projecting
+  onto the endpoint line. BC3 adds `dds_codec.encode_bc4_channel` for alpha;
+  BC5 is that for red and green.
+- **Mips:** each channel filtered on its own (box shrinking, bilinear
+  growing), so color is not weighted by alpha.
+- **Faces encode once.** `own_face_texture`, `base_face_texture` and
+  `own_facegen.write_skin` used to write a one-level BC3 and then have
+  texconv re-encode it to vanilla's BC1; they now encode the RGBA straight
+  to vanilla's format, which avoids compressing twice.
+- **The work cache keys** of `facegen_own` and `facegen_skin_cache` dropped
+  texconv's SHA-1. The code record covers the encoder, so every face
+  misses once after this change.
+
+Measured against texconv on vanilla actor textures box-filtered to half
+size (so their old blocks don't line up), PSNR to the source, full mips:
+
+| Texture | Format | texconv | ours | texconv time | our time |
+|---|---|---|---|---|---|
+| basefemalehead_d, 512² | BC1 | 41.75 dB | 44.09 dB | 0.03 s | 0.07 s |
+| basemalehead_d, 512² | BC3 | 40.82 dB | 42.69 dB | 0.03 s | 0.07 s |
+| basefemalehead_s, 256² | BC5 | 49.47 dB | 51.20 dB | 0.02 s | 0.01 s |
+| basemalebody_d, 1024² | BC1 | 40.46 dB | 42.56 dB | 0.05 s | 0.25 s |
+
+Ours is about 2 dB closer on every format, but about five times slower for
+BC1 (texconv is native and multithreaded). That costs roughly 0.2 s of CPU
+per face, inside the faces pool.
+
 #### <a id="stage-times"></a>Step times in the log (2026-11-14)
 
 The 2026-11-14 chain's faces stage took 2,157 s, and its log said only

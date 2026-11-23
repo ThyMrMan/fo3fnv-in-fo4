@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 
 from fo4_import.face import face_tint, facegeom, own_facegen
-from fo4_import.face.texture import TEXCONV, VANILLA_FACE, vanilla_dds
+from fo4_import.face.texture import VANILLA_FACE, vanilla_dds
 from fo4_import.pipeline import work_cache
 from fo4_import.pipeline.ran_code import ran_while
 from fo4_import.spike import facegen_skin
@@ -107,20 +107,14 @@ def unchanged(src: facegeom.Sources, kept: dict) -> bool:
     return all(digest(src, item) == was for item, was in kept.items())
 
 
-@functools.cache
-def texconv() -> str:
-    """SHA-1 of the texconv the face textures are encoded with."""
-    return hashlib.sha1(TEXCONV.read_bytes()).hexdigest()
-
-
 def cached_files(src: facegeom.Sources, plugin: str, form_id: int, kinds: tuple = tuple(VANILLA_FACE)) -> tuple:
     """(face_files(), why the work cache could not give it: '' when it did, else miss_reason()): kept by the NPC
-    record, its plugin's masters and texconv, and used while every other record and file it read (reads) and the
+    record and its plugin's masters, and used while every other record and file it read (reads) and the
     code that made it are unchanged.
     See: docs/fork/fo4_facegen_plan.md#own-cache
     """
     npc = src.records.get((plugin.lower(), form_id & 0xFFFFFF))
-    inputs = (plugin.lower(), form_id, held(npc), src.masters.get(plugin.lower()), texconv(), kinds)
+    inputs = (plugin.lower(), form_id, held(npc), src.masters.get(plugin.lower()), kinds)
     kept = work_cache.lookup(SITE, __name__, inputs)
     if kept is not None and unchanged(src, kept[0]):
         return kept[1], ''
@@ -132,12 +126,12 @@ def cached_files(src: facegeom.Sources, plugin: str, form_id: int, kinds: tuple 
 
 
 def miss_reason(src: facegeom.Sources, inputs: tuple, kept) -> str:
-    """Why the work cache had no face for `inputs`: no entry (its key: the NPC record, masters or texconv), its
+    """Why the work cache had no face for `inputs`: no entry (its key: the NPC record or masters), its
     code changed, or the first record (by signature) or file it read that changed.
     See: docs/fork/fo4_facegen_plan.md#stage-times
     """
     if kept is None:
-        return 'code changed' if work_cache.present(SITE, inputs) else 'no entry (NPC record, masters or texconv)'
+        return 'code changed' if work_cache.present(SITE, inputs) else 'no entry (NPC record or masters)'
     item = next((item for item, was in kept[0].items() if digest(src, item) != was), None)
     if isinstance(item, tuple):
         return f'read {getattr(src.records.get(item), "sig", b"gone").decode()} record changed'

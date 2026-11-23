@@ -2416,6 +2416,12 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
   drew nothing, so the ground should look the same. Not yet played: the
   check is the mod's log (no cells on the fixed build), then a play
   without the mod.
+- **The log check (2026-11-23):** the test laptop runs the mod with
+  `bEnableCellLogging=1`. The 2026-11-23 runs fetched its log seven times
+  (the FNV and DLC stage sweeps, the Play opening, the FO3 opening and
+  sweep), and it cleaned 0 cells in each. Each fetch holds only that run's
+  last game launch, so this is strong evidence, not proof. What's left is a
+  play without the mod.
 
 ### <a id="spike-4-trees"></a>Trees (built 2026-10-09, played 2026-10-10: they look right)
 

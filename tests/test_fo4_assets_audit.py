@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 from fo4_import.base import ba2_pack as BP
-from fo4_import.base import pinned_zlib
+from fo4_import.base import papyrus, pinned_zlib
 from fo4_import.base.ba2 import Archive
 from fo4_import.base.ba2_textures import dds_info, expand_bgr, write_textures
 from fo4_import.base.ba2_write import entry_names, write_general
@@ -142,6 +142,14 @@ def test_finish_gives_elric_each_file_rewritten_and_writes_a_failed_one_without_
     assert E.finish([path, plain], lambda sources: seen.append(dict(sources)) or {}) == [path]
     assert list(seen[0].values()) == [F.write(F.read(F.write(nif)))]
     assert [k for k, _ in F.read(path.read_bytes()).blocks] == ['NiNode']
+
+
+def test_without_elric_or_fo4s_compiler_their_fallbacks_do_nothing(tmp_path, monkeypatch):
+    """With Elric and FO4's Papyrus compiler absent (off Windows), Elric finishes no mesh and the compiler none."""
+    monkeypatch.setattr(E, 'ELRIC', tmp_path / 'no_elric')
+    monkeypatch.setattr(papyrus, 'FO4_COMPILER', tmp_path / 'PapyrusCompiler.exe')
+    assert E.process({'a.nif': b'x'}) == {}
+    assert papyrus.compile_folder(tmp_path, tmp_path, '') == ''
 
 
 def test_code_tag_hashes_a_named_native_extension_and_reads_crlf_as_lf(tmp_path, monkeypatch):

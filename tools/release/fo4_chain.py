@@ -112,11 +112,10 @@ def default_config() -> Config:
     """This checkout's and this machine's paths."""
     from fo4_import.base.install import FALLOUT4_DIR
     from fo4_import.base.papyrus import FO4_COMPILER
-    from fo4_import.face.texture import TEXCONV
     from fo4_import.app.runtime_dll import DIST
     app = Path(os.environ.get('APPDATA', '')) / 'F3NV' / 'fo4_app.json'
     tools = {'the Creation Kit': FALLOUT4_DIR / 'CreationKit.exe', 'the Papyrus compiler': FO4_COMPILER,
-             'texconv': TEXCONV, 'Mod Organizer 2': creation_kit.MO2 / 'ModOrganizer.exe', 'F3NV.dll': DIST}
+             'Mod Organizer 2': creation_kit.MO2 / 'ModOrganizer.exe', 'F3NV.dll': DIST}
     work = ROOT / 'temp' / 'fo4_chain'
     return Config(ROOT, ROOT / 'export' / BASE, ROOT / 'export' / 'sources.json', app, nv_folder(app),
                   creation_kit.MO2, FALLOUT4_DIR, tools, work / 'state.json', work / 'chain.log')

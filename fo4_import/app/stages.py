@@ -29,12 +29,13 @@ from tools.validate.fo4_install_check import PLUGINS, RUNTIME_DLL
 
 REPO = Path(__file__).resolve().parents[2]
 EXPORT_ROOT = REPO / 'export'
-#: Per source game: master, plugin built, start cell, main worldspace, test block center, whether the build supports it.
+#: Per source game: name, note, master, plugin, start cell, worldspace, test block center, Classic Look made for it.
 GAMES = {
-    'falloutnv': {'master': 'FalloutNV.esm', 'plugin': 'FalloutNV.esm', 'cell': 'GSDocMitchellHouse',
-                  'world': 'WastelandNV', 'test_center': (-18, 0), 'built': True},
-    'fallout3': {'master': 'Fallout3.esm', 'plugin': 'Fallout3.esm', 'cell': 'Vault101d', 'world': 'Wasteland',
-                 'test_center': (-4, -4), 'built': False},
+    'falloutnv': {'label': 'Fallout: New Vegas', 'note': '', 'master': 'FalloutNV.esm', 'plugin': 'FalloutNV.esm',
+                  'cell': 'GSDocMitchellHouse', 'world': 'WastelandNV', 'test_center': (-18, 0), 'classic': True},
+    'fallout3': {'label': 'Fallout 3', 'note': 'experimental; keep it in its own Mod Organizer profile',
+                 'master': 'Fallout3.esm', 'plugin': 'Fallout3.esm', 'cell': 'Vault101d', 'world': 'Wasteland',
+                 'test_center': (-4, -4), 'classic': False},
 }
 #: Stage keys in run order, with their labels.
 ORDER = (('import', 'Import the mod folder'), ('export', 'Export the plugin and its archives'),
@@ -46,9 +47,8 @@ ORDER = (('import', 'Import the mod folder'), ('export', 'Export the plugin and 
          ('check', 'Check references (fast)'), ('fo4edit', "FO4Edit's full check (slow; may wait for a click)"))
 #: Stages left unticked unless the user ticks them: the Classic Look is a choice; FO4Edit waits.
 OPTIONAL = frozenset({'classic', 'fo4edit'})
-#: Stages that run a Windows-only tool (the FO4 Papyrus compiler, Creation Kit tools, FO4Edit).
-BUILD_TOOLS = "the FO4 Papyrus compiler and the Creation Kit's Elric and LipGen"
-WINDOWS_TOOLS = {'build': BUILD_TOOLS, 'update': BUILD_TOOLS, 'fo4edit': 'FO4Edit'}
+#: Stages that need a Windows-only tool.
+WINDOWS_TOOLS = {'fo4edit': 'FO4Edit'}
 
 
 @dataclass(frozen=True)
@@ -171,14 +171,14 @@ def missing_master(settings: dict, source: str) -> str:
 def unavailable(settings: dict, source: str, stage: str, platform: str = sys.platform) -> str:
     """Why `stage` cannot run for `source` here, or '' when it can."""
     chosen = target(settings, source)
-    if stage not in ('import', 'export') and not GAMES[source]['built']:
-        return f"the Fallout 4 build does not support {GAMES[source]['master']} yet"
+    if stage == 'classic' and not GAMES[source]['classic']:
+        return f"made for {GAMES['falloutnv']['label']} only so far"
     if stage == 'import' and not chosen.mod:
         return 'only a mod folder is imported'
     if stage in GAME_ONLY and not chosen.game:
         return 'made with the game itself'
     if stage in WINDOWS_TOOLS and platform != 'win32':
-        return f'needs {WINDOWS_TOOLS[stage]}, which the FO4 build runs only on Windows so far'
+        return f'needs {WINDOWS_TOOLS[stage]}, which runs only on Windows'
     if stage == 'export' and not chosen.mod and not _has_data(settings, source):
         return f"{GAMES[source]['master']}'s game folder is not set, or has no Data folder"
     if stage == 'build' and not chosen.game and missing_master(settings, source):
@@ -188,6 +188,39 @@ def unavailable(settings: dict, source: str, stage: str, platform: str = sys.pla
     if stage in ('helpers', 'build', 'update', 'check', 'fo4edit') and not _has_data(settings, 'fallout4'):
         return "Fallout 4's game folder is not set, or has no Data folder"
     return ''
+
+
+def game_problem(settings: dict, source: str) -> str:
+    """Why game `source` cannot be picked ('' when its Data holds its master)."""
+    folder = S.game_dir(settings, source)
+    return '' if folder and (folder / 'Data' / GAMES[source]['master']).is_file() else 'folder not set (Setup screen)'
+
+
+def row_state(settings: dict, source: str, plugin: str) -> str:
+    """The note beside `plugin` ('' the game) in the target list: when it was built, else what it waits on."""
+    master, game = GAMES[source]['master'], S.output_dir(settings, source) / GAMES[source]['plugin']
+    path = addons.output(settings, source, plugin, master) / plugin if plugin else game
+    if build_plan.record(path) is not None:
+        return f'built {_when(path.stat().st_mtime)}'
+    return f'convert {master} first' if plugin and build_plan.record(game) is None else 'not built yet'
+
+
+def next_step(settings: dict, source: str) -> str:
+    """What the user does next for the chosen target, in one sentence or two.
+    See: docs/fork/fo4_gui.md#convert-screen
+    """
+    chosen, master = target(settings, source), GAMES[source]['master']
+    name, missing = (master, '') if chosen.game else (chosen.plugin, missing_master(settings, source))
+    if not _has_data(settings, 'fallout4'):
+        return 'Set your Fallout 4 folder on the Setup screen first.'
+    if chosen.game and game_problem(settings, source):
+        return f"Set your {GAMES[source]['label']} folder on the Setup screen first."
+    if missing:
+        return f'Convert {missing} first: pick it in the list above.'
+    if build_plan.record(plugin_path(settings, source)) is None:
+        return f'Click Convert to build {name}; the line under the button says about how long it takes.'
+    return (f'{name} is built. Click Convert to rebuild only what changed since, or open Finished to set it up in '
+            'Mod Organizer and play.')
 
 
 def _has_data(settings: dict, game: str) -> bool:

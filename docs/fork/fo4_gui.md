@@ -135,10 +135,9 @@ what exists. Not played in game yet.
     (`stages.OPTIONAL`): it is Windows-only and waits for a click on
     FO4Edit's developer-message dialog when that shows.
 
-  A stage that cannot run is shown disabled with the reason: FO3 has no build
-  yet, a game folder without `Data`, or a Windows-only tool off Windows. The
-  FO4 build calls its tools directly, and `core.subprocess_flags.windows_cmd`
-  (Wine) is the route to wire them later.
+  A stage that cannot run is shown disabled with the reason: a game folder
+  without `Data`, a missing master, or FO4Edit off Windows
+  ([Windows-only tools](#windows-tools)).
 - **Runner** (`runner.py`, no Qt) runs the stages in order from the repo
   folder on a QThread, streams each line to the log, and stops at the first
   failure or on Stop. With zip output, the folder is zipped beside itself
@@ -162,7 +161,33 @@ what exists. Not played in game yet.
     in screenshots. The settings file is written where chosen.
   - The export stage was not run from the app.
 
-### Convert screen
+### <a id="convert-screen"></a>Convert screen
+
+Top to bottom, it reads as the steps a player takes (`convert_view.py`,
+`target_box.py`, `stages.next_step`/`row_state`/`game_problem`):
+
+1. **Game.** One radio per entry in `stages.GAMES` (New Vegas; Fallout 3,
+   marked experimental). A game whose folder holds no master is disabled,
+   and its tooltip says why. Picking one also switches the Setup screen's
+   **Convert from**, so each game keeps its own output and profile.
+2. **What to convert.** A list holding the game, the DLC found in its Data
+   folder, and the mod folders the user added. Each row says `built <date>`,
+   `not built yet`, or `convert <master> first`. **Add a mod folder...** sits
+   beside the list. An add-on's output folder and light-plugin choice show
+   only when an add-on is picked.
+3. **The next step in one bold sentence.** It names the missing Fallout 4 or
+   game folder first, then a missing master, then "Click Convert to build"
+   (how long it takes is on the estimate line), and last "is built: Convert
+   rebuilds what changed, or open Finished".
+4. **One large Convert button** named for the target (`Convert
+   FalloutNV.esm`), then Stop, the status line ("Already done, so skipped:
+   ..."), the estimate and the log.
+
+The stages and the build's scope sit under **Show advanced options**,
+folded away by default. Whole is the default scope and is listed first. A
+stage that cannot run shows its reason in the gray column, where a stage
+that can run shows what an earlier run left. The Classic Look stage is New
+Vegas only (`GAMES[...]['classic']`).
 
 - **Stages:** each is an existing command line tool, ticked on or off: Export,
   Helper plugin, Build (which converts the scripts), Check (`fo4_ref_check`), and FO4Edit's full
@@ -303,18 +328,21 @@ passes `--light` ([the policy](research/fo4_light_plugins.md#policy)).
   `install.FALLOUT4_DIR` becomes a Windows fallback only.
 - **Libraries:** PySide6, moderngl (OpenGL 3.3 core; macOS supports up to 4.1
   core), Pillow, numpy and lz4 all ship wheels for all three OSes.
-- **Windows-only tools.** On macOS and Linux each runs through a Wine or
-  Proton prefix the user points at. Without one, its stage is marked
-  unavailable and the rest still runs.
+- <a id="windows-tools"></a>**Windows-only tools.** Build and Rebuild run on
+  any OS (2026-11-23, untested off Windows). The Creation Kit tools they
+  once needed are now fallbacks, and each is skipped when it is not
+  installed. Only FO4Edit's check is still marked unavailable off Windows
+  (`stages.WINDOWS_TOOLS`).
 
-  | Tool | Used by | Without it (to confirm) |
+  | Tool | Used by | Without it |
   |---|---|---|
-  | FO4 Papyrus compiler (Creation Kit) | Build, scripts | no compiled scripts |
-  | LipGen (Creation Kit) | Build, voice | lines play with no lip movement |
-  | Creation Kit FaceGen | FaceGen | faces fall back to the face-fit pass only |
-  | Elric (Creation Kit) | Build, collision | no FO4 collision for converted meshes |
-  | `texconv.exe` (Elric folder) | face textures | no baked face textures |
-  | FO4Edit 4.1.5f | Check | no FO4Edit check |
+  | FO4 Papyrus compiler (Creation Kit) | Build: the scripts Caprica fails on | those scripts stay uncompiled (`papyrus.compile_folder` returns nothing) |
+  | Elric (Creation Kit) | Build: meshes our physics writer (`hknp_write`) doesn't cover | those meshes have no collision (`elric._run` finishes none) |
+  | Creation Kit FaceGen | Faces: NPCs our own FaceGen fails on | not checked |
+  | `texconv.exe` (Elric folder) | no longer used: our own encoder writes face and terrain LOD textures ([encoder](fo4_facegen_plan.md#own-dds-encoder)) | — |
+  | FO4Edit 4.1.5f | FO4Edit's check | stage unavailable |
+
+  LipGen is no longer used: `base/lip.py` writes the lip files.
 
 - **Native speedups:** the `.pyd` modules are built for Windows today. They
   need builds for the other OSes, or the code must fall back to pure Python.

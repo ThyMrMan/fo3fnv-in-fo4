@@ -18,34 +18,24 @@ See: docs/fork/fo4_spikes.md#spike-2-face-texture
 
 import functools
 import struct
-import subprocess
-import tempfile
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 from scipy.ndimage import distance_transform_edt
 
-from core.subprocess_flags import POPEN_FLAGS
-from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.base.dds_encode import BC1, BC3, BC5, encode
 from fo4_import.face.bake import align, mean_surface, point_tree
 from fo4_import.face.fnv_head import FnvHead
 from fo4_import.face.memo import by_content
 
 EGT_MAGIC, EGT_HEADER = b'FREGT003', 64
-TEXCONV = FALLOUT4_DIR / 'Tools' / 'Elric' / 'texconv.exe'
-#: FO4's exported face diffuse format (DXT5).
-FACE_FORMAT = 'BC3_UNORM'
-#: Vanilla FaceCustomization textures by suffix -> (format, size), all with full mips (Fallout4.esm's 3 x 1,096).
-VANILLA_FACE = {'d': ('BC1_UNORM', 1024), 'msn': ('BC1_UNORM', 1024), 's': ('BC5_UNORM', 512)}
-#: texconv's names of the DXGI formats vanilla texture sets use, and the DXGI format of a legacy four-CC DDS.
-DXGI_NAMES = {28: 'R8G8B8A8_UNORM', 71: 'BC1_UNORM', 74: 'BC2_UNORM', 77: 'BC3_UNORM', 80: 'BC4_UNORM',
-              83: 'BC5_UNORM', 98: 'BC7_UNORM'}
+#: Vanilla FaceCustomization textures by suffix -> (DXGI format, size), all with full mips (Fallout4.esm's 3 x 1,096).
+VANILLA_FACE = {'d': (BC1, 1024), 'msn': (BC1, 1024), 's': (BC5, 512)}
+#: The DXGI format of a legacy four-CC DDS.
 LEGACY_FORMATS = {b'DXT1': 71, b'DXT3': 74, b'DXT5': 77, b'ATI1': 80, b'BC4U': 80, b'ATI2': 83, b'BC5U': 83}
 #: Texels the new colour is carried past each UV island's edge, so filtering and compression do not bleed FO4's in.
 ISLAND_PADDING = 8
-#: Seconds texconv may take on one texture before the call fails.
-TEXCONV_TIMEOUT = 120
 #: Threads texel_map's k-d tree search splits its texels over (-1: every core); the result is the same for any count.
 QUERY_THREADS = -1
 #: Added to FNV's colour and its stock skin before their ratio (fnv_ratios), so near-black texels can't blow it up.
@@ -273,48 +263,33 @@ def face_texture(fo4_rgba: np.ndarray, fo4: tuple, fnv: FnvHead, pieces: tuple, 
 
 def vanilla_face_texture(path: Path) -> bool:
     """Re-encode the CK face texture at `path` in place as vanilla's for its suffix (VANILLA_FACE: format, size,
-    full mips) through texconv; False for another suffix."""
-    kind = VANILLA_FACE.get(path.stem.rpartition('_')[2].lower())
-    if kind is None:
+    full mips); False for another suffix."""
+    kind = path.stem.rpartition('_')[2].lower()
+    if kind not in VANILLA_FACE:
         return False
-    fmt, size = kind
-    with tempfile.TemporaryDirectory() as tmp:
-        subprocess.run([str(TEXCONV), '-nologo', '-f', fmt, '-w', str(size), '-h', str(size), '-m', '0',
-                        '-o', tmp, str(path)], check=True, capture_output=True, timeout=TEXCONV_TIMEOUT, **POPEN_FLAGS)
-        path.write_bytes((Path(tmp) / f'{path.stem}.dds').read_bytes())
+    with Image.open(path) as image:
+        rgba = np.asarray(image.convert('RGBA'))
+    path.write_bytes(vanilla_dds(rgba, kind))
     return True
-
-
-def _texconv(rgba: np.ndarray, *options: str) -> bytes:
-    """`rgba` as DDS bytes, through the CK's texconv with `options`, handed over as an uncompressed TGA.
-
-    See: docs/fork/fo4_facegen_plan.md#own-stage-speed
-    """
-    with tempfile.TemporaryDirectory() as tmp:
-        tga = Path(tmp) / 'texture.tga'
-        Image.fromarray(rgba, 'RGBA').save(tga)
-        subprocess.run([str(TEXCONV), '-nologo', *options, '-o', tmp, str(tga)], check=True, capture_output=True,
-                       timeout=TEXCONV_TIMEOUT, **POPEN_FLAGS)
-        return (Path(tmp) / 'texture.dds').read_bytes()
 
 
 def vanilla_dds(rgba: np.ndarray, kind: str) -> bytes:
     """`rgba` as DDS in vanilla's format and size for `kind`, full mips."""
     fmt, size = VANILLA_FACE[kind]
-    return _texconv(rgba, '-f', fmt, '-w', str(size), '-h', str(size), '-m', '0')
+    return encode(rgba, fmt, (size, size))
 
 
 def write_dds(rgba: np.ndarray, path: Path) -> None:
-    """`rgba` as a one-level DXT5 .dds at `path`, through the CK's texconv."""
-    path.write_bytes(_texconv(rgba, '-f', FACE_FORMAT, '-m', '1'))
+    """`rgba` as a one-level BC3 .dds at `path`."""
+    path.write_bytes(encode(rgba, BC3, mips=False))
 
 
 def dds_layout(dds: bytes) -> tuple:
-    """(texconv format name, width, height) of DDS bytes `dds`, DX10 header or DXT1/DXT5 four-CC."""
+    """(DXGI format, width, height) of DDS bytes `dds`, DX10 header or legacy four-CC."""
     four = dds[84:88]
     fmt = struct.unpack_from('<I', dds, 128)[0] if four == b'DX10' else LEGACY_FORMATS[four]
     height, width = struct.unpack_from('<II', dds, 12)
-    return DXGI_NAMES[fmt], width, height
+    return fmt, width, height
 
 
 def dds_like(rgba: np.ndarray, like: bytes) -> bytes:
@@ -322,9 +297,9 @@ def dds_like(rgba: np.ndarray, like: bytes) -> bytes:
     See: docs/fork/fo4_facegen_plan.md#ck-face-texture-format
     """
     fmt, width, height = dds_layout(like)
-    return _texconv(rgba, '-f', fmt, '-w', str(width), '-h', str(height), '-m', '0')
+    return encode(rgba, fmt, (width, height))
 
 
 def dds_as(rgba: np.ndarray, like: bytes) -> bytes:
     """`rgba` as DDS bytes at its own size in DDS `like`'s format, full mips."""
-    return _texconv(rgba, '-f', dds_layout(like)[0], '-m', '0')
+    return encode(rgba, dds_layout(like)[0])

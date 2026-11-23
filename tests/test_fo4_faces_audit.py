@@ -298,7 +298,6 @@ def test_prune_keeps_only_faces_of_the_plugins_npcs_from_the_last_export(tmp_pat
                                                      staged / '00000801_d.dds'))
 
 
-@pytest.mark.skipif(not TX.TEXCONV.exists(), reason="needs the CK's texconv")
 def test_a_texture_taking_a_vanilla_ones_place_keeps_its_format_size_and_mips():
     """An opaque face drawn over vanilla's BC3 1024 face diffuse stays BC3 1024 with 11 mips (the CK refuses a
     face texture in another format than its race's); over a BC1 one it is BC1."""
@@ -306,7 +305,7 @@ def test_a_texture_taking_a_vanilla_ones_place_keeps_its_format_size_and_mips():
     for fmt, size, mips in ((77, 1024, 11), (71, 512, 10)):
         like = ba2.dds(fmt, size, size, b'')
         out = TX.dds_like(rgba, like)
-        assert TX.dds_layout(out) == (TX.DXGI_NAMES[fmt], size, size)
+        assert TX.dds_layout(out) == (fmt, size, size)
         assert struct.unpack_from('<I', out, 28)[0] == mips
 
 
@@ -316,7 +315,6 @@ def _dds_shape(data: bytes) -> tuple:
     return width, mips, data[84:88]
 
 
-@pytest.mark.skipif(not TX.TEXCONV.exists(), reason="needs the CK's texconv")
 def test_face_textures_become_vanilla_sizes_with_mips(tmp_path):
     """_d and _msn become 1024 BC1 with 11 mips, _s 512 BC5 with 10; another suffix is left alone."""
     rgba = np.random.default_rng(0).integers(0, 256, (256, 256, 4), dtype=np.uint8)

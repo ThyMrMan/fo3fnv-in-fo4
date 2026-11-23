@@ -72,8 +72,8 @@ _DDSCAPS_MIPPED = 0x400000 | 0x8
 _DDPF_FOURCC = 0x4
 
 
-def dds_header(size, linear_size, fourcc, mip_count=1):
-    """The 128-byte DDS header for a compressed square texture.
+def dds_header(size, linear_size, fourcc, mip_count=1, width=None):
+    """The 128-byte DDS header for a compressed texture `size` high and `width` wide (square by default).
 
     Layout, in order: magic, dwSize, dwFlags, dwHeight, dwWidth,
     dwPitchOrLinearSize (the TOP mip), dwDepth, dwMipMapCount,
@@ -86,7 +86,7 @@ def dds_header(size, linear_size, fourcc, mip_count=1):
         flags |= _DDSD_MIPMAPCOUNT
         caps |= _DDSCAPS_MIPPED
     hdr = b'DDS ' + struct.pack(
-        '<7I', 124, flags, size, size, linear_size, 0, mip_count)
+        '<7I', 124, flags, size, size if width is None else width, linear_size, 0, mip_count)
     hdr += b'\x00' * 44
     hdr += struct.pack('<II', 32, _DDPF_FOURCC) + fourcc
     hdr += struct.pack('<5I', 0, 0, 0, 0, 0)

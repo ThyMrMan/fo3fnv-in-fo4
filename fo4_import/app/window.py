@@ -47,6 +47,7 @@ class MainWindow(QMainWindow):
         self.setup.load(settings, str(settings_file), settings_file.parent == S.APP_DIR)
         self.convert = ConvertView(self.save)
         self.convert.finished.connect(self._finished)
+        self.convert.game_changed.connect(self._game_changed)
         self.tabs = QTabWidget()
         self.tabs.addTab(self._with_save(self.setup), 'Setup')
         self.tabs.addTab(self.convert, 'Convert')
@@ -82,6 +83,11 @@ class MainWindow(QMainWindow):
             self.convert.refresh(self.setup.collect())
         elif self.tabs.widget(index) is self.replacements:
             self.replacements.activate(self.setup.collect())
+
+    def _game_changed(self, source: str) -> None:
+        """The Convert screen's game pick: Setup shows it, Convert relists."""
+        self.setup.choose_source(source)
+        self.convert.refresh(self.setup.collect())
 
     def _finished(self, results: list, warnings: list, made_zip: str) -> None:
         """Show the run's outcome on the Finished screen."""

@@ -17,8 +17,6 @@ See: docs/fork/fo4_pipeline.md#terrain-lod
 
 import re
 import struct
-import subprocess
-import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -27,9 +25,8 @@ from PIL import Image
 
 from asset_convert.nif.pyffi_monkey_patch import apply_patches
 from core.build_resources import profile_cores
-from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base.ba2_pack import stage_texture
-from fo4_import.face.texture import TEXCONV
+from fo4_import.base.dds_encode import BC1, encode
 from fo4_import.nif import file as F
 from fo4_import.nif.blocks import SHADER_LOD_LAND, pack_tri_shape
 from fo4_import.pipeline.work_cache import cached
@@ -47,7 +44,7 @@ MIN_LEVEL = 4
 #: The work cache's site of a converted tile.
 SITE = 'terrain_lod'
 #: Bumped when the written files change; part of each texture's signature.
-VERSION = 2
+VERSION = 3
 #: Vanilla's LOD-land shader fields beside the shader type, name and texture set (commonwealth.4.0.0.btr's).
 SHADER = {'extra': [], 'controller': -1, 'flags1': 0x80401000, 'flags2': 3, 'uv_offset': (0.0, 0.0),
           'uv_scale': (1.0, 1.0), 'emissive_color': (0.0, 0.0, 0.0), 'emissive_multiple': 1.0, 'clamp': 0,
@@ -282,16 +279,12 @@ def btr(path: Path, level: int, textures: tuple) -> bytes:
 
 
 def lod_texture(source: Path, target: Path, normals: bool) -> None:
-    """FNV LOD texture `source` in FO4's layout (turned half a turn, as FO4 lays it out), a normal map's green and blue
-    swapped, as BC1 with mips at `target`."""
+    """FNV LOD texture `source` in FO4's layout, as BC1 with mips at `target`.
+    See: docs/fork/fo4_facegen_plan.md#own-dds-encoder
+    """
     rgba = np.asarray(Image.open(source).convert('RGBA'))[::-1, ::-1]
     rgba = rgba[:, :, [0, 2, 1, 3]] if normals else rgba
-    with tempfile.TemporaryDirectory() as tmp:
-        png = Path(tmp) / f'{target.stem}.png'
-        Image.fromarray(np.ascontiguousarray(rgba), 'RGBA').save(png)
-        subprocess.run([str(TEXCONV), '-nologo', '-f', 'BC1_UNORM', '-m', '0', '-o', tmp, str(png)],
-                       check=True, capture_output=True, **POPEN_FLAGS)
-        target.write_bytes((Path(tmp) / f'{target.stem}.dds').read_bytes())
+    target.write_bytes(encode(np.ascontiguousarray(rgba), BC1))
 
 
 def _signature(path: Path) -> str:

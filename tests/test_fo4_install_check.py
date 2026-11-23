@@ -79,11 +79,12 @@ def test_ready_machine_passes(machine):
     assert set(got) >= {name for name, _, _ in IC.REQUIRED_MODS} | {IC.BASE_PLUGIN, 'DeadMoney.esm', *IC.RUNTIME_DLLS}
 
 
-@pytest.mark.parametrize('name, file', [('Creation Kit', 'CreationKit.exe'), ('F4SE', IC.F4SE_LOADER)])
-def test_missing_game_file(machine, name, file):
-    """A missing Creation Kit or F4SE loader is MISSING."""
+@pytest.mark.parametrize('name, file, said', [('Creation Kit', 'CreationKit.exe', 'RECOMMENDED'),
+                                              ('F4SE', IC.F4SE_LOADER, 'MISSING')])
+def test_missing_game_file(machine, name, file, said):
+    """No F4SE loader is MISSING; no Creation Kit only RECOMMENDED."""
     (machine.fallout4 / file).unlink()
-    assert status(machine, name) == 'MISSING'
+    assert status(machine, name) == said
 
 
 def test_wrong_versions(machine):
@@ -117,10 +118,10 @@ def test_enabled_xdi_conflicts(machine):
 
 
 def test_mo2_problems(machine):
-    """No instance is MISSING; a lost executable or profile is MISSING too."""
+    """No instance or profile is MISSING; a lost Creation Kit executable only RECOMMENDED."""
     ini = machine.mo2 / 'ModOrganizer.ini'
     ini.write_text(ini.read_text().replace('Creation Kit', 'CK'), encoding='utf-8')
-    assert status(machine, 'MO2 "Creation Kit" executable') == 'MISSING'
+    assert status(machine, 'MO2 "Creation Kit" executable') == 'RECOMMENDED'
     assert status(IC.Machine(**{**machine.__dict__, 'profile': 'Nope'}), 'MO2 profile') == 'MISSING'
     assert status(IC.Machine(**{**machine.__dict__, 'mo2': machine.work / 'none'}), 'Mod Organizer 2') == 'MISSING'
 

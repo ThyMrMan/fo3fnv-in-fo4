@@ -24,7 +24,9 @@ def header_dirs() -> str:
 
 
 def compile_folder(folder: Path, out_dir: Path, imports: str) -> str:
-    """Compile every .psc in `folder` into `out_dir`; the compiler's combined output."""
+    """Compile every .psc in `folder` into `out_dir`; the compiler's combined output ('' without it installed)."""
+    if not FO4_COMPILER.is_file():
+        return ''
     r = subprocess.run([str(FO4_COMPILER), str(folder), '-all', '-q', f'-i={imports}', f'-o={out_dir}',
                         '-f=Institute_Papyrus_Flags.flg'],
                        capture_output=True, text=True, cwd=str(out_dir), **POPEN_FLAGS)

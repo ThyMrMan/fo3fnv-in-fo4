@@ -1,7 +1,7 @@
 """The faces stage's skin step (facegen_skin.skin_face) kept per NPC in the work cache, so a rebuild writes each
 face's skin, rear head and FaceGeom from the cache instead of drawing them again.
 
-An entry is keyed by the NPC record, its plugin's masters, texconv, the skin tone templates, and the bytes of the
+An entry is keyed by the NPC record, its plugin's masters, the skin tone templates, and the bytes of the
 face's FaceGeom NIF and face textures the heads step left (the skin reads and rewrites them in place). It holds
 what the skin read beside those (the profile's records and files, Sources.seen; the export's files, file_access)
 and is used while all of it and the code that made it are unchanged; it keeps the files the skin wrote and the
@@ -23,7 +23,7 @@ from fo4_import.face import own_facegen
 from fo4_import.pipeline import file_access, work_cache
 from fo4_import.pipeline.ran_code import ran_while
 from fo4_import.spike import facegen_skin
-from fo4_import.spike.facegen_own import held, reading, texconv, unchanged
+from fo4_import.spike.facegen_own import held, reading, unchanged
 
 #: The work cache site of an NPC's skin.
 SITE = 'face_skin'
@@ -39,7 +39,7 @@ def face_inputs(face: facegen_skin.Face) -> tuple:
     src, plugin, folder = worker['src'], worker['plugin'], worker['data'] / own_facegen.FACE_DIR / worker['plugin']
     npc = src.records.get((plugin.lower(), face.form_id))
     files = [facegen_skin.nif_path(face)] + [folder / f'{stem}_{kind}.dds' for kind in KINDS]
-    return (plugin.lower(), face, held(npc), src.masters.get(plugin.lower()), texconv(),
+    return (plugin.lower(), face, held(npc), src.masters.get(plugin.lower()),
             {k: v.round(6).tolist() for k, v in worker['templates'].items()},
             [hashlib.sha1(p.read_bytes()).hexdigest() if p.is_file() else None for p in files])
 

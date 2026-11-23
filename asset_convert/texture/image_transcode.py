@@ -43,13 +43,6 @@ def _encode_mip(rgba, with_alpha):
     return np.concatenate([alpha, color], axis=1).tobytes()
 
 
-def _rect_header(w, h, linear_size, mip_count, fourcc):
-    """`dds_header` with dwWidth, the fourth word after the magic, patched."""
-    hdr = bytearray(dds_header(h, linear_size, fourcc, mip_count))
-    hdr[16:20] = int(w).to_bytes(4, 'little')
-    return bytes(hdr)
-
-
 def _halved(rgba: Image.Image) -> Image.Image:
     """The next mip of `rgba`: color and alpha filtered apart, as Pillow's RGBA resize weighs color by alpha.
     See: docs/fork/fo4_plugin_layout.md#premultiplied-replacers
@@ -80,7 +73,7 @@ def encode_dds(img: Image.Image) -> bytes:
         cur = _halved(cur)
 
     fourcc = b'DXT5' if with_alpha else b'DXT1'
-    return _rect_header(w, h, len(mips[0]), len(mips), fourcc) + b''.join(mips)
+    return dds_header(h, len(mips[0]), fourcc, len(mips), w) + b''.join(mips)
 
 
 def _transcode_one(src: Path, dst: Path) -> bool:

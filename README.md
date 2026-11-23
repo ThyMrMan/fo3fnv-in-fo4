@@ -1,15 +1,23 @@
 # fo3fnv-in-fo4
 
-**Play Fallout: New Vegas inside Fallout 4.** This tool converts your own
-copy of New Vegas, its DLC and many of its mods into Fallout 4 plugins: the
-whole Mojave, its quests, dialogue and voices, NPCs and creatures, guns,
-perks, skills, reputation, karma, Hardcore mode and radio.
+**Play Fallout: New Vegas and Fallout 3 inside Fallout 4.** This tool
+converts your own copy of either game, its DLC and its mods into Fallout 4
+plugins: the whole map, its quests, dialogue and voices, NPCs and creatures,
+guns, perks, skills, karma and radio, plus New Vegas's reputation and
+Hardcore mode.
 
 > [!WARNING]
 > **Alpha.** New Vegas is playable from Doc Mitchell's house onward, and
 > nearly every system is built, but much of it has never been played start
-> to finish. Expect bugs. Expect some updates to need a new game. Back up
-> your saves.
+> to finish. **Fallout 3 is experimental:** only its opening in Vault 101
+> has been tested ([below](#fallout-3)). Expect bugs. Expect some updates to
+> need a new game. Back up your saves.
+
+> [!NOTE]
+> **⚠ AI-Led Development Notice.** This project was developed entirely with
+> AI tooling, primarily Claude Opus, with in-game testing and guidance
+> provided. It is open source under the GPL-3.0 license
+> ([below](#credits--license)).
 
 > [!IMPORTANT]
 > **No game files are included.** This project ships only code. It reads
@@ -22,42 +30,40 @@ perks, skills, reputation, karma, Hardcore mode and radio.
 
 | Plugin | What it is |
 |---|---|
-| `FalloutNV.esm` | New Vegas: the Mojave and every interior, its NPCs, quests, dialogue and scripts |
+| `FalloutNV.esm` or `Fallout3.esm` | The game: its whole map and every interior, its NPCs, quests, dialogue and scripts |
 | `FalloutHelpers.esl` | Shared records the converted plugins use |
-| `DeadMoney.esm`, `HonestHearts.esm`, `OldWorldBlues.esm`, `LonesomeRoad.esm`, `GunRunnersArsenal.esm` | The DLC you own |
-| `CaravanPack.esm`, `ClassicPack.esm`, `MercenaryPack.esm`, `TribalPack.esm` | The add-on packs you own |
-| `FalloutNV - Classic Look.esl` | Optional: New Vegas's flatter lighting and color ([below](#classic-look)) |
-| `F3NV.dll` | The project's F4SE plugin: the New Vegas rules Fallout 4 can't do by itself (Damage Threshold, item condition, the Pip-Boy's SKILLS, REPUTATION, KARMA and CHALLENGES tabs, Hardcore's ammo weight and HUD, the dialogue menu) |
+| New Vegas: `DeadMoney.esm`, `HonestHearts.esm`, `OldWorldBlues.esm`, `LonesomeRoad.esm`, `GunRunnersArsenal.esm`, and the packs `CaravanPack.esm`, `ClassicPack.esm`, `MercenaryPack.esm`, `TribalPack.esm` | The DLC and add-on packs you own |
+| Fallout 3: `Anchorage.esm`, `ThePitt.esm`, `BrokenSteel.esm`, `PointLookout.esm`, `Zeta.esm` | The DLC you own |
+| `FalloutNV - Classic Look.esl` | Optional, New Vegas only: its flatter lighting and color ([below](#classic-look)) |
+| `F3NV.dll` | The project's F4SE plugin: the rules of the old games that Fallout 4 can't do by itself (Damage Threshold, item condition, the Pip-Boy's SKILLS, REPUTATION, KARMA and CHALLENGES tabs, Hardcore's ammo weight and HUD, the dialogue menu) |
 
 **In the game:**
-- **The world:** the Mojave's land, buildings and interiors, distant land
-  and objects, New Vegas's weather and the Pip-Boy world map.
+- **The world:** the land, buildings and interiors, distant land and
+  objects, the game's own weather and the Pip-Boy world map.
 - **People and creatures:** NPCs with their own faces and outfits; geckos,
-  cazadores, nightstalkers, securitrons and the rest on their own skeletons
-  and animations; New Vegas's spawns.
-- **Dialogue and quests:** New Vegas's voices with lip sync, in a dialogue
+  cazadores, yao guai, super mutants, robots and the rest on their own
+  skeletons and animations; the game's own spawns.
+- **Dialogue and quests:** the original voices with lip sync, in a dialogue
   menu with the full line text; every quest script converted.
-- **Your character:** SPECIAL, the 13 skills, 200+ perks and traits, New
-  Vegas's level-up, tag skill and trait menus (options in MCM), reputation,
-  karma, challenges, Hardcore mode, chem addiction.
-- **Combat:** New Vegas's guns, ammo types and the ammo hotkey, weapon mods,
-  item condition and repair, critical hits, Damage Threshold, sneak attacks,
-  grenades and mines, and V.A.T.S. tuned toward New Vegas's.
-- **Also:** the radio stations, terminals, lockpicking and hacking by skill,
-  the casino games and Caravan, and New Vegas's intro movie.
+- **Your character:** SPECIAL, the skills, the perks and traits, the
+  original level-up and tag skill menus (options in MCM), karma and chem
+  addiction. New Vegas adds its traits, reputation, challenges and Hardcore
+  mode.
+- **Combat:** the original guns, ammo types and the ammo hotkey, item
+  condition and repair, critical hits, sneak attacks, grenades and mines,
+  and V.A.T.S. tuned toward the old games'. New Vegas adds its weapon mods
+  and Damage Threshold.
+- **Also:** the radio stations, terminals, and lockpicking and hacking by
+  skill. New Vegas adds its casino games, Caravan and its intro movie.
 
 **Mods:** about 20 New Vegas mods convert on top of the game, for example
 YUP, NVMIM, Willow, JSawyer Ultimate, the New Vegas Bounties series, Russell,
-The Living Desert and Better Brotherhood.
-
-**Fallout 3** is experimental: it converts from the command line, not the
-app yet, and only its opening (Vault 101) has been tested in game. Keep it
-in its own Mod Organizer profile: with New Vegas loaded too, both openings
-start at once.
+The Living Desert and Better Brotherhood. Fallout 3 mods go through the
+same steps, but none has been tested yet.
 
 Known problems are listed in the
 [roadmap](docs/fork/ROADMAP.md#known-bugs); where play
-differs from New Vegas is in [fo4_drift.md](docs/fork/fo4_drift.md).
+differs from the original games is in [fo4_drift.md](docs/fork/fo4_drift.md).
 
 ---
 
@@ -67,17 +73,31 @@ differs from New Vegas is in [fo4_drift.md](docs/fork/fo4_drift.md).
 
 | | |
 |---|---|
-| **Windows 10 or 11** | The conversion runs Windows-only tools. |
+| **Windows 10 or 11** | The tested setup. Linux and macOS may work now that the conversion no longer relies on the Creation Kit, but nobody has tried them yet ([below](#other-systems)). |
 | **Fallout 4** | The current Steam version, **1.11.240**. |
-| **Fallout 4 Creation Kit** | Free on [Steam](https://store.steampowered.com/app/1946160/). The conversion uses its tools; you don't need to open it. |
-| **Fallout: New Vegas** | Steam or GOG, with any DLC you want converted. |
+| **Fallout 4 Creation Kit** | Recommended, free on [Steam](https://store.steampowered.com/app/1946160/). The conversion does its own work now; it falls back on the Creation Kit only for the few faces our own FaceGen can't make. You don't need to open it. |
+| **Fallout: New Vegas or Fallout 3** | Steam or GOG, with any DLC you want converted. For Fallout 3, the Game of the Year edition has all five DLC. |
 | **[Mod Organizer 2](https://github.com/ModOrganizer2/modorganizer)** | Set up for Fallout 4. The steps below assume it. |
 | **[F4SE](https://f4se.silverlock.org/)** | For 1.11.240, installed into your Fallout 4 folder. |
 | **Three mods in MO2** | [Address Library for F4SE Plugins](https://www.nexusmods.com/fallout4/mods/47327), [Mod Configuration Menu](https://www.nexusmods.com/fallout4/mods/21497), [Black Landscape Fix](https://www.nexusmods.com/fallout4/mods/108574) (the F4SE version; without it, some bare ground turns black). |
 | **A strong PC** | 32 GB of RAM and about 100 GB of free disk space. |
 
-**Turn off Extended Dialogue Interface** if you have it: `F3NV.dll` brings
-its own dialogue menu, which switches itself off while XDI is loaded.
+> [!CAUTION]
+> **Uninstall or disable Extended Dialogue Interface (XDI)** before you play.
+> The conversion's dialogue runs entirely through its own menu framework,
+> Cleanroom UI (`CleanroomDialogue.dll` and `CleanroomUI.dll`, installed with
+> the converted game): every conversation, its full line text, the skill and
+> speech checks, and the quest stages and scripts that dialogue starts. While
+> XDI is loaded it takes over the dialogue menu and Cleanroom UI's menu
+> switches itself off, so most conversations, and the quests that depend on
+> them, break. **Install status** flags XDI if it finds it.
+
+<a id="other-systems"></a>**On Linux or macOS** (untested): install Python 3.14,
+then run `python3.14 -m pip install -r requirements.txt` and
+`python3.14 fo4_app.py` in the downloaded folder instead of the `.cmd`
+launcher. The few faces our own FaceGen can't make fall back to the
+Creation Kit, which runs only on Windows. Please [report](#problems) how it
+goes.
 
 ### 1. Download
 
@@ -102,24 +122,30 @@ Double-click **`Convert to Fallout 4.cmd`** in that folder.
 
 The app asks four things. Each one can be changed later on the **Setup**
 screen.
-1. **Which game:** Fallout: New Vegas.
-2. **Game folders:** your New Vegas and Fallout 4 folders (usually found for
-   you).
+1. **Which game:** Fallout: New Vegas or Fallout 3 (experimental). You can
+   switch at any time on the Convert screen.
+2. **Game folders:** your Fallout 4 folder and the folder of each game you
+   own (usually found for you).
 3. **Mods:** pick **A Mod Organizer 2 instance**, then its folder and
    profile.
 4. **Where files go:** choose an output folder **inside your MO2
    instance's `mods` folder**, for example
    `...\mods\F3NV - Fallout New Vegas`. That lets the app enable everything
    in MO2 for you. Pick a work folder on a drive with plenty of free space.
+   Each game keeps its own output folder.
 
-### 4. Convert New Vegas
+### 4. Convert the game
 
 On the **Convert** screen:
-1. Under **What to convert**, pick **FalloutNV.esm**.
-2. Under **What the build covers**, pick **Whole**.
-3. Leave the default stages ticked (Export, Helper plugin, Build, Faces,
-   Install the F4SE plugin, Check references).
-4. Click **Start**.
+1. Under **1. Game**, pick the game, for example **Fallout: New Vegas**.
+2. Under **2. What to convert**, pick the game itself, for example
+   **FalloutNV.esm: the game**. Each row says whether it is built yet.
+3. Click the **Convert** button. It names what it will build, for example
+   **Convert FalloutNV.esm**.
+
+The bold line above the button always says what to do next. Leave **Show
+advanced options** folded: the stages and the scope (**Whole**) are already
+set.
 
 The first conversion takes several hours: it converts every mesh, texture,
 sound and face once. Later rebuilds reuse that work and take minutes. Keep
@@ -133,42 +159,83 @@ backing up your lists. Click **Install status** to check that everything is
 in place.
 
 If your output folder isn't inside MO2's `mods` folder, copy it there as a
-new mod, enable it, and tick `FalloutNV.esm` and `FalloutHelpers.esl` in the
-plugin list, after Fallout 4's own plugins.
+new mod, enable it, and tick the game's plugin (`FalloutNV.esm` or
+`Fallout3.esm`) and `FalloutHelpers.esl` in the plugin list, after
+Fallout 4's own plugins.
 
 ### 6. Play
 
 Start Fallout 4 through F4SE: **Play** on the Finished screen, or MO2's F4SE
-entry. Choose **New**. Fallout 4's intro and character creation come first;
-then the game moves you to Doc Mitchell's house in Goodsprings, plays New
-Vegas's intro, and you make your character as in New Vegas.
+entry. Choose **New**. For New Vegas, Fallout 4's intro and character
+creation come first; then the game moves you to Doc Mitchell's house in
+Goodsprings, plays New Vegas's intro, and you make your character as in New
+Vegas. Fallout 3 starts in Vault 101 ([below](#fallout-3)).
 
 If the opening doesn't start, open the console (`~`) and type
-`setstage FNV_NewGame 10`.
+`setstage FNV_NewGame 10`. The quest has this name for both games.
 
 ## <a id="convert"></a>The DLC and mods
 
-Convert New Vegas first; the DLC and mods build on it. Each goes into its
+Convert the game first; its DLC and mods build on it. Each goes into its
 own mod folder.
 
-- **A DLC or add-on pack:** pick it under **What to convert** (the app lists
-  the ones in your New Vegas `Data` folder), keep **Whole**, and click
-  **Start**. It goes into its own folder beside the game's, such as
+- **A DLC or add-on pack:** pick it under **2. What to convert** (the app
+  lists the ones in your game's `Data` folder) and click **Convert** (the
+  button carries its name). It goes into its own folder beside the game's, such as
   `F3NV - Dead Money`.
-- **A mod:** click **Add a mod folder...** and choose the folder holding the
-  mod's plugin (for example a mod you unpacked, or one from your New Vegas
-  mod manager). The app imports it, then converts it the same way.
+- **A mod:** click **Add a mod folder...** beside the list and choose the
+  folder holding the mod's plugin (for example a mod you unpacked, or one
+  from your old mod manager). It joins the list, picked; click
+  **Convert**. The app imports it, then converts it the same way. Pick the
+  game the mod was made for under **1. Game** first.
 
 After each one, click **Set up in MO2** again. The DLC and mods load after
-`FalloutNV.esm`.
+the game's plugin.
+
+## <a id="fallout-3"></a>Fallout 3
+
+Fallout 3 converts the same way as New Vegas, with a few differences. It is
+experimental: so far only its opening in Vault 101 has been built and
+played, by our automated test runs. The rest of the Capital Wasteland and
+the DLC convert the same way but are untested.
+
+**Set it up apart from New Vegas.** Both games' plugins carry the
+new-game quest, so with both loaded, both openings start at once.
+- In MO2, make a second Fallout 4 profile for it, for example "Fallout 3".
+- On the **Setup** screen, with **Convert from** set to Fallout 3, choose
+  its own output folder inside MO2's `mods` folder, for example
+  `...\mods\F3NV - Fallout 3`.
+- Under **Mods to pick replacements from**, set your MO2 row's **MO2
+  profile** to the Fallout 3 one while you work on Fallout 3, and back to your New Vegas
+  profile afterward. **Set up in MO2** and **Play** use that profile.
+
+**Convert it.** On the Convert screen, pick **Fallout 3** under **1. Game**,
+then **Fallout3.esm: the game**, and click **Convert Fallout3.esm**. Its
+DLC (Operation: Anchorage, The Pitt, Broken Steel, Point Lookout and
+Mothership Zeta) then show in the list as `convert Fallout3.esm first`
+until it is built, and each converts into its own folder, such as
+`F3NV - BrokenSteel`. Then click **Set up in MO2** on the Finished screen.
+
+**What to expect in game:**
+- Fallout 4's own intro movie plays first; Fallout 3's isn't converted yet.
+- You are born in Vault 101 and play the opening as in Fallout 3: birth,
+  Baby Steps, the 10th birthday, the G.O.A.T. and the escape. The race and
+  SPECIAL menus open where Fallout 3 opens them.
+- The child years play on the adult body, and the child jumpsuit doesn't
+  show on it yet.
+- A level you gain inside the vault arrives at once; Fallout 3 held it until
+  you left.
+- New Vegas's systems stay off: no reputation, challenges, Hardcore mode,
+  casino or Classic Look plugin.
+- Past the vault door is unplayed. Please [report](#problems) what you find.
 
 ## Updating
 
 1. Download the new release and unzip it over your old folder (or into a
    new one; your settings come along if you kept them beside the app).
-2. Start the app, pick **FalloutNV.esm**, make sure **Rebuild what changed**
-   is ticked, and click **Start**. It rebuilds only what the update touched, then the DLC
-   and mods built on it.
+2. Start the app, pick the game and its plugin (for example
+   **FalloutNV.esm**) and click **Convert**. It rebuilds only what the
+   update touched, then the DLC and mods built on it.
 3. **Install status** names any plugin still built by an older release.
 
 The release notes say whether an update needs a new game. Your saves keep
@@ -176,8 +243,8 @@ working across rebuilds unless they say otherwise.
 
 ## <a id="classic-look"></a>Classic Look
 
-`FalloutNV - Classic Look.esl` is optional (tick **Classic Look plugin** on
-the Convert screen). It changes only lighting and color, so you can turn it
+New Vegas only. `FalloutNV - Classic Look.esl` is optional (tick **Classic Look plugin** under
+the Convert screen's advanced options). It changes only lighting and color, so you can turn it
 on or off at any time, mid-game, without a new save.
 
 | | Off (default) | On |
@@ -188,7 +255,7 @@ on or off at any time, mid-game, without a new save.
 Everything else is the same either way: where lights are, their color and
 reach, the weather, glowing signs and neon.
 
-## Problems and reports
+## <a id="problems"></a>Problems and reports
 
 - **Install status** (Finished screen) checks every requirement and says
   what to do about each problem.
@@ -223,8 +290,9 @@ The pipeline, every system's design and its measurements are in
 - [fo4_plan_release.md](docs/fork/fo4_plan_release.md#release-identity):
   releases (`f3nv-<major>.<minor>` tags).
 
-[CLAUDE.md](CLAUDE.md) holds the working rules. The command-line build of the
-whole map is:
+[CLAUDE.md](CLAUDE.md) holds the working rules. The command-line build of
+New Vegas's whole map is below; Fallout 3's opening build is in
+[fo4_fo3_plan.md](docs/fork/fo4_fo3_plan.md#build).
 
 ```bash
 py -3.14 -m fo4_import.pipeline.run --export export/FalloutNV.esm --out <Data>/FalloutNV.esm --data <Data> --scripts temp/fo4_scripts/FalloutNV.esm --world WastelandNV reached --whole --no-test-cell GSDocMitchellHouse
@@ -236,39 +304,60 @@ Tests: `py -3.14 -m pytest tests/test_fo4_*.py`.
 
 ## Credits & License
 
-First things first, I want to give credit to all the wonderful people I used to know on the Morroblivion forum, and those still working hard on Skyblivion and Skywind all these years later. You are an inspiration.
+Thanks first to the people who kept Fallout 3 and New Vegas moddable for
+fifteen years: the authors of xEdit, NVSE and xNVSE, JIP LN NVSE, FOSE and
+F4SE, and the writers of the GECK and Fallout wikis, whose work this project
+leans on every day. And thanks to the Morroblivion, Skyblivion and Skywind
+communities, where this all started. You are an inspiration.
 
 This project's own code is released under the **GNU GPL-3.0** ([LICENSE](LICENSE))
 with a modding exception ([EXCEPTIONS](EXCEPTIONS)). The code it started from,
 [tes4skyrim](https://github.com/bryantmh/tes4skyrim) by bryantmh and contributors,
-stays under the **MIT License**; [NOTICE](NOTICE) says which is which. Everything
-under `external/` is third-party and carries its own licensing, below.
+stays under the **MIT License**; [NOTICE](NOTICE) says which is which. Converted
+game files come from your own copies of Bethesda's games; none of these licenses
+cover them.
+
+### What the Fallout 4 conversion uses
 
 | Contributor / Component | Used for | License / Terms |
 |--------------------------|----------|-----------------|
-| [xEdit and all contributors](https://github.com/TES5Edit/TES5Edit) | ESM record definitions; `BSArch.exe` (BSA packing) and `LODGenx64.exe` (object LOD) in `external/` | MPL-2.0 / GPL-2.0 (xEdit dual license) — redistributed |
-| Zilav's Oblivion → Skyrim xEdit conversion scripts | The original inspiration and the information needed to get started | — (reference only, not redistributed) |
-| [NifSkope](https://github.com/niftools/nifskope) contributors | NIF format documentation | — (reference only, not redistributed) |
-| [Ormin — NIFConverter](https://github.com/Ormin/skyblivion-NIFConverter) | Mesh conversion reference | — (reference only, not redistributed) |
-| [Ormin — ScriptConverter](https://github.com/Ormin/skyblivion-ScriptConverter) | OBScript → Papyrus transpilation reference | — (reference only, not redistributed) |
-| [russo-2025 — papyrus-compiler](https://github.com/russo-2025/papyrus-compiler) | Papyrus compiler, `external/papyrus-compiler/papyrus.exe` | **MIT** (© 2025 russo-2025) — redistributed; license text in `external/papyrus-compiler/LICENSE` |
-| [Orvid — Caprica](https://github.com/Orvid/Caprica) | Fallout 4 Papyrus compiler (v0.3.0), `external/caprica/Caprica.exe`, run before FO4's own | **MIT** (© 2015 Orvid King) — redistributed; license text in `external/caprica/LICENSE` |
-| [LvxMagick — DovahNifWorkbench](https://www.nexusmods.com/skyrimspecialedition/mods/183399) | Mopp Bridge, `external/mopp_bridge/dovah_hkp_mesh_mopp_bridge.exe` | No stated license (Nexus-only, no public source). **Statically links Havok** — see the Havok note below |
-| [Bad Dog — PyNifly](https://github.com/BadDogSkyrim/PyNifly) | Pure-Python Havok hk_2010 packfile reader + hkaSplineCompressedAnimation codec (vendored in `external/pynifly_hkx/`) — the heart of creature animation conversion | **GPL-3.0** (vendored from PyNifly 27.4.0; local changes marked `# TESConversion:`) — see the GPL note below |
-| [OpenMW](https://openmw.org/) | The Morrowind dialogue engine and MWScript interpreter, vendored into `external/openmw/` and linked into `MorrowindRuntime.dll` | **GPL-3.0** — see the GPL note below. Vendored by `tools/generators/vendor_openmw.py`; license text in `external/openmw/LICENSE` |
-| [figment — hkxcmd](https://github.com/figment/hkxcmd) | Havok packfile XML↔binary compiler, `external/hkxcmd/hkxcmd.exe`, used to build skeleton/behavior/animation `.hkx` | **BSD-3-Clause** for hkxcmd's own sources (© 2011; text in `external/hkxcmd/LICENSE.TXT`). **Statically links Havok** — see the Havok note below |
-| [Monitor221hz — HKX2-Enhanced-Library](https://github.com/Monitor221hz/HKX2-Enhanced-Library) | Skyrim SE 64-bit Havok packfile ↔ XML, `external/hkxconv/hkxconv.exe`, used to patch the vanilla humanoid behavior graphs (`hkxcmd` cannot read 64-bit files). Forked from [ret2end](https://github.com/ret2end/HKX2Library), in turn from [katalash](https://github.com/katalash/DSMapStudio) / [krenyy](https://gitlab.com/HKX2/HKX2Library); bundles `BinaryReaderEx` from [JKAnderson — SoulsFormats](https://github.com/JKAnderson/SoulsFormats) | **No stated license** anywhere in that chain (no LICENSE file upstream) — community project, publicly distributed and freely forked; redistributed here on that basis. Full chain and rebuild steps in `external/hkxconv/README.md` |
-| [Microsoft DirectX SDK (June 2010)](https://www.microsoft.com/en-us/download/details.aspx?id=6812) | `external/xwmaencode/xWMAEncode.exe`, xWMA voice compression | Microsoft — **not redistributed**; the launcher fetches it from Microsoft (see [Convert](#convert)) |
-| [FFmpeg](https://ffmpeg.org/) | `external/ffmpeg/ffmpeg.exe`, decoding MP3/WAV voice and sound files | **LGPL v2.1 or later** — redistributed; license text in `external/ffmpeg/COPYING.LGPLv2.1`. See the LGPL note below |
-| Oblivion banner font ([dafont](https://www.dafont.com/oblivion.font)) | Project banner | *Free for personal use only*, based on Bethesda's trademarked logo. **Not** bundled in this repo; the banner ships as pre-rendered vector outlines. |
+| [xEdit and all contributors](https://github.com/TES5Edit/TES5Edit) | Record layouts for all three games; `LODGenx64.exe` (distant objects) in `external/lodgen/`; FO4Edit's optional full check | MPL-2.0 / GPL-2.0 (xEdit dual license); LODGen redistributed |
+| [F4SE](https://f4se.silverlock.org/) team | `F3NV.dll` is an F4SE plugin built against F4SE 0.7.9's source | F4SE's own terms; F4SE itself is not redistributed (you install it) |
+| [ThyMrMan — Cleanroom UI](https://github.com/ThyMrMan/cleanroom-ui) | The dialogue menu and menu framework, `CleanroomDialogue.dll` and `CleanroomUI.dll` | **GPL-3.0** with the modding exception; redistributed |
+| [Orvid — Caprica](https://github.com/Orvid/Caprica) | Fallout 4 Papyrus compiler (v0.3.0), `external/caprica/Caprica.exe` | **MIT** (© 2015 Orvid King); redistributed, license text in `external/caprica/LICENSE` |
+| [Bad Dog — PyNifly](https://github.com/BadDogSkyrim/PyNifly) | Havok packfile reader and animation codec, vendored in `external/pynifly_hkx/`: creature and gun animation conversion | **GPL-3.0** (vendored from PyNifly 27.4.0; local changes marked `# TESConversion:`); see the GPL note below |
+| [FFmpeg](https://ffmpeg.org/) | `external/ffmpeg/ffmpeg.exe`, decoding the games' MP3 and WAV voice and sound files | **LGPL v2.1 or later**; redistributed, license text in `external/ffmpeg/COPYING.LGPLv2.1`. See the LGPL note below |
+| [Microsoft DirectX SDK (June 2010)](https://www.microsoft.com/en-us/download/details.aspx?id=6812) | `xWMAEncode.exe`, compressing voice lines | Microsoft; **not redistributed**: the launcher fetches it from Microsoft |
+| [Apache Flex SDK](https://flex.apache.org/) | Compiling our own menus' ActionScript into Flash movies, at build time | **Apache-2.0**; a build tool, not shipped. Adobe's `playerglobal.swc` is never shipped or committed |
+| [Dear-Modding-FO4 — CommonLibF4](https://github.com/Dear-Modding-FO4/commonlibf4) | `F3NVTest.dll`, the automated test runs' control channel | **GPL-3.0**; test-only, never shipped |
+| Bethesda — Fallout 4 Creation Kit | The fallback for faces our own FaceGen can't make | Bethesda's terms; installed by you from Steam, not redistributed |
+| xNVSE, JIP LN NVSE and FOSE sources; the GECK, Fallout and Fallout 4 Creation Kit wikis; [NifSkope](https://github.com/niftools/nifskope); Neanka's LevelUpMenuEx and HUDFramework | What the old games' functions, records and meshes really do, and how Fallout 4's menus are built | Reference only, not redistributed |
 
-> **Note on GPL-3.0:** `external/pynifly_hkx/` (creature animation conversion,
-> `asset_convert/havok/hkx_anim.py`) and `external/openmw/` (linked into
-> `MorrowindRuntime.dll`) are both GPL-3.0. If you redistribute a build that includes
-> either, the GPL's terms apply to that distribution. `MorrowindRuntime.dll` is kept a
-> separate DLL for this reason. `TESRuntime.dll` carries a line-for-line port of
-> OpenMW's alchemy apparatus formula (`tes_runtime/tes/alchemy.cpp`), so it is
-> GPL-3.0 as well.
+### Inherited from the Skyrim converter
+
+The Morrowind and Oblivion to Skyrim converter this project grew from is still
+in the repository (`TES Auto-Convert.cmd`; use
+[ThyMrMan/tes4skyrim](https://github.com/ThyMrMan/tes4skyrim) for it). The
+Fallout 4 conversion doesn't use these, but they ship with the source:
+
+| Contributor / Component | Used for (by the Skyrim converter) | License / Terms |
+|--------------------------|----------|-----------------|
+| [xEdit](https://github.com/TES5Edit/TES5Edit) | `BSArch.exe` (BSA packing) in `external/bsarch/` | MPL-2.0 / GPL-2.0; redistributed |
+| Zilav's Oblivion → Skyrim xEdit conversion scripts | The original inspiration and the information needed to get started | Reference only, not redistributed |
+| [Ormin — NIFConverter](https://github.com/Ormin/skyblivion-NIFConverter) and [ScriptConverter](https://github.com/Ormin/skyblivion-ScriptConverter) | Mesh and OBScript → Papyrus conversion reference | Reference only, not redistributed |
+| [russo-2025 — papyrus-compiler](https://github.com/russo-2025/papyrus-compiler) | Skyrim Papyrus compiler, `external/papyrus-compiler/papyrus.exe` | **MIT** (© 2025 russo-2025); redistributed, license text in `external/papyrus-compiler/LICENSE` |
+| [OpenMW](https://openmw.org/) | The Morrowind dialogue engine and MWScript interpreter, vendored into `external/openmw/` and linked into `MorrowindRuntime.dll` | **GPL-3.0**; see the GPL note below. License text in `external/openmw/LICENSE` |
+| [figment — hkxcmd](https://github.com/figment/hkxcmd) | Havok packfile XML ↔ binary, `external/hkxcmd/hkxcmd.exe` | **BSD-3-Clause** for its own sources (text in `external/hkxcmd/LICENSE.TXT`). **Statically links Havok**; see the Havok note below |
+| [Monitor221hz — HKX2-Enhanced-Library](https://github.com/Monitor221hz/HKX2-Enhanced-Library) | Skyrim SE 64-bit Havok packfile ↔ XML, `external/hkxconv/hkxconv.exe`. Forked from [ret2end](https://github.com/ret2end/HKX2Library), in turn from [katalash](https://github.com/katalash/DSMapStudio) / [krenyy](https://gitlab.com/HKX2/HKX2Library); bundles `BinaryReaderEx` from [JKAnderson — SoulsFormats](https://github.com/JKAnderson/SoulsFormats) | **No stated license** anywhere in that chain; a community project, publicly distributed and freely forked, redistributed here on that basis. Details in `external/hkxconv/README.md` |
+| [LvxMagick — DovahNifWorkbench](https://www.nexusmods.com/skyrimspecialedition/mods/183399) | Mopp Bridge, `external/mopp_bridge/dovah_hkp_mesh_mopp_bridge.exe` | No stated license (Nexus only, no public source). **Statically links Havok**; see the Havok note below |
+| Oblivion banner font ([dafont](https://www.dafont.com/oblivion.font)) | The Skyrim converter's banner | *Free for personal use only*, based on Bethesda's trademarked logo. **Not** bundled; the banner ships as pre-rendered vector outlines |
+
+> **Note on GPL-3.0:** `external/pynifly_hkx/` (animation conversion for both
+> converters) and `external/openmw/` (linked into the Skyrim converter's
+> `MorrowindRuntime.dll`) are GPL-3.0, as is this project's own code. If you
+> redistribute a build that includes either, the GPL's terms apply to that
+> distribution. `TESRuntime.dll` carries a line-for-line port of OpenMW's alchemy
+> apparatus formula (`tes_runtime/tes/alchemy.cpp`), so it is GPL-3.0 as well.
 
 > **Note on LGPL (FFmpeg):** `external/ffmpeg/ffmpeg.exe` is built from **unmodified**
 > FFmpeg 7.1.2 sources under LGPL v2.1, with no GPL components (`--enable-gpl` and
@@ -279,12 +368,13 @@ under `external/` is third-party and carries its own licensing, below.
 
 > ### ⚠️ Note on Havok
 >
-> Two bundled binaries — `hkxcmd.exe` and `dovah_hkp_mesh_mopp_bridge.exe` — statically
-> link the **proprietary Havok SDK**. Both embed the notice:
+> Two binaries the Skyrim converter bundles, `hkxcmd.exe` and
+> `dovah_hkp_mesh_mopp_bridge.exe`, statically link the **proprietary Havok SDK**.
+> Both embed the notice:
 >
 > > *Copyright 1999-2011 Havok.com Inc. (and its Licensors). All Rights Reserved.
 > > See www.havok.com for details.*
 >
 > **Neither author's license grants any rights to the Havok code inside.** These two
-> binaries are redistributed here as-is.
-
+> binaries are redistributed here as-is. The Fallout 4 conversion uses neither: it
+> writes Fallout 4's Havok physics with its own code.

@@ -15,8 +15,8 @@ from fo4_import.app import settings as S
 from fo4_import.app.stages import GAMES
 from fo4_import.app.widgets import ModSourcesTable, PathRow
 
-GAME_LABELS = {'fallout4': 'Fallout 4', 'falloutnv': 'Fallout: New Vegas', 'fallout3': 'Fallout 3'}
-SOURCE_LABELS = {source: GAME_LABELS[source] + ('' if game['built'] else ' (build not supported yet)')
+GAME_LABELS = {'fallout4': 'Fallout 4', **{source: game['label'] for source, game in GAMES.items()}}
+SOURCE_LABELS = {source: game['label'] + (f" ({game['note']})" if game['note'] else '')
                  for source, game in GAMES.items()}
 OUTPUT_LABELS = {'folder': 'A folder of loose files', 'zip': 'A zip of that folder'}
 PLACE_LABELS = {'app': 'Beside the app', 'output': 'In the output folder', 'custom': 'A path I choose'}
@@ -122,6 +122,10 @@ class SetupView(QWidget):
         self.place.setCurrentIndex(list(PLACE_LABELS).index(block['replacements']['where']))
         self.replacements.set_text(block['replacements']['path'])
         self.profile.setText(block['profile'])
+
+    def choose_source(self, source: str) -> None:
+        """Show game `source` as chosen, with its own fields (the Convert screen's pick)."""
+        self.source.setCurrentIndex(list(GAMES).index(source))
 
     def _source_changed(self) -> None:
         """Keep the shown game's fields, then show the newly chosen game's."""

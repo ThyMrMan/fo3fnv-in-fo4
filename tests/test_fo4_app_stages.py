@@ -78,17 +78,33 @@ def test_export_reads_the_chosen_game_folder(tmp_path):
 
 
 def test_what_cannot_run_says_why(tmp_path):
-    """FO3 builds nothing yet; Windows-only stages need Windows; a missing game folder blocks its stages."""
+    """FO3 builds but has no Classic Look; the build runs on any OS; a missing game folder blocks its stages."""
     s = _settings(tmp_path)
-    assert ST.unavailable(s, 'falloutnv', 'build', 'win32') == ''
-    assert 'does not support' in ST.unavailable(s, 'fallout3', 'build', 'win32')
+    assert ST.unavailable(s, 'falloutnv', 'build', 'win32') == ST.unavailable(s, 'fallout3', 'build', 'win32') == ''
+    assert 'New Vegas only' in ST.unavailable(s, 'fallout3', 'classic', 'win32')
     assert ST.unavailable(s, 'fallout3', 'export', 'win32') == ''
-    assert 'Windows' in ST.unavailable(s, 'falloutnv', 'build', 'linux')
-    assert ST.unavailable(s, 'falloutnv', 'helpers', 'linux') == ''
+    assert ST.unavailable(s, 'falloutnv', 'build', 'linux') == ST.unavailable(s, 'falloutnv', 'helpers', 'linux') == ''
     s['games']['fallout4'] = str(tmp_path / 'missing')
     assert 'Fallout 4' in ST.unavailable(s, 'falloutnv', 'check', 'win32')
     assert 'Fallout 4' in ST.unavailable(s, 'falloutnv', 'fo4edit', 'win32')
     assert ST.unavailable(s, 'falloutnv', 'export', 'win32') == ''
+
+
+def test_the_next_step_and_each_rows_state_follow_what_is_built(tmp_path, monkeypatch):
+    """Without its master the game is not pickable; unbuilt, Convert builds it and an add-on waits on it; built, the
+    next step is rebuilding or Finished."""
+    s = _settings(tmp_path)
+    assert ST.game_problem(s, 'falloutnv') and 'folder on the Setup screen' in ST.next_step(s, 'falloutnv')
+    (tmp_path / 'falloutnv' / 'Data' / 'FalloutNV.esm').write_bytes(b'')
+    assert ST.game_problem(s, 'falloutnv') == '' and ST.next_step(s, 'falloutnv').startswith('Click Convert to build')
+    assert ST.row_state(s, 'falloutnv', '') == 'not built yet'
+    assert ST.row_state(s, 'falloutnv', 'DeadMoney.esm') == 'convert FalloutNV.esm first'
+    game = ST.plugin_path(s, 'falloutnv')
+    game.parent.mkdir(parents=True)
+    game.write_bytes(b'')
+    monkeypatch.setattr(ST.build_plan, 'record', lambda plugin: {} if plugin == game else None)
+    assert ST.row_state(s, 'falloutnv', '').startswith('built ') and 'is built' in ST.next_step(s, 'falloutnv')
+    assert ST.row_state(s, 'falloutnv', 'DeadMoney.esm') == 'not built yet'
 
 
 def test_check_is_the_fast_reference_check_and_fo4edit_is_optional(tmp_path):

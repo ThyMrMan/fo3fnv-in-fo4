@@ -23,7 +23,7 @@ from fo4_import.base.source import record_dir
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record
 from fo4_import.face import face_tint, facegeom, hair, npc_skin, skin_seams, tint
 from fo4_import.face.bake import bake, face_shape, positions, seam_tree, triangles, uvs
-from fo4_import.face.texture import dds_like, vanilla_face_texture, write_dds
+from fo4_import.face.texture import dds_like, vanilla_dds
 from fo4_import.nif import file as nif_file
 from fo4_import.pipeline import creation_kit
 from fo4_import.spike.fnv_npc import fnv_face, race_shade
@@ -106,8 +106,7 @@ def write_skin(job: Job, who: tuple, nif: bytes, colour: tuple, shade: np.ndarra
     rgba, qnam = skin_seams.face_texture(baseline, face, *colour, (neck, template, shade, head))
     folder = job.out / FACE_DIR / plugin
     folder.mkdir(parents=True, exist_ok=True)
-    write_dds(rgba, folder / f'{stem}_d.dds')
-    vanilla_face_texture(folder / f'{stem}_d.dds')
+    (folder / f'{stem}_d.dds').write_bytes(vanilla_dds(rgba, 'd'))
     return qnam / template, with_rear(job, (plugin, stem), nif, (face[0], colour, (seam, (template, qnam), (face[1], neck))))
 
 
