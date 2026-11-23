@@ -2,8 +2,8 @@
 
 Each FNV NPC base becomes a copy of a vanilla body for its race and sex
 (the replacement table's body rules), with FNV's name, factions, AI packages, script, outfit (its worn
-items) and inventory (the rest); a human whose sex has a calibration (both
-are measured by sculpt_calibration) also takes FNV's face fitted to FO4's
+items) and inventory (the rest); a human whose sex has its face bases (measured
+on first use by face.calibration) also takes FNV's face fitted to FO4's
 sculpt regions, tints and head parts; a child (its race's child flag) takes the child body and its face,
 and wears only what draws on the child race. A template (TPLT) is followed for
 each part its flags take from it; an NPC whose traits come from a leveled
@@ -29,7 +29,7 @@ from core.process_job import join_pool_job
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM, source_walk
 from fo4_import.base.writer import pack_fo4_record
-from fo4_import.face import hair, presets, sculpt, tint
+from fo4_import.face import calibration, hair, presets, sculpt, tint
 from fo4_import.face.sculpt import FACE_FIELDS
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.face_fits import FIT_SITES, basis_hash, fit_key, fitted, keep, kept, take
@@ -354,7 +354,9 @@ class Npcs:
 
     def __init__(self, builder, export_dir: Path, form_map: dict, creatures):
         """Index FNV's NPCs and races; `form_map` maps the FNV forms packages name, `creatures` (creatures.py)
-        makes the placed creatures' bases."""
+        makes the placed creatures' bases; the face bases measured first where missing (calibration.ensure)."""
+        if calibration.ensure():
+            basis_hash.cache_clear()
         self.builder, self.export_dir, self.form_map, self.creatures = builder, export_dir, form_map, creatures
         self.records = {int(r['FormID'], 16): r for r in export_records(export_dir, 'NPC_')}
         races = export_records(export_dir, 'RACE')

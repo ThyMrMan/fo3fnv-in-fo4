@@ -1,4 +1,5 @@
-"""FO4 face morph presets (a race's morph groups) measured through the Creation Kit, and written into an NPC.
+"""FO4 face morph presets (a race's morph groups) measured on our own FaceGen (face.calibration), and written into an
+NPC.
 
 A preset names a morph of the head's chargen .tri; an NPC weights presets by
 MSDK keys and MSDV values, at most one per group (as every vanilla NPC). One
@@ -34,10 +35,10 @@ class Preset:
     morph: str
 
 
-def race_presets(race_body: bytes, female: bool) -> list:
-    """The race's presets for one sex that name a morph, in record order."""
+def race_presets(race_subs, female: bool) -> list:
+    """The race's presets for one sex that name a morph, in record order, from its (tag, data) subrecords."""
     want, sex, group, key, out = (b'FNAM' if female else b'MNAM'), None, '', 0, []
-    for tag, data in subrecords(race_body):
+    for tag, data in race_subs:
         text = data.rstrip(b'\0')
         sex = tag if tag in (b'MNAM', b'FNAM') else sex
         group = text.decode('cp1252') if tag == b'MPGN' else group

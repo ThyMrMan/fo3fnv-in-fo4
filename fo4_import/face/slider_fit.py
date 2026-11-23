@@ -68,7 +68,8 @@ def problem(female: bool) -> Problem:
     names = proportions.region_names(human_race(), female)
     measures = proportions.measure_matrix(proportions.region_sets(basis, regions, names, face), face)
     morph_basis, morphs = presets.load_basis(female)
-    picks = {(p.group, p.morph): p.key for p in presets.race_presets(human_race(), female) if p.morph in morphs}
+    found = presets.race_presets(subrecords(human_race()), female)
+    picks = {(p.group, p.morph): p.key for p in found if p.morph in morphs}
     eye_part = next(name for name in shape_names(baseline) if name in eye_parts())
     return Problem(measures, basis, regions, face, baseline,
                    (morph_basis, [(g, key, morphs.index(m)) for (g, m), key in picks.items()]), eye_part)

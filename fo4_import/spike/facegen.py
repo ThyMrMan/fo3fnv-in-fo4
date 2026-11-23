@@ -41,7 +41,7 @@ from fo4_import.base.ba2_pack import (archived, drop_packed, pack_main, pack_tex
                                       staging_root)
 from fo4_import.base.install import FALLOUT4_ESM, masters_of
 from fo4_import.classic_look import CLASSIC_FOLDER
-from fo4_import.face import facegeom
+from fo4_import.face import calibration, facegeom
 from fo4_import.face.texture import vanilla_face_texture
 from fo4_import.face.tint import skin_tone_layers
 from fo4_import.nif import file as nif_file
@@ -478,6 +478,7 @@ def main():
     if not args.overrides_only:
         print('plugin:', as_built(plugin_path), flush=True)
     write_faces_stamp(plugin_path, 'running', argv, Path(os.getcwd()))
+    charged('faces calibration', calibration.ensure)
     stop = sample()
     whole = overrides(args, data_dir, export_dir) if args.overrides_only else steps(args, data_dir, export_dir)
     stop()

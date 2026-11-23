@@ -67,9 +67,8 @@ fit files of version 1 no longer install.
 The female tint basis was measured on a copy of Amari with her old skin. At
 the fit's 256 px working size the two skins differ by 2.35/255 on average
 (95th percentile 6.6), against 4.8 for a typical face's target (Cass), so the
-basis still serves; a female tint recalibration
-(`sculpt_calibration --what tints --female`) brings it in line, and the
-calibration template now drops FTST too.
+basis still serves. The calibration template now drops FTST too, and
+the bases are now measured without the CK ([calibration](#calibration)).
 
 ## <a id="age-face-set"></a>Old faces drawn on a young face set (2026-11-19, not yet played)
 
@@ -1053,6 +1052,69 @@ only head parts drawn as hair are brows or facial hair (the eyepatch's tint
 fit no longer counts it as a brow; see
 [spike 2](fo4_spikes.md#spike-2-hair)). The fits file must be re-exported and
 republished under version 4.
+
+## <a id="calibration"></a>Built: face calibration without the Creation Kit (2026-11-23)
+
+**Code:** `fo4_import/face/calibration.py`, called by `Npcs.__init__` (the
+build's people stage) and by the faces stage before anything else.
+
+**Why.** The six face bases (sculpt, preset and tint, per sex) were measured
+by `spike/sculpt_calibration.py`, which made the CK export calibration NPCs
+through MO2. Nothing in the app ran it. A fresh install of release f3nv-0.2
+had no bases, so:
+
+- the build's `Npcs._kind` marked every human not fittable, with no count or
+  warning. Every NPC got the template face: no fitted sliders or tints and no
+  FNV hair choice;
+- the faces stage wrote its heads, then crashed in the slider refit
+  (`sculpt.load_basis()` returned None) and left its stamp at `running`.
+
+The bases can't ship. They hold Fallout 4's own head mesh and texture data.
+
+**What runs now.** `calibration.ensure()` measures every missing base on the
+user's machine. It writes each calibration plugin to a scratch folder and draws
+its NPCs with our own FaceGen (`facegeom.build` for heads, `face_tint` for the
+face `_d` at the CK's 2048), reading only Fallout4.esm and the game's
+archives. No CK and no MO2, so it can run on Linux and Mac. The CK tool is
+deleted. Measured on the dev machine: sculpt 19 s per sex, presets 1.4 s,
+tints 39–55 s, so about 2.5 minutes for all six.
+
+**Against the CK-measured bases** (2026-10-06 male, 2026-10-12 female):
+
+| Base | Worst difference | Mean | Note |
+|---|---|---|---|
+| Sculpt, male / female | 0.0078 / 0.0078 | ~0 | half-float rounding of the stored positions |
+| Presets, male / female | 0.0117 / 0.010 | ~0 | same, once heads take presets ([preset morphs](#preset-morphs)) |
+| Tints, male / female | effect error median 12% / 19% | 0.07 / 0.09 of 255 | ours 3–6% weaker; worst are texture-set detail layers (slot 22: crater skin, blemishes, pocks) at 0.62–0.89 of the CK's strength |
+| Tint baseline | — | 1.3 / 2.1 of 255 | the CK's was read back from its compressed DDS |
+| Baseline head | same parts, names, block counts | — | face within the head writer's known 0.044 offset; one bone name differs in case (`Head` / `HEAD`) |
+
+The tint gap doesn't matter much. The faces stage draws a face's textures with
+this same code, and for a fitted NPC the skin step redraws the `_d` from FNV's
+own face colours anyway. The new bases have a new basis hash, so every face is
+fitted again once (`face_fits.basis_hash`).
+
+### <a id="preset-morphs"></a>Morph presets in our own heads
+
+Until 2026-11-23, `facegeom.build` skipped the NPC's morph presets (MSDK/MSDV).
+So with `--own-facegen` the refit compared a head with presets (the record's
+prediction) against ours without them. `face/chargen.py` now applies them the
+way the CK does. Measured against the CK's preset basis, all 31 presets per sex
+match within 0.010–0.012:
+
+- A preset key (MSDK) names the race's preset (MPPI) for the NPC's sex, and
+  that preset names a morph (MPPM). The weight is MSDV. Morph names match
+  without case: the mouth's `.tri` spells `OverBite` where the race says
+  `Overbite`.
+- Each part that lists a chargen `.tri` (HDPT NAM0 2, then NAM1) takes that
+  morph's delta for `.tri` vertex *i* on its own vertex *i*. Vertices past the
+  `.tri`'s count stay put. BaseMaleHead.nif has 1,696 vertices and its
+  CharGen `.tri` 1,690. The CK leaves the last six at 0. Matching by nearest
+  position instead gives errors up to 0.14 there, and up to 0.22 on the female
+  head. That `.tri`'s own positions are more than 0.01 off the mesh's at 171
+  vertices (133 on the male), so nearest position picks the wrong vertex.
+- The deltas go on the part's `_faceBones` twin before the sculpt skins it, as
+  morphs come before bones. With no sculpt, they go on the mesh's own vertices.
 
 ## <a id="sculpt-regions"></a>Decoded: sculpt regions through the face bones (2026-11-12)
 

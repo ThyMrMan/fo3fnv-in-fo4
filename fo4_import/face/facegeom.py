@@ -1,9 +1,9 @@
 """An NPC's FaceGen head (FaceGeom NIF) assembled from its head part meshes, as the Creation Kit exports it.
 
-Each part's shape, skin and bone data are copied from its own mesh, its vertices moved by the NPC's sculpt
-regions (face_bones); the shader is the mesh's, filled in from its
+Each part's shape, skin and bone data are copied from its own mesh, its vertices moved by the NPC's morph
+presets (chargen), then its sculpt regions (face_bones); the shader is the mesh's, filled in from its
 material, texture set and the NPC (hair colour, skin tone); the bone nodes stand at the race skeleton's bind
-positions scaled by the race's height. Scratch only: nothing in the build calls this yet.
+positions scaled by the race's height. The faces stage (--own-facegen) and face.calibration draw with it.
 
 See: docs/fork/fo4_facegen_plan.md#phase-1-our-own-facegeom
 """
@@ -15,8 +15,10 @@ from pathlib import Path
 
 import numpy as np
 
+from asset_convert.character.facegen_tri import TriFile
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
+from fo4_import.face import chargen
 from fo4_import.face.bake import positions, with_positions
 from fo4_import.face.face_bones import Sculpt
 from fo4_import.nif import bgem, bgsm
@@ -101,7 +103,7 @@ class Sources:
         with its masters (found in `dirs`, then the game's Data), a later one's records over an earlier's; files
         from `dirs`' loose folders and BA2s (first wins), then the game's archives."""
         self.dirs = [Path(d) for d in dirs]
-        self.records, self.masters, self.seen = {}, {}, set()
+        self.records, self.masters, self.seen, self.tris = {}, {}, set(), {}
         self.archives = Archives(FALLOUT4_DIR / 'Data')
         for d in reversed(self.dirs):
             self.archives.by_name.update(Archives(d, '*.ba2').by_name)
@@ -148,6 +150,15 @@ class Sources:
         """File `rel` under Data, loose in `dirs` first, then the archives; not noted."""
         hit = next((d / rel for d in self.dirs if (d / rel).is_file()), None)
         return hit.read_bytes() if hit else self.archives.read(rel)
+
+    def tri_morphs(self, path: str) -> dict:
+        """{morph name (lower case): deltas [n, 3]} of a .tri under Meshes, parsed once, noted in `seen`."""
+        rel = ('meshes\\' + path).replace('/', '\\')
+        self.seen.add(rel)
+        if rel.lower() not in self.tris:
+            tri = TriFile.from_bytes(self.stored(rel))
+            self.tris[rel.lower()] = {name.lower(): np.array(d, float) for name, d in tri.morphs.items()}
+        return self.tris[rel.lower()]
 
     def material(self, name: str) -> dict:
         """A BGSM or BGEM by the name a shader gives."""
@@ -442,10 +453,13 @@ class Shape:
         return pack_av(self.av) + struct.pack('<4f3iQ', 0.0, 0.0, 0.0, 0.0, self.skin, self.shader, self.alpha,
                                               self.desc) + self.body
 
-    def sculpt(self, sculpt: Sculpt, model: str) -> None:
-        """Move the vertices by the NPC's sculpt regions, where the part has a twin they move."""
+    def sculpt(self, sculpt: Sculpt, model: str, morphs: 'np.ndarray | None' = None) -> None:
+        """Move the vertices by the NPC's preset `morphs` (chargen.offsets), then its sculpt regions where the part
+        has a twin they move."""
         packed = self.pack()
-        points = sculpt.positions(model, len(positions(packed)))
+        points = sculpt.positions(model, len(positions(packed)), morphs)
+        if points is None and morphs is not None:
+            points = positions(packed) + morphs
         if points is not None:
             self.body = with_positions(packed, points)[len(packed) - len(self.body):]
 
@@ -554,12 +568,12 @@ def bone_nodes(parts: list, skeleton: dict, height: float) -> list:
 def build(src: Sources, plugin: str, form_id: int) -> bytes:
     """The FaceGeom NIF bytes of NPC `form_id` (local id) of `plugin`."""
     npc, race, female, face = npc_face(src, plugin, form_id)
-    sculpt, parts = Sculpt(src, npc, female), []
+    sculpt, parts, weights = Sculpt(src, npc, female), [], chargen.npc_weights(npc, race, female)
     for part in head_parts(src, npc, race, female):
         model = zstr(part.first(b'MODL'))
         mesh = nif_file.read(src.read('meshes\\' + model))
         shape = Shape.of(mesh)
-        shape.sculpt(sculpt, model)
+        shape.sculpt(sculpt, model, chargen.offsets(src, part, weights, len(positions(shape.pack()))))
         parts.append((part, mesh, shape))
     geom = FaceGeom(src, face, bone_nodes(parts, skeleton_nodes(src, race, female), race_height(race, female)))
     for part, mesh, shape in parts:

@@ -32,7 +32,7 @@ def test_race_presets_read_one_sex_and_skip_texture_only_ones():
     race = _subs(('MNAM', b''), ('MPGN', b'Nose\0'), ('MPPI', struct.pack('<I', 1)), ('MPPM', b'NoseA\0'),
                  ('FNAM', b''), ('MPGN', b'Nose\0'), ('MPPI', struct.pack('<I', 2)), ('MPPM', b'\0'),
                  ('MPPI', struct.pack('<I', 3)), ('MPPM', b'NoseB\0'))
-    assert presets.race_presets(race, True) == [presets.Preset('Nose', 3, 'NoseB')]
+    assert presets.race_presets(subrecords(race), True) == [presets.Preset('Nose', 3, 'NoseB')]
 
 
 def _problem():

@@ -1,4 +1,4 @@
-"""FO4 face tint layers fitted to an FNV complexion, their effect measured through the Creation Kit.
+"""FO4 face tint layers fitted to an FNV complexion, their effect measured on our face_tint (face.calibration).
 
 A FO4 NPC's face colour, besides its runtime skin tone, is a list of tint
 layers (TETI: data type and the race's option index; TEND: value 0-100,
@@ -7,9 +7,9 @@ CK bakes into the face texture. Fitted here: the value-only options of the
 race's complexion groups (COMPLEXION_GROUPS) and its brows. A colour layer
 must name one of its race's template colours (an index of -1 crashes the
 CK), and the region masks, which have none and no vanilla NPC uses, crash it
-as value-only layers. Each option's effect is measured, not decoded: per
-option one NPC at full value; the CK's face textures, reduced to WORK_SIZE,
-minus the baseline's are that option's effect. Complexion options are taken
+as value-only layers. Each option's effect is measured: per option one NPC
+at full value; its face texture as face_tint draws it, reduced to WORK_SIZE,
+minus the baseline's is that option's effect. Complexion options are taken
 as linear in their value and fitted by bounded least squares, refined
 against the CK's export; the CK draws brows near full strength at any value,
 so one brow (or none) is chosen at full value.

@@ -1839,9 +1839,9 @@ spike's stand-in actors with every FNV NPC placed in the built cells.
   Fallout3.esm.
 - **The face.** A human takes FNV's face fitted to FO4's sculpt
   regions, tints and head parts, as Doc's was. Each fit is cached
-  (work_cache), since the tint fit takes about 8 s. The fits were
-  calibrated for male humans first, female ones on 2026-10-12
-  ([published face fits](#published-face-fits)); ghouls keep their body's
+  (work_cache), since the tint fit takes about 8 s. The bases the fits use
+  are measured on first use ([calibration](fo4_facegen_plan.md#calibration),
+  [published face fits](#published-face-fits)); ghouls keep their body's
   face.
 - **Templates.** FNV's template flags (ACBS) are followed per part:
   traits (race, face, sex), factions, AI packages, script. An NPC whose
@@ -6878,16 +6878,13 @@ py -3.14 -m fo4_import.spike.face_fits install face_fits.json.gz  # -> output/fo
   with no face entries in it and the file installed. The second build fitted
   0 faces (133 taken), and all 293 NPC_ records, indeed the whole plugin,
   were byte-identical (276.5 s against 327.0 s).
-- **Calibration repeats byte for byte.** All four bases measured twice
-  more through the CK on 2026-10-17 (CK 1.11.246 after a Steam update,
-  CKPE updated that day) came out byte-identical to each other and to the
-  calibrations of 2026-10-06 (male) and 2026-10-12 (female), every array
-  and the `.npz` files themselves (`np.savez_compressed` writes no time).
-  So users with the same game files should get the same basis hash. Two
-  machines were not compared. A sculpt calibration took 389–432 s, and 842
-  s with a region build running beside it, close to the CK's 900 s timeout
-  floor (`run_ck` gets no plugin from `calibrate`, so it waits only the
-  floor).
+- **Calibration is ours now, not the CK's.** Since 2026-11-23 the bases are
+  measured on our own FaceGen, no CK, in about 2.5 minutes for all six
+  ([calibration](fo4_facegen_plan.md#calibration)). It is plain arithmetic on
+  the game's own files, so users with the same game files get the same basis
+  hash and can take a published fits file. Two machines were not compared.
+  (The CK route also repeated byte for byte, but took 389–432 s per sculpt
+  base.)
 - **Publishing** is left to the user: upload the exported file as a release
   asset, as `navmesh_cache.py publish` does for the navmesh cache.
   Republish after a `FIT_VERSION` bump.

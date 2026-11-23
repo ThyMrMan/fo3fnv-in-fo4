@@ -1,12 +1,11 @@
-"""FO4 face sculpt regions fitted to an FNV face, their effect measured through the Creation Kit.
+"""FO4 face sculpt regions fitted to an FNV face, their effect measured on our own FaceGen (face.calibration).
 
 A FO4 NPC's face shape is, besides its morph presets, a list of sculpt
 regions (FMRI, the race's region index) each with seven controls (FMRS:
 position x/y/z, rotation x/y/z, scale; 0 is no change), driving face bones.
-Their effect is not decoded from the engine: a calibration plugin holds a
-baseline NPC and, per region and control, one NPC at +STEP and one at -STEP;
-the CK exports their heads, and the central difference per face vertex is
-that control's effect. The basis depends only on race and sex, so it is
+A calibration plugin holds a baseline NPC and, per region and control, one
+NPC at +STEP and one at -STEP; facegeom draws their heads, and the central
+difference per face vertex is that control's effect. The basis depends only on race and sex, so it is
 measured once and cached (it is Bethesda geometry: under output/, never
 committed). A face is then the bounded least-squares fit of the controls to
 the target vertex moves.

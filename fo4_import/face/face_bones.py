@@ -153,13 +153,15 @@ class Sculpt:
             skeleton = FaceSkeleton(nif_file.read(src.read(SKELETONS[female])))
             self.moves = bone_moves(skeleton, bone_controls(regions, controls))
 
-    def positions(self, model: str, count: int) -> 'np.ndarray | None':
-        """The sculpted positions of a part (MODL path under meshes\\) with `count` vertices, or None when nothing
-        moves, it has no twin, or the twin's vertex count differs."""
+    def positions(self, model: str, count: int, morphs: 'np.ndarray | None' = None) -> 'np.ndarray | None':
+        """The sculpted positions of a part (MODL path under meshes\\) with `count` vertices, its twin first moved by
+        `morphs` [count, 3]; None when nothing moves, it has no twin, or the twin's vertex count differs."""
         if not self.moves:
             return None
         try:
             twin = twin_shape(nif_file.read(self.src.read('meshes\\' + model[:-4] + TWIN + model[-4:])))
         except KeyError:
             return None
-        return sculpted(twin, self.moves) if len(twin[0]) == count else None
+        if len(twin[0]) != count:
+            return None
+        return sculpted(twin if morphs is None else (twin[0] + morphs, *twin[1:]), self.moves)

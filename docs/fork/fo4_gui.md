@@ -443,7 +443,7 @@ A new, game-agnostic module, `core/mod_sources.py`:
   - `body`: `human_male`, `human_female`, `ghoul_male`, `ghoul_female`,
     `child_male`, `child_female` ([children](fo4_pipeline.md#child-bodies)) (was
     `npcs.BODIES`). These must be Fallout4.esm NPCs. Face calibration
-    (`spike/sculpt_calibration.py`) is still measured on the default humans;
+    (`face/calibration.py`) is still measured on the default humans;
   - `armor`: a list of `{covers: [FNV biped slot names], use, as}`, where the
     first rule that matches wins (was `equipment.ARMOR_DEFAULTS`);
   - `melee`: `hand_to_hand`, `one_hand`, `two_hand` (was
