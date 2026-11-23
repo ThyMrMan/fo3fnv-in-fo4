@@ -121,8 +121,9 @@ def test_runtime_dll_is_installed_into_f4se_plugins(tmp_path):
     assert copies[1] == tmp_path / 'out' / 'F4SE' / 'Plugins' / 'CleanroomDialogue.dll'
 
 
-def test_runner_passes_its_environment():
+def test_runner_passes_its_environment(tmp_path, monkeypatch):
     """A stage sees the runner's extra environment (the Creation Kit's MO2 instance)."""
+    monkeypatch.setenv('TESCONV_LOGS_DIR', str(tmp_path))
     lines = []
     plan = [('x', 'X', [sys.executable, '-c', 'import os; print(os.environ["F3NV_MO2"])'])]
     Runner(plan, {'F3NV_MO2': 'here'}).run(lines.append)

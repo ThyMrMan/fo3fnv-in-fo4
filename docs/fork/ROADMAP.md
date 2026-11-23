@@ -6,8 +6,9 @@ what is next. Dates, counts and history are in the
 
 ## <a id="fo4-state"></a><a id="alpha"></a>Where it stands
 
-**Release:** [f3nv-0.1](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases/tag/f3nv-0.1),
-the first alpha (prerelease, 2026-11-23).
+**Release:** [f3nv-0.2](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases/tag/f3nv-0.2),
+an alpha (prerelease, 2026-11-23). It is the first that converts from a fresh
+download, but on one it can't fit NPC faces; the fix is due in f3nv-0.3.
 
 - **New Vegas** is playable from Doc Mitchell's house onward, with its four
   story DLC, five add-on packs and about 20 mods. Nearly every system is
@@ -16,7 +17,8 @@ the first alpha (prerelease, 2026-11-23).
   by our automated story runs. The whole Capital Wasteland and its five DLC
   build, but are unplayed past the vault door.
 - **The app** converts either game, its DLC and mods. Its first real-world
-  run, from a fresh download to a cold build, is next.
+  run, a fresh 0.2 download to a New Vegas build in about 80 minutes, built
+  everything but the faces; 0.3 fixes those.
 
 Most of what is left is play-testing and fixing what testers find.
 
@@ -224,8 +226,9 @@ Please report what you find in
 
 In rough order. The [issue plan](fo4_issue_plan.md) sizes and orders the fixes.
 
-1. **The app's first real-world run:** a fresh download to a cold build of
-   both games, for real build times and a smooth install ([app](fo4_gui.md#convert-screen)).
+1. **The app's real-world runs:** New Vegas built from a fresh 0.2 download
+   (faces fixed for 0.3); Fallout 3 and a cold build with faces fitted are
+   next ([app](fo4_gui.md#convert-screen)).
 2. **Play-testing** everything marked "Built, not played", and fixing what
    turns up.
 3. **Automated play-tests:** stage sweeps, story runs and unattended runs on

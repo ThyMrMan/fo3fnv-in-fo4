@@ -36,7 +36,8 @@ class StageThread(QThread):
     def __init__(self, plan: list, settings: dict, source: str):
         """A thread running `plan` for `source` with `settings` (for zip output)."""
         super().__init__()
-        self.runner, self.settings, self.source = Runner(plan, environment(settings)), settings, source
+        name = stages.plugin_path(settings, source).name
+        self.runner, self.settings, self.source = Runner(plan, environment(settings), name), settings, source
 
     def run(self) -> None:
         """Run the plan, then zip the output if every stage succeeded and zip was chosen."""

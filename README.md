@@ -267,8 +267,10 @@ reach, the weather, glowing signs and neon.
   [roadmap](docs/fork/ROADMAP.md#known-bugs).
 - Please report what you find in
   [the issues](https://github.com/ThyMrMan/fo3fnv-in-fo4/issues). Name the
-  release (shown in the app's title bar) and attach the conversion's
-  warnings or your Papyrus log.
+  release (shown in the app's title bar) and attach the conversion's run log
+  or your Papyrus log. Each conversion writes everything it printed to
+  `logs\run-<date>-<time>-<plugin>.log` in the app's folder; the last 20 are
+  kept.
 
 ---
 

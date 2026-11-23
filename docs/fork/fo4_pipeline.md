@@ -6882,7 +6882,10 @@ py -3.14 -m fo4_import.spike.face_fits install face_fits.json.gz  # -> output/fo
   measured on our own FaceGen, no CK, in about 2.5 minutes for all six
   ([calibration](fo4_facegen_plan.md#calibration)). It is plain arithmetic on
   the game's own files, so users with the same game files get the same basis
-  hash and can take a published fits file. Two machines were not compared.
+  hash and can take a published fits file. Checked on 2026-11-23: the
+  desktop and the test laptop wrote byte-identical files (all six SHA-1s
+  and both basis hashes), and so did two runs on the desktop. The laptop
+  took 6.6 minutes.
   (The CK route also repeated byte for byte, but took 389–432 s per sculpt
   base.)
 - **Publishing** is left to the user: upload the exported file as a release

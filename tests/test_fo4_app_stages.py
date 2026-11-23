@@ -4,6 +4,7 @@ import sys
 import zipfile
 from pathlib import Path
 
+from core import run_log
 from fo4_import.app import settings as S
 from fo4_import.app import stages as ST
 from fo4_import.app.runner import Runner
@@ -165,18 +166,22 @@ def test_zip_output_is_packaged(tmp_path):
     assert made == out.with_suffix('.zip') and zipfile.ZipFile(made).namelist() == ['FalloutNV.esm']
 
 
-def test_runner_streams_and_stops_at_a_failure():
-    """Each stage's lines arrive in order; a failing stage ends the run and its errors become warnings."""
+def test_runner_streams_logs_and_stops_at_a_failure(tmp_path, monkeypatch):
+    """Each stage's lines arrive in order and go to one run log named for the plugin, which the stages are told of;
+    a failing stage ends the run and its errors become warnings."""
+    monkeypatch.setenv(run_log.LOGS_DIR_ENV_VAR, str(tmp_path))
     py = sys.executable
-    plan = [('a', 'First', [py, '-c', 'print("one"); print("two")']),
+    plan = [('a', 'First', [py, '-c', 'import os; print("one"); print(os.environ["TESCONV_RUN_LOG"] != "")']),
             ('b', 'Second', [py, '-c', 'import sys; print("ERROR: bad"); sys.exit(3)']),
             ('c', 'Third', [py, '-c', 'print("never")'])]
     lines = []
-    runner = Runner(plan)
+    runner = Runner(plan, name='FalloutNV.esm')
     results = runner.run(lines.append)
     assert [(r.key, r.code) for r in results] == [('a', 0), ('b', 3)]
-    assert lines[:3] == ['=== First', 'one', 'two'] and 'never' not in lines
+    assert lines[:3] == ['=== First', 'one', 'True'] and 'never' not in lines
     assert runner.warnings == ['ERROR: bad']
+    log = next(tmp_path.glob('run-*-FalloutNV.esm.log')).read_text(encoding='utf-8')
+    assert 'ERROR: bad' in log and '=== Second: failed (3)' in log and 'stopped or failed' in log
 
 
 def test_the_estimate_reads_the_last_build_else_the_export_else_nothing(tmp_path, monkeypatch):

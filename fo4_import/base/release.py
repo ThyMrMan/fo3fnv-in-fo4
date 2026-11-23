@@ -26,7 +26,7 @@ def key(release: str) -> 'tuple | None':
     return tuple(map(int, numbers)) if len(numbers) == 2 and all(n.isdigit() for n in numbers) else None
 
 
-def _from_file() -> str:
+def from_file() -> str:
     """The tag `git archive` wrote into VERSION ('' in a checkout, where it is still a placeholder)."""
     try:
         text = (ROOT / 'VERSION').read_text(encoding='utf-8').strip()
@@ -48,7 +48,7 @@ def _from_git() -> str:
 @cache
 def current() -> str:
     """The release this tree is: VERSION's tag, else git's, else DEV."""
-    return _from_file() or _from_git() or DEV
+    return from_file() or _from_git() or DEV
 
 
 def older(built: str) -> bool:

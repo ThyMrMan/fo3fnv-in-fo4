@@ -92,6 +92,12 @@ what exists. Not played in game yet.
 - **Reuse, don't copy:** the settings load/save pattern and `run_process` from
   `core/gui/config.py` (no Tk import), `classify` from `core/gui/runner.py`,
   and the update check from `version.py`.
+- **Run logs:** each Convert run writes every line it shows to one
+  `logs/run-<stamp>-<plugin>.log` (`runner.open_log`, through
+  `core/run_log.py`, which keeps the last 20). The stages get
+  `TESCONV_RUN_LOG`, so `convert.py` doesn't write a second log. Before 0.3 a
+  stage's output lived only in the window, so a user's warnings were lost once
+  it closed.
 - **Imports without a display:** Qt is imported inside functions, checked by a
   startup test like `tests/test_gui_startup.py`.
 - **Source game: FNV or FO3.** FO3's stages show "not available yet" until its

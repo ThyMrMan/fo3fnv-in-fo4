@@ -1,5 +1,6 @@
 """Running the Convert screen's stages: one command after another from the repo folder, each output line handed
-on as it arrives, stopping at the first failure or when asked. No Qt here; the window runs this on a thread.
+on as it arrives and written to one run log in logs/ (core.run_log), stopping at the first failure or when asked.
+No Qt here; the window runs this on a thread.
 
 See: docs/fork/fo4_gui.md#app-shape
 """
@@ -9,8 +10,13 @@ import subprocess
 import time
 from dataclasses import dataclass
 
+from core import run_log
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.app.stages import REPO
+from fo4_import.base import release
+
+#: Where the app's run logs go (run_log.logs_root may move it).
+LOGS = REPO / 'logs'
 
 #: Output lines worth repeating on the Finished screen: replacement fallbacks and errors.
 WARNING_MARKS = ('replacements:', 'Traceback', 'Error', 'ERROR', 'FAILED')
@@ -25,24 +31,47 @@ class Result:
     seconds: float
 
 
+def open_log(name: str) -> 'run_log.RunLog | None':
+    """A new run log in logs/ named for `name` (the oldest beyond run_log's default count removed); None when
+    logs/ can't be written."""
+    folder = run_log.logs_root(LOGS)
+    if not run_log.prune(folder):
+        return None
+    log = run_log.RunLog(run_log.free_log_path(folder, name), {'Release': release.current(), 'From': 'the app'})
+    return log if log.active else None
+
+
 class Runner:
     """Runs a stage plan (fo4_import.app.stages.plan); stop() ends the running stage."""
 
-    def __init__(self, plan: list, env: 'dict | None' = None):
-        """Runs `plan` [(key, label, argv or a function giving it)] with `env` added."""
+    def __init__(self, plan: list, env: 'dict | None' = None, name: str = ''):
+        """Runs `plan` [(key, label, argv or its maker)] with `env`, logged as `name`."""
         self.plan, self.process, self.stopped, self.warnings, self.env = plan, None, False, [], env or {}
+        self.name = name
 
     def run(self, on_line) -> list:
-        """Run each stage in order, calling `on_line(text)` per output line; the Results, up to a failure."""
+        """Run each stage in order, calling `on_line(text)` per output line and writing it to the run log; the
+        Results, up to a failure."""
+        log = open_log(self.name)
+        if log is not None:
+            self.env = {**self.env, run_log.RUN_LOG_ENV_VAR: str(log.path)}
+
+        def line(text: str) -> None:
+            """One line to the log and the window."""
+            if log is not None:
+                log.write_line(text)
+            on_line(text)
         results = []
         for key, label, argv in self.plan:
-            on_line(f'=== {label}')
+            line(f'=== {label}')
             started = time.time()
-            code = self._one(argv() if callable(argv) else argv, on_line)
+            code = self._one(argv() if callable(argv) else argv, line)
             results.append(Result(key, label, code, time.time() - started))
-            on_line(f'=== {label}: ' + ('stopped' if code is None else 'done' if code == 0 else f'failed ({code})'))
+            line(f'=== {label}: ' + ('stopped' if code is None else 'done' if code == 0 else f'failed ({code})'))
             if code != 0:
                 break
+        if log is not None:
+            log.close('done' if results and all(r.code == 0 for r in results) else 'stopped or failed')
         return results
 
     def _one(self, argv: list, on_line) -> 'int | None':

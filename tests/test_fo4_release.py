@@ -3,6 +3,7 @@
 See: docs/fork/fo4_plan_release.md#release-identity
 """
 
+import version
 from fo4_import.base import release as R
 
 
@@ -27,3 +28,13 @@ def test_a_release_download_reads_version_and_a_checkout_asks_git(tmp_path, monk
     R.current.cache_clear()
     assert R.current() == R.DEV and not R.older('f3nv-0.1')
     R.current.cache_clear()
+
+
+def test_the_inherited_version_reads_our_release_too(tmp_path, monkeypatch):
+    """version.current_version (run logs, step stamps) gives a release download's f3nv tag, not 0.0-dev."""
+    monkeypatch.setattr(R, 'ROOT', tmp_path)
+    monkeypatch.setattr(version, 'VERSION_FILE', tmp_path / 'VERSION')
+    monkeypatch.setattr(version, '_git_version', lambda: None)
+    monkeypatch.setattr(version, '_CURRENT', [None])
+    (tmp_path / 'VERSION').write_text('f3nv-0.3\n', encoding='utf-8')
+    assert version.current_version() == 'f3nv-0.3'

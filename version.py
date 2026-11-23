@@ -76,6 +76,7 @@ import urllib.request
 from pathlib import Path
 
 from core.gui.config import GLOBAL_ACTIONS, STEPS
+from fo4_import.base.release import from_file as release_file
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -297,10 +298,11 @@ def current_version() -> str:
     `VERSION` wins because it is the only source that survives the way users
     actually install.  A dev checkout (VERSION absent or `0.0-dev`) falls back
     to the nearest git tag so the GUI shows a real number instead of "dev".
+    A VERSION holding this fork's own tag (`f3nv-0.3`) is that release.
     """
     if _CURRENT[0] is not None:
         return _CURRENT[0]
-    stamped = _read_version_file()
+    stamped = _read_version_file() or release_file()
     if stamped and stamped != DEV_VERSION:
         resolved = stamped
     else:

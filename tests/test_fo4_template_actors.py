@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 from fo4_import.nif.creature import HEAD_SLOT
 from fo4_import.spike import npcs as N
+from fo4_import.spike.actor_data import StatTables
 from fo4_import.spike import void_actors as VA
 from fo4_import.spike.creatures import skeleton_folder
 from script_convert.constants import FALLOUT4_HELPER_CREATURE_KEYWORD
@@ -554,5 +555,5 @@ def test_a_level_0_creature_keeps_its_health_against_fo4s_negative_level_bonus()
     body = b''.join(pack_subrecord(tag, data) for tag, data in (
         ('ACBS', struct.pack('<IhH', 0x18, 3, 0) + bytes(8)), ('RNAM', struct.pack('<I', 0x4716C)),
         ('PRPS', struct.pack('<If', CR.HEALTH, 1.0))))
-    out = CR.with_stats({'DATA.Health': '5'}, {0x4716C: 3.0})(body)
+    out = CR.with_stats({'DATA.Health': '5'}, StatTables({0x4716C: 3.0}, {}))(body)
     assert struct.unpack('<If', dict(subrecords(out))[b'PRPS']) == (CR.HEALTH, 7.0)

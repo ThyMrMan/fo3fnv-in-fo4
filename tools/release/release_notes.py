@@ -80,6 +80,9 @@ RULES: list[tuple[str, list[str]]] = [
     (r"^core/(?:run_log|plugin_masters)\.py$", []),
     (r"^gui\.py$|^gui\.pyw$|^core/gui/|^core/", ["GUI"]),
 
+    (r"^character_rules/",        ["8. Scripts"]),
+    (r"^fo4_import/|^fo4_app\.py$|^Convert to Fallout 4\.cmd$|^TES Auto-Convert\.cmd$", []),
+    (r"^LICENSE$|^NOTICE$|^EXCEPTIONS$", []),
     (r"^docs/",                   []),
     (r"^tests/",                  []),
     (r"^tools/release/create_lod\.py$",       ["Create LOD"]),

@@ -1044,7 +1044,10 @@ hair have one; FalloutNV.esm has none.
 
 ### Published face fits
 
-`FIT_VERSION` is 4. The sculpt entry is (FMRI/FMRS bytes, ((MSDK key,
+`FIT_VERSION` is 5. Version 5 (2026-11-23) only catches up with two changes
+that altered fits without a bump: the sculpt fit solving only the controls a
+measure sees, and the game's soft-light skin tint. The six reference faces
+(`tests/test_fo4_face_fit_version.py`) had all changed. The sculpt entry is (FMRI/FMRS bytes, ((MSDK key,
 weight), ...), rms): numbers and Fallout4.esm keys only, so the fits are still
 publishable. The basis hash now covers the preset bases too. The refine round
 is per machine (it reads the CK's export) and is not published. Version 4:
@@ -1077,7 +1080,8 @@ its NPCs with our own FaceGen (`facegeom.build` for heads, `face_tint` for the
 face `_d` at the CK's 2048), reading only Fallout4.esm and the game's
 archives. No CK and no MO2, so it can run on Linux and Mac. The CK tool is
 deleted. Measured on the dev machine: sculpt 19 s per sex, presets 1.4 s,
-tints 39–55 s, so about 2.5 minutes for all six.
+tints 39–55 s, so about 2.5 minutes for all six. On the slower test laptop
+it took 6.6 minutes, and the files came out byte-identical to the desktop's.
 
 **Against the CK-measured bases** (2026-10-06 male, 2026-10-12 female):
 
