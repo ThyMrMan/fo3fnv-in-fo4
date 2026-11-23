@@ -23,6 +23,7 @@ from fo4_import.base.build_files import all_moved_in
 from fo4_import.base.source import GAME_PLUGINS
 from fo4_import.pipeline.build_steps import STAMP_SUFFIX, stamp_path
 from fo4_import.pipeline.creation_kit import CK_EXECUTABLE, MO2
+from fo4_import.base import release
 
 GAME_VERSION = (1, 11, 240)
 GB = 1 << 30
@@ -297,19 +298,21 @@ def converted(dirs: tuple) -> dict:
     return out
 
 
-def stamp_status(path: Path) -> str:
-    """The `status` a build stamp records ('' when unreadable)."""
+def read_stamp(path: Path) -> dict:
+    """A build stamp's fields ({} when unreadable)."""
     try:
-        return json.loads(path.read_text(encoding='utf-8')).get('status', '')
+        return json.loads(path.read_text(encoding='utf-8'))
     except (OSError, ValueError):
-        return ''
+        return {}
 
 
 def plugin_check(plugin: str, folder: Path, found: dict, mods: Mods) -> Check:
-    """One converted plugin: in its own enabled MO2 mod, once, finished, and ticked in the plugin list."""
+    """One converted plugin: in its own enabled MO2 mod, once, finished by this release, and ticked in the plugin
+    list."""
     together = [p for p in found[folder] if p != plugin]
     elsewhere = [f.name for f, plugins in found.items() if f != folder and plugin.lower() in map(str.lower, plugins)]
-    status = stamp_status(stamp_path(folder / plugin))
+    stamp = read_stamp(stamp_path(folder / plugin))
+    status = stamp.get('status', '')
     if folder in mods.shared:
         return Check(plugin, 'WRONG PLACE', f'in {folder}; move it into its own MO2 mod')
     if together:
@@ -319,6 +322,9 @@ def plugin_check(plugin: str, folder: Path, found: dict, mods: Mods) -> Check:
         return Check(plugin, 'WRONG PLACE', f'in "{folder.name}" and also {", ".join(elsewhere)}; keep one')
     if status != 'finished':
         return Check(plugin, 'UNFINISHED', f'its build stamp says "{status}"; rebuild it')
+    if release.older(stamp.get('release')):
+        return Check(plugin, 'OLD RELEASE', f'built by release {stamp["release"]}, this is {release.current()}; '
+                     'convert it again')
     if mods.plugins is not None and plugin.lower() not in mods.plugins:
         return Check(plugin, 'NOT ENABLED', f'in "{folder.name}" but not ticked in the profile\'s plugin list')
     return Check(plugin, 'OK', f'in its own MO2 mod "{folder.name}"')

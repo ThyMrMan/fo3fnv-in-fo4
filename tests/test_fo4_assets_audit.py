@@ -107,6 +107,16 @@ def test_without_havok_renumbers_a_block_after_the_havok_and_refuses_one_it_cann
         E.without_havok(bad)
 
 
+def test_a_text_tag_after_the_havok_is_read_and_kept():
+    """A NiStringExtraData after the Havok input reads back parsed and moves up with the root's reference to it."""
+    nif = NifFile()
+    tag = {'name': nif.string('Prn'), 'text': nif.string('Weapon')}
+    nif.blocks = [('NiNode', _node(nif, 1)), ('bhkCollisionObject', b'raw'), ('NiStringExtraData', tag)]
+    nif.blocks[0][1]['extra'] = [2]
+    read = E.without_havok(F.read(F.write(nif)))
+    assert read.blocks[1] == ('NiStringExtraData', tag) and read.blocks[0][1]['extra'] == [1]
+
+
 def test_graft_points_elric_physics_at_a_collision_node_after_the_havok():
     """A node added after the Havok input (a terminal's moved root collision) moves up; its new collision object
     names it where it now is."""

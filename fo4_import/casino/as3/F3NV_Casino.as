@@ -4,6 +4,8 @@ package
    import f3nv.casino.BlackjackScreen;
    import f3nv.casino.Caravan;
    import f3nv.casino.CaravanScreen;
+   import f3nv.casino.Horseshoes;
+   import f3nv.casino.HorseshoesScreen;
    import f3nv.casino.Rng;
    import f3nv.casino.Roulette;
    import f3nv.casino.RouletteScreen;
@@ -42,6 +44,7 @@ package
       private var roulette:RouletteScreen;
       private var blackjack:BlackjackScreen;
       private var caravan:CaravanScreen;
+      private var horseshoes:HorseshoesScreen;
       private var statusText:TextField;
       private var pings:int = 0;
       private var input:Input;
@@ -149,9 +152,20 @@ package
          hints.show(caravan.hints());
       }
 
+      // Lucky Horseshoes (F3NV_Casino.psc's OpenHorseshoesMenu): see HorseshoesScreen.open.
+      public function OpenHorseshoes(name:String, seed:uint, texts:Array) : void
+      {
+         newScreen(null);
+         horseshoes = new HorseshoesScreen(send);
+         screen.addChild(horseshoes);
+         horseshoes.open(name, seed, Bridge.plain(texts));
+         hints.show(horseshoes.hints());
+      }
+
       // Replay `spins` slot spins per seed at `luck` on FNV's default reel and log them, then the roulette results
-      // and spot table, the blackjack rounds and Caravan games: the lines tests/casino/model.py's slot_trace,
-      // roulette.py's roulette_trace, blackjack.py's blackjack_trace and caravan.py's caravan_trace make.
+      // and spot table, the blackjack rounds, Caravan and Lucky Horseshoes games: the lines tests/casino/model.py's
+      // slot_trace, roulette.py's roulette_trace, blackjack.py's blackjack_trace, caravan.py's caravan_trace and
+      // horseshoes.py's horseshoes_trace make.
       public function SelfTest(seeds:Array, spins:int, luck:int) : void
       {
          var out:Array = [];
@@ -186,6 +200,16 @@ package
          }
          send("F3NV_CasinoSelfTest", "blackjack " + luck + " " + rounds.join(" "));
          send("F3NV_CasinoSelfTest", Caravan.trace(seeds, 3));
+         var games:Array = [];
+         for (s = 0; s < seeds.length; s++)
+         {
+            var game:Horseshoes = new Horseshoes(new Rng(uint(seeds[s])));
+            for (i = 0; i < spins; i++)
+            {
+               games.push(game.playText());
+            }
+         }
+         send("F3NV_CasinoSelfTest", "horseshoes " + games.join(" "));
       }
 
       // FO4's menu input: the controls the game maps keys and gamepad buttons to, as actions (Input).
@@ -239,6 +263,10 @@ package
          {
             return caravan.control(action);
          }
+         if (horseshoes != null)
+         {
+            return horseshoes.control(action);
+         }
          if (action == Input.ACCEPT)
          {
             ping();
@@ -263,6 +291,7 @@ package
          roulette = null;
          blackjack = null;
          caravan = null;
+         horseshoes = null;
          addChild(screen);
          if (input != null)
          {

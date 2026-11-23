@@ -20,6 +20,7 @@ from fo4_import.app.replacements_view import ReplacementsView
 from fo4_import.app.setup_view import SetupView
 from fo4_import.app.stages import target
 from fo4_import.app.wizard import FirstRunWizard
+from fo4_import.base.release import current as current_release
 
 TITLE = 'FO3/FNV to Fallout 4'
 
@@ -39,7 +40,7 @@ class MainWindow(QMainWindow):
     def __init__(self, settings: dict, settings_file: Path):
         """The window over `settings`, saved at `settings_file`."""
         super().__init__()
-        self.setWindowTitle(TITLE)
+        self.setWindowTitle(f'{TITLE} {current_release()}')
         self.settings_file = settings_file
         self.setup = SetupView()
         self.finished = FinishedView(self.setup.collect)

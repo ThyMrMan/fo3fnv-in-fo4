@@ -77,11 +77,12 @@ def test_a_source_that_does_not_compile_fails_the_build(tmp_path, body):
 
 @needs_compiler
 def test_the_casino_scripts_compile(tmp_path):
-    """F3NV_Casino*.psc compile against Fallout 4's and F4SE's headers."""
+    """F3NV_Casino*.psc, with the challenge scripts the bank counts games into, compile against Fallout 4's and
+    F4SE's headers."""
     src, out = tmp_path / 'src', tmp_path / 'out'
     src.mkdir()
     out.mkdir()
-    names = sorted(p.stem for p in STATIC.glob('F3NV_Casino*.psc'))
+    names = sorted(p.stem for pattern in ('F3NV_Casino*.psc', 'F3NV_Challenge*.psc') for p in STATIC.glob(pattern))
     for name in names:
         shutil.copy(STATIC / f'{name}.psc', src)
     log = compile_folder(src, out, f'{src};{header_dirs()}')

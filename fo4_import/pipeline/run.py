@@ -24,7 +24,7 @@ from fo4_import.base.source_fault import report as fault_report, stamp as fault_
 from fo4_import.pipeline import build_inputs, eta, eta_inputs
 from fo4_import.pipeline.build_steps import convert_scripts, source_state, stamp_path, write_stamp
 from fo4_import.pipeline.converters import placed_types
-from fo4_import.pipeline.export_index import export_file, export_masters, export_records, own_records
+from fo4_import.pipeline.export_index import DELETED, export_file, export_masters, export_records, own_records
 from fo4_import.pipeline.light_choice import STAMP_KEY, choose
 from fo4_import.pipeline.master_space import UNCLASSIFIED
 from fo4_import.pipeline.mesh_cache import warm
@@ -118,7 +118,7 @@ def edited_cells(export_dir: Path, world: str) -> frozenset:
 
 def edited_grids(export_dir: Path) -> dict:
     """{FNV worldspace FormID: grid cells} a plugin with masters edits: the exterior cells it holds, and those its
-    own persistent references stand in; {} for a masterless plugin.
+    own persistent references (not deleted ones, which have no position) stand in; {} for a masterless plugin.
     See: docs/fork/fo4_plugin_layout.md#edited-cells
     """
     if not export_masters(str(export_dir)):
@@ -131,7 +131,7 @@ def edited_grids(export_dir: Path) -> dict:
         if cell.get('ParentWRLD') and 'XCLC.X' in cell and cell['FormID'] not in kept:
             out[cell['ParentWRLD']].add((int(cell['XCLC.X']), int(cell['XCLC.Y'])))
     for ref in (r for sig in (*PLACED_REF_SIGS, 'PGRE') for r in own_records(export_dir, sig)):
-        if ref.get('ParentCELL') in kept:
+        if ref.get('ParentCELL') in kept and not int(ref.get('RecordFlags', 0)) & DELETED:
             out[kept[ref['ParentCELL']]].add(grid_of(ref))
     return dict(out)
 

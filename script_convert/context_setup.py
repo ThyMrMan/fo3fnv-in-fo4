@@ -15,6 +15,7 @@ from core.plugin_masters import masters_from_export_header
 from fo4_import import cleanroom
 from fo4_import.base.bink import source_movies
 from output_layout import assets_for
+from script_convert.constants import GAME_TOPICS
 from script_convert.cross_ref import CrossRefGraph, export_dirs_with_masters
 from script_convert.message_menus import build_chargen_menus
 from script_convert.ownership import read_owned, sibling_owned
@@ -168,9 +169,11 @@ def chain_records(export_dir: str, by_type: dict, sigs: tuple) -> dict:
 
 
 def service_menu_topics(by_type: dict) -> dict:
-    """DIAL FormID -> service menu name, for the service-typed menu topics."""
-    return {rec.get('FormID', ''): service_menu_kind(rec)
-            for rec in by_type.get('DIAL', []) if service_menu_kind(rec)}
+    """DIAL FormID -> service menu name: the service-typed menu topics, and on Fallout 4 the GAME_TOPICS."""
+    games = GAME_TOPICS if is_fallout4() else {}
+    kinds = {rec.get('FormID', ''): service_menu_kind(rec) or games.get((rec.get('EditorID') or '').lower(), '')
+             for rec in by_type.get('DIAL', [])}
+    return {fid: kind for fid, kind in kinds.items() if kind}
 
 
 def topic_unlock_globals(by_type: dict, unlock_plan: dict) -> dict:

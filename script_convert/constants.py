@@ -682,7 +682,12 @@ SCHOOL_ENCHANT_SHADER = {
 SERVICE_MENU_CALL = {
     'barter': '  (akSpeakerRef as Actor).ShowBarterMenu()',
     'training': '  Game.ShowTrainingMenu(akSpeakerRef as Actor)',
+    'horseshoes': '  TES4Casino.OpenHorseshoes(akSpeakerRef)',
 }
+#: Fallout 4: DIAL EditorID (lower) -> the casino game its line opens, ending the talk (fo4_casino_plan.md).
+GAME_TOPICS = {'sshqfestusluckyhorseshoes': 'horseshoes'}
+#: The property a service kind's call needs, as {name: type}.
+SERVICE_MENU_PROPERTY = {'horseshoes': {'TES4Casino': 'F3NV_Casino'}}
 
 
 # ===========================================================================

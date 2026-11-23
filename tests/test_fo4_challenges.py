@@ -50,6 +50,8 @@ def _builder(written: list) -> SimpleNamespace:
     (_chal(11, 35), (C.KILL, ())),
     (_chal(11, 30), (C.CRIPPLED, ())),
     (_chal(11, 27), (C.COMPLETED, ())),
+    (_chal(11, 37), (C.STAT, ('Caravan Games Won',))),
+    (_chal(11, 41), (C.STAT, ('Blackjack Games Played',))),
 ])
 def test_each_counted_type_has_its_event(rec, expected):
     """Each counted type maps to its event and FO4 stats."""
@@ -60,7 +62,7 @@ def test_each_counted_type_has_its_event(rec, expected):
     (_chal(8), 'do damage'),
     (_chal(3, 1, 0), 'hit (damage, body part)'),
     (_chal(3, 0, 3), 'hit (cripple)'),
-    (_chal(11, 37), 'misc stat Caravan Games Won'),
+    (_chal(11, 39), 'misc stat Barter Amount Traded'),
 ])
 def test_types_without_an_fo4_event_are_left_out(rec, reason):
     """Types with no FO4 event are left out, with why."""
@@ -145,6 +147,7 @@ def test_a_kept_challenge_gets_its_row_state_quest_and_tab(monkeypatch):
     assert values == [1.0, -2.0]
     quest = next(rec for sig, rec in written if sig == 'QUST' and pack_wstring(C.SCRIPT) in rec)
     assert pack_wstring('Locks Picked') in quest and pack_wstring(C.PLAYER_SCRIPT) in quest
+    assert pack_wstring('GameStats') in quest and pack_wstring('Slots Games Played') in quest
     assert T.ORDER['CHALLENGES'] > T.ORDER['KARMA'] and builder.counts['CHAL kept'] == 2
 
 
@@ -201,8 +204,9 @@ def test_challenge_commands_call_the_challenges_quest_on_fallout4(monkeypatch):
 
 @pytest.mark.skipif(not (EXPORT / 'CHAL.txt').exists(), reason='needs the FalloutNV.esm export')
 def test_census_of_falloutnv():
-    """FalloutNV.esm's 105 challenges: 61 counted, 44 left out (18 damage)."""
+    """FalloutNV.esm's 105 challenges: 67 counted (6 casino and Caravan games), 38 left out (18 damage)."""
     recs = C.export_records(EXPORT, 'CHAL')
     how = [C.counting(r) for r in recs]
-    assert len(recs) == 105 and sum(not isinstance(h, str) for h in how) == 61
+    assert len(recs) == 105 and sum(not isinstance(h, str) for h in how) == 67
+    assert sum(not isinstance(h, str) and set(h[1]) <= set(C.GAME_STATS) and bool(h[1]) for h in how) == 6
     assert how.count('do damage') == 18

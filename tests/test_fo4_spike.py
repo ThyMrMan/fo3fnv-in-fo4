@@ -1568,17 +1568,18 @@ def test_a_decal_keeps_fnv_data_but_fo4_shininess_and_shared_flags():
     assert out[:5] == (25, 45, 25, 45, 32) and out[5] == 1.0 and out[7:] == (4, 0x0A, bytes(2), b'\xb4\x18\x07\x00')
 
 
-def test_standing_idles_are_built_and_seated_ones_only_when_played_by_script():
-    """A standing idle is built from a line or a script; a seated one only when a script plays one
-    SEATED_PLAYED names."""
+def test_seated_idles_are_built_as_the_chair_graphs_flavor(monkeypatch):
+    """Seated and standing idles are both built; a seated one plays on the furniture graph's flavor events, a
+    clipless one is left out."""
     idles = ID.Idles.__new__(ID.Idles)
     idles.builder = SimpleNamespace(fnv_id=lambda fnv: 0x0B000000 | fnv, counts=Counter())
-    idles.records = {0x1: {'EditorID': 'VCG01DocGiveMirror'}, 0x2: {'EditorID': 'SeatedShrug'},
-                     0x3: {'EditorID': 'StandingWave'}}
-    idles.used, idles.counted, idles.checked = {}, set(), {0x1: ID.SEATED, 0x2: ID.SEATED, 0x3: ''}
-    assert idles.idle(0x3) == 0x0B000003 and idles.idle(0x1, scripted=True) == 0x0B000001
-    assert idles.idle(0x1) is None and idles.idle(0x2, scripted=True) is None
-    assert idles.builder.counts['idle left out (seated)'] == 2
+    idles.records = {0x1: {'EditorID': 'SeatedShrug'}, 0x2: {'EditorID': 'StandingWave'}, 0x3: {'EditorID': 'Gone'}}
+    idles.used, idles.counted, idles.checked = {}, set(), {0x1: ID.SEATED, 0x2: '', 0x3: 'no human clip'}
+    assert idles.idle(0x1) == 0x0B000001 and idles.idle(0x2) == 0x0B000002 and idles.idle(0x3) is None
+    monkeypatch.setattr(ID, 'rig_of', lambda model: None)
+    monkeypatch.setattr(idles, '_clip', lambda rec, data_dir: Path('c.hkx'))
+    assert idles._played(0x1, {}, False, Path('.')) == (ID.FURNITURE_GRAPH, 'c.hkx', ID.FLAVOR_EVENTS)
+    assert idles._played(0x2, {}, False, Path('.')) == (ID.ROOT_GRAPH, 'c.hkx', ID.HUMAN_EVENTS)
 
 
 def test_probe_idle_plays_vanillas_own_clip_when_not_re_encoded():

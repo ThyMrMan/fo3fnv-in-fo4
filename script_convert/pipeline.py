@@ -21,7 +21,7 @@ from core.worker_budget import worker_count
 from asset_convert.game_paths import (current_namespace, namespace_for,
                                       set_namespace)
 from script_convert.constants import (sanitize_name, papyrus_script_name,
-                                     SERVICE_MENU_CALL, UDF_WIDE_TYPES,
+                                     SERVICE_MENU_CALL, SERVICE_MENU_PROPERTY, UDF_WIDE_TYPES,
                                      is_generated_script_type, script_prefix)
 from script_convert.conversation_sequence import (
     sequence_gate,
@@ -870,15 +870,16 @@ def _info_psc(rec: dict, xref: CrossRefGraph, reveals: list, service_kind: str,
     globals_set = list(reveals) + (list(NEED_GLOBALS) if speech else [])
     declared = {gname.lower() for gname in globals_set}
     out_lines += [form_property('GlobalVariable', gname) for gname in globals_set]
-    if conv and conv.sc.property_refs:
-        out_lines += property_declarations(dict(conv.sc.property_refs), declared)
+    props = {**(conv.sc.property_refs if conv else {}), **SERVICE_MENU_PROPERTY.get(service_kind, {})}
+    if props:
+        out_lines += property_declarations(props, declared)
     if declared:
         out_lines.append('')
     out_lines += _info_begin_fragment(body_lines, seq_gate, length, [*begin_lines, *greeted(rec)], reveals)
     done = (_WORKER_CTX.get('say_to_done') or {}).get((rec.get('ParentDIAL') or '').upper(), ())
     out_lines += _info_end_fragment(body_lines, seq_gate, service_kind, length,
                                     fragment_calls(done) + ([reroll_line()] if speech else []),
-                                    [END_TALK] if ends_talk(rec) else [])
+                                    [END_TALK] if ends_talk(rec) or service_kind in SERVICE_MENU_PROPERTY else [])
     if conv:
         out_lines.extend(conv.get_cell_family_helpers())
     if target.is_fallout4() and radio_lines.is_radio(rec):

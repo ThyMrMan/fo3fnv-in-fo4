@@ -1,205 +1,217 @@
 # fo3fnv-in-fo4
 
-**Fallout: New Vegas, converted to run in Fallout 4.** The whole Mojave,
-its DLC and add-on packs: quests, dialogue and voices, NPCs and creatures,
-FNV's guns, perks, skills, reputation, karma, Hardcore mode and radio. All of
-it is rebuilt from your own copy of New Vegas on your own machine.
+**Play Fallout: New Vegas inside Fallout 4.** This tool converts your own
+copy of New Vegas, its DLC and many of its mods into Fallout 4 plugins: the
+whole Mojave, its quests, dialogue and voices, NPCs and creatures, guns,
+perks, skills, reputation, karma, Hardcore mode and radio.
 
 > [!WARNING]
-> **Alpha.** The game is playable from Doc Mitchell's house onward, and
-> nearly every system is built. Much of it has never been played start to
-> finish, so expect bugs, and expect updates to need a new game. Back up your
-> saves. Fallout 3 is only its opening so far (Vault 101, birth to the vault
-> door).
+> **Alpha.** New Vegas is playable from Doc Mitchell's house onward, and
+> nearly every system is built, but much of it has never been played start
+> to finish. Expect bugs. Expect some updates to need a new game. Back up
+> your saves.
 
 > [!IMPORTANT]
-> **No Bethesda assets are included.** This project ships only code. It reads
-> the games you own and converts them locally. **Don't redistribute the
+> **No game files are included.** This project ships only code. It reads
+> the games you own and converts them on your PC. **Don't share the
 > converted files.**
-
-This project began as a fork of [bryantmh/tes4skyrim](https://github.com/bryantmh/tes4skyrim)
-(TES Auto-Convert), by way of [ThyMrMan/tes4skyrim](https://github.com/ThyMrMan/tes4skyrim),
-which converts Morrowind and Oblivion to Skyrim. The Fallouts moved to
-Fallout 4 because Fallout 4 already has guns, V.A.T.S., crippled limbs,
-radiation, terminals, the Pip-Boy and radio, which Skyrim would need rebuilt
-by hand. The inherited Skyrim converter is still in this repository. Use
-ThyMrMan/tes4skyrim for it.
 
 ---
 
 ## What you get
 
-| Plugin | What it holds |
+| Plugin | What it is |
 |---|---|
-| `FalloutNV.esm` | The base game: the Mojave and every interior, 2,000+ NPCs, about 114,000 dialogue lines, every quest script (all compile) |
-| `FalloutHelpers.esl` | Shared helper records (actor values, globals, keywords) |
-| `FalloutNV - Classic Look.esl` | Optional: FNV's original flat lighting and color (see [Classic Look](#classic-look)) |
-| `DeadMoney.esm`, `HonestHearts.esm`, `OldWorldBlues.esm`, `LonesomeRoad.esm`, `GunRunnersArsenal.esm` | The DLC, each on `FalloutNV.esm`, in its own mod folder |
-| `CaravanPack.esm`, `ClassicPack.esm`, `MercenaryPack.esm`, `TribalPack.esm` | The add-on packs |
-| `F3NV.dll` | The project's F4SE plugin: FNV rules Fallout 4 has no way to express (Damage Threshold, item condition, the Pip-Boy's SKILLS, REPUTATION, KARMA and CHALLENGES tabs, Hardcore's ammo weight and HUD) |
+| `FalloutNV.esm` | New Vegas: the Mojave and every interior, its NPCs, quests, dialogue and scripts |
+| `FalloutHelpers.esl` | Shared records the converted plugins use |
+| `DeadMoney.esm`, `HonestHearts.esm`, `OldWorldBlues.esm`, `LonesomeRoad.esm`, `GunRunnersArsenal.esm` | The DLC you own |
+| `CaravanPack.esm`, `ClassicPack.esm`, `MercenaryPack.esm`, `TribalPack.esm` | The add-on packs you own |
+| `FalloutNV - Classic Look.esl` | Optional: New Vegas's flatter lighting and color ([below](#classic-look)) |
+| `F3NV.dll` | The project's F4SE plugin: the New Vegas rules Fallout 4 can't do by itself (Damage Threshold, item condition, the Pip-Boy's SKILLS, REPUTATION, KARMA and CHALLENGES tabs, Hardcore's ammo weight and HUD, the dialogue menu) |
 
-**Converted as FNV has them:**
-- **The world:** terrain, objects, interiors, terrain and object LOD, FNV's
-  weathers and the Pip-Boy world map.
-- **Characters:** NPCs with FNV faces and outfits; creatures on their own FNV
-  skeletons and animations (geckos, cazadores, nightstalkers, securitrons and
-  more); FNV's leveled spawns.
-- **Dialogue and quests:** FNV's own voices and lip sync, through Extended
-  Dialogue Interface; scripts converted to Papyrus.
-- **Your character:** SPECIAL, the 13 skills, 200+ perks and traits, FNV's
-  level-up, tag skill and trait menus (our own, with every DLC's perks;
-  options in MCM), reputation, karma, challenges, Hardcore mode, chem
-  addiction.
-- **Combat:** FNV's guns, ammo subtypes and the Ammo Type hotkey, weapon mods,
+**In the game:**
+- **The world:** the Mojave's land, buildings and interiors, distant land
+  and objects, New Vegas's weather and the Pip-Boy world map.
+- **People and creatures:** NPCs with their own faces and outfits; geckos,
+  cazadores, nightstalkers, securitrons and the rest on their own skeletons
+  and animations; New Vegas's spawns.
+- **Dialogue and quests:** New Vegas's voices with lip sync, in a dialogue
+  menu with the full line text; every quest script converted.
+- **Your character:** SPECIAL, the 13 skills, 200+ perks and traits, New
+  Vegas's level-up, tag skill and trait menus (options in MCM), reputation,
+  karma, challenges, Hardcore mode, chem addiction.
+- **Combat:** New Vegas's guns, ammo types and the ammo hotkey, weapon mods,
   item condition and repair, critical hits, Damage Threshold, sneak attacks,
-  grenades and mines, V.A.T.S. tuned toward FNV's.
-- **Also:** FNV's radio stations, terminals, lockpicking and hacking by skill,
-  the casino games and Caravan, and FNV's own intro movie.
+  grenades and mines, and V.A.T.S. tuned toward New Vegas's.
+- **Also:** the radio stations, terminals, lockpicking and hacking by skill,
+  the casino games and Caravan, and New Vegas's intro movie.
 
-Where play differs from FNV, on purpose or not, is listed in
-[docs/fork/fo4_drift.md](docs/fork/fo4_drift.md).
+**Mods:** about 20 New Vegas mods convert on top of the game, for example
+YUP, NVMIM, Willow, JSawyer Ultimate, the New Vegas Bounties series, Russell,
+The Living Desert and Better Brotherhood.
 
-### <a id="classic-look"></a>Classic Look
+**Fallout 3** is experimental: it converts from the command line, not the
+app yet, and only its opening (Vault 101) has been tested in game. Keep it
+in its own Mod Organizer profile: with New Vegas loaded too, both openings
+start at once.
 
-`FalloutNV - Classic Look.esl` switches between two looks for the same
-world. It changes only lighting and color, nothing in gameplay or quests.
-You can turn it on or off at any time, mid-playthrough, without starting
-a new save.
+Known problems are listed in the
+[roadmap](docs/fork/ROADMAP.md#known-bugs); where play
+differs from New Vegas is in [fo4_drift.md](docs/fork/fo4_drift.md).
 
-| | Disabled (default) | Enabled |
+---
+
+## <a id="install"></a>Install
+
+### What you need
+
+| | |
+|---|---|
+| **Windows 10 or 11** | The conversion runs Windows-only tools. |
+| **Fallout 4** | The current Steam version, **1.11.240**. |
+| **Fallout 4 Creation Kit** | Free on [Steam](https://store.steampowered.com/app/1946160/). The conversion uses its tools; you don't need to open it. |
+| **Fallout: New Vegas** | Steam or GOG, with any DLC you want converted. |
+| **[Mod Organizer 2](https://github.com/ModOrganizer2/modorganizer)** | Set up for Fallout 4. The steps below assume it. |
+| **[F4SE](https://f4se.silverlock.org/)** | For 1.11.240, installed into your Fallout 4 folder. |
+| **Three mods in MO2** | [Address Library for F4SE Plugins](https://www.nexusmods.com/fallout4/mods/47327), [Mod Configuration Menu](https://www.nexusmods.com/fallout4/mods/21497), [Black Landscape Fix](https://www.nexusmods.com/fallout4/mods/108574) (the F4SE version; without it, some bare ground turns black). |
+| **A strong PC** | 32 GB of RAM and about 100 GB of free disk space. |
+
+**Turn off Extended Dialogue Interface** if you have it: `F3NV.dll` brings
+its own dialogue menu, which switches itself off while XDI is loaded.
+
+### 1. Download
+
+1. Open the [Releases page](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases)
+   and download **Source code (zip)** from the newest release.
+2. Unzip it to a folder you can write to, outside `Program Files`, for
+   example `C:\Games\fo3fnv-in-fo4`.
+
+### 2. Start the app
+
+Double-click **`Convert to Fallout 4.cmd`** in that folder.
+
+- The first time, it installs Python 3.14 (if you don't have it) and the
+  packages the converter needs. This takes a few minutes.
+- It offers to download `xWMAEncode.exe` from Microsoft (part of the DirectX
+  SDK, about 600 MB, deleted afterward). Say yes: voice lines need it.
+- It checks your PC against the list above, then opens the app. Anything
+  missing is listed with what to do; the window stays open until you press a
+  key.
+
+### 3. First-run setup
+
+The app asks four things. Each one can be changed later on the **Setup**
+screen.
+1. **Which game:** Fallout: New Vegas.
+2. **Game folders:** your New Vegas and Fallout 4 folders (usually found for
+   you).
+3. **Mods:** pick **A Mod Organizer 2 instance**, then its folder and
+   profile.
+4. **Where files go:** choose an output folder **inside your MO2
+   instance's `mods` folder**, for example
+   `...\mods\F3NV - Fallout New Vegas`. That lets the app enable everything
+   in MO2 for you. Pick a work folder on a drive with plenty of free space.
+
+### 4. Convert New Vegas
+
+On the **Convert** screen:
+1. Under **What to convert**, pick **FalloutNV.esm**.
+2. Under **What the build covers**, pick **Whole**.
+3. Leave the default stages ticked (Export, Helper plugin, Build, Faces,
+   Install the F4SE plugin, Check references).
+4. Click **Start**.
+
+The first conversion takes several hours: it converts every mesh, texture,
+sound and face once. Later rebuilds reuse that work and take minutes. Keep
+the app open until the **Finished** screen appears.
+
+### 5. Add it to Mod Organizer
+
+Close MO2, then click **Set up in MO2** on the Finished screen. It enables
+the converted mod and its plugins in your profile in the right order, after
+backing up your lists. Click **Install status** to check that everything is
+in place.
+
+If your output folder isn't inside MO2's `mods` folder, copy it there as a
+new mod, enable it, and tick `FalloutNV.esm` and `FalloutHelpers.esl` in the
+plugin list, after Fallout 4's own plugins.
+
+### 6. Play
+
+Start Fallout 4 through F4SE: **Play** on the Finished screen, or MO2's F4SE
+entry. Choose **New**. Fallout 4's intro and character creation come first;
+then the game moves you to Doc Mitchell's house in Goodsprings, plays New
+Vegas's intro, and you make your character as in New Vegas.
+
+If the opening doesn't start, open the console (`~`) and type
+`setstage FNV_NewGame 10`.
+
+## <a id="convert"></a>The DLC and mods
+
+Convert New Vegas first; the DLC and mods build on it. Each goes into its
+own mod folder.
+
+- **A DLC or add-on pack:** pick it under **What to convert** (the app lists
+  the ones in your New Vegas `Data` folder), keep **Whole**, and click
+  **Start**. It goes into its own folder beside the game's, such as
+  `F3NV - Dead Money`.
+- **A mod:** click **Add a mod folder...** and choose the folder holding the
+  mod's plugin (for example a mod you unpacked, or one from your New Vegas
+  mod manager). The app imports it, then converts it the same way.
+
+After each one, click **Set up in MO2** again. The DLC and mods load after
+`FalloutNV.esm`.
+
+## Updating
+
+1. Download the new release and unzip it over your old folder (or into a
+   new one; your settings come along if you kept them beside the app).
+2. Start the app, pick **FalloutNV.esm**, make sure **Rebuild what changed**
+   is ticked, and click **Start**. It rebuilds only what the update touched, then the DLC
+   and mods built on it.
+3. **Install status** names any plugin still built by an older release.
+
+The release notes say whether an update needs a new game. Your saves keep
+working across rebuilds unless they say otherwise.
+
+## <a id="classic-look"></a>Classic Look
+
+`FalloutNV - Classic Look.esl` is optional (tick **Classic Look plugin** on
+the Convert screen). It changes only lighting and color, so you can turn it
+on or off at any time, mid-game, without a new save.
+
+| | Off (default) | On |
 |---|---|---|
-| **Shadows** | The main light in each room (FNV's "Key" lights, up to 6 per cell) casts shadows, so interiors have depth, like Fallout 4's. | No light casts a shadow, as in FNV. Rooms look flatter, the way they did in the original game. |
-| **Color and contrast** | FNV's colors drawn through Fallout 4's camera curve: richer contrast, deeper darks, brighter highlights. | FNV's own straight color curve: the softer, washed contrast New Vegas had. Overall brightness stays the same. |
+| **Shadows** | The main lights in each room cast shadows, so interiors have depth, as in Fallout 4. | No light casts a shadow, as in New Vegas: rooms look flatter. |
+| **Color** | New Vegas's colors through Fallout 4's camera curve: richer contrast, deeper darks. | New Vegas's own softer, washed-out contrast, at the same brightness. |
 
 Everything else is the same either way: where lights are, their color and
 reach, the weather, glowing signs and neon.
 
-## Not done yet
+## Problems and reports
 
-- **Casino games and Caravan:** all built on our own menu; slots, roulette
-  and blackjack work, Caravan isn't played yet
-  ([plan](docs/fork/fo4_casino_plan.md)).
-- **Fallout 3:** the opening (Vault 101, from the birth to the vault door)
-  is built. Our automated story runs play it on a test machine, and every
-  quest stage of the build is swept there too. The rest of the Capital
-  Wasteland isn't converted yet. Keep it in its own Mod Organizer profile:
-  with New Vegas loaded too, both openings start at once.
-- **Mod builds:** about 20 New Vegas mods (YUP, NVMIM, Willow, JSawyer
-  Ultimate, the New Vegas Bounties series and others) convert against the
-  built game. The first play with all of them from Doc Mitchell's house
-  found three bugs, now fixed; some mod scripts still don't compile.
-- **Known gaps:** a few hundred dialogue lines whose conditions Fallout 4
-  can't check, staggers and sounds on FNV's own creature rigs (their
-  crippled-limb reactions and backward walks are built, not played), FNV's
-  third-person gun animations, precombines in the densest areas (Freeside,
-  the Strip), and maps for Freeside and the Strip.
-
-The full list (broken, missing, and built but not yet played) is in
-[docs/fork/ROADMAP.md](docs/fork/ROADMAP.md#fo4-state). Please report what you
-find in [the issues](https://github.com/ThyMrMan/fo3fnv-in-fo4/issues).
+- **Install status** (Finished screen) checks every requirement and says
+  what to do about each problem.
+- Known bugs are listed in the
+  [roadmap](docs/fork/ROADMAP.md#known-bugs).
+- Please report what you find in
+  [the issues](https://github.com/ThyMrMan/fo3fnv-in-fo4/issues). Name the
+  release (shown in the app's title bar) and attach the conversion's
+  warnings or your Papyrus log.
 
 ---
 
-## Install
+## Where this came from
 
-### What you need
-
-- **Windows.** The conversion app also starts on macOS and Linux, but the
-  build runs Windows-only tools.
-- **Fallout 4**, current Steam version (1.11.240), and the **Fallout 4
-  Creation Kit**, free on Steam. The build runs the Creation Kit for
-  animation data.
-- **Fallout: New Vegas** (Steam or GOG), with any DLC you want converted.
-- **[Mod Organizer 2](https://github.com/ModOrganizer2/modorganizer)**
-  (recommended: the build runs the Creation Kit through it, and every step
-  below assumes it).
-- These Fallout 4 mods, installed in MO2:
-  - [F4SE](https://f4se.silverlock.org/) for 1.11.240;
-  - [Address Library for F4SE Plugins](https://www.nexusmods.com/fallout4/mods/47327);
-  - [Mod Configuration Menu](https://www.nexusmods.com/fallout4/mods/21497);
-  - [Black Landscape Fix](https://www.nexusmods.com/fallout4/mods/108574)
-    (F4SE version): without it, a Fallout 4 engine bug turns some patches
-    of the Mojave's bare ground black.
-
-  LevelUpMenuEx is no longer needed. On a save from an older build, keep it
-  installed until you have opened the level-up menu once: that moves its
-  saved skill and perk points and tagged skills over.
-- **A strong PC:** 32 GB of RAM is recommended. Allow about 100 GB of free
-  disk: the New Vegas export is about 10 GB, the build caches grow to about
-  70 GB, and the output is about 10 GB. The first build converts every mesh
-  and sound, so it takes far longer than a rebuild, which takes about 40
-  minutes.
-
-**Check your setup** (after step 2 below, and again after adding the output
-to MO2): `.venv\Scripts\python.exe -m tools.validate.fo4_install_check`
-prints one line per item above, with what to do for anything missing.
-
-### Convert
-
-1. **Download** this repository (the green **Code** button, then **Download
-   ZIP**), and unzip it somewhere outside `Program Files`.
-2. **Set up Python once:** double-click `TES Auto-Convert.cmd`. It installs
-   Python 3.14 if needed and the packages the converter uses, then opens the
-   old Skyrim app. Close that window.
-3. **Start the Fallout 4 app:** in that folder, run
-   ```bash
-   .venv\Scripts\python.exe fo4_app.py
-   ```
-   The first time, a wizard asks for:
-   - the game (New Vegas);
-   - your New Vegas and Fallout 4 folders (both are detected);
-   - your MO2 instance and profile;
-   - where the converted files should go.
-4. **Convert:** on the **Convert** screen, tick **Export**, **Helper
-   plugin**, **Build**, **Install the F4SE plugin** and **Check**, choose
-   **Whole**, and click **Start**. Tick **Faces** too for NPC faces made by
-   the Creation Kit (slow: hours for the whole game). The **Finished**
-   screen shows what was built and any warnings; **Install status** checks
-   everything listed above.
-
-The **Replacements** screen can swap converted items and creatures for
-Fallout 4's own or other mods' versions. By default the conversion uses
-FNV's own.
-
-**The DLC and mods** convert after the base game, each into its own folder:
-pick one under **What to convert** on the Convert screen (a DLC is listed
-from your New Vegas Data folder; **Add a mod folder...** adds a mod), then
-run **Export**, **Build** and **Check** as above. A mod also runs **Import
-the mod folder** first.
-
-### Add it to Mod Organizer
-
-The easy way: choose output folders inside your MO2 instance's `mods`
-folder (for example **F3NV - Fallout New Vegas**; each DLC gets its own,
-such as **F3NV - Dead Money**). Then, with MO2 closed, click **Set up in
-MO2** on the Finished screen after each conversion: it enables the mod and
-its plugins in your profile, in the right order, and backs up the lists
-first.
-
-By hand:
-
-1. In MO2, make an empty mod (for example **F3NV - Fallout New Vegas**) and
-   copy the app's output folder into it. Give each DLC its own mod
-   (**F3NV - Dead Money** and so on).
-2. The **Install the F4SE plugin** stage put `F3NV.dll` in the output's
-   `F4SE/Plugins/` folder; if you skipped it, copy `tes_runtime/dist/F3NV.dll`
-   there.
-3. Enable the mods and their plugins. `FalloutNV.esm` and `FalloutHelpers.esl`
-   go after Fallout 4's own plugins, and the DLC after `FalloutNV.esm`.
-
-### Play
-
-Start Fallout 4 through F4SE (**Play** on the Finished screen, MO2's F4SE
-entry, or `f4se_loader.exe`) and choose **New**. Fallout 4's intro and character creation run first. Then the
-game moves you to Doc Mitchell's house in Goodsprings and plays FNV's intro.
-Make your character there as in FNV. If the opening doesn't start, open the
-console and type `setstage FNV_NewGame 10`.
-
-**Updating:** download the new version over the old folder, convert again and
-replace the mod folders. FormIDs stay stable between builds, but expect an
-update to need a new game.
-
----
+This project began as a fork of
+[bryantmh/tes4skyrim](https://github.com/bryantmh/tes4skyrim) (TES
+Auto-Convert), by way of
+[ThyMrMan/tes4skyrim](https://github.com/ThyMrMan/tes4skyrim), which
+converts Morrowind and Oblivion to Skyrim. The Fallouts moved to Fallout 4
+because it already has guns, V.A.T.S., crippled limbs, radiation, terminals,
+the Pip-Boy and radio. The inherited Skyrim converter is still in this
+repository (`TES Auto-Convert.cmd` opens it); use ThyMrMan/tes4skyrim for
+it.
 
 ## For developers
 
@@ -207,7 +219,9 @@ The pipeline, every system's design and its measurements are in
 [docs/fork/](docs/fork/). Start with:
 - [fo4_pipeline.md](docs/fork/fo4_pipeline.md): how the build works;
 - [ROADMAP.md](docs/fork/ROADMAP.md): status;
-- [fo4_gui.md](docs/fork/fo4_gui.md): the app.
+- [fo4_gui.md](docs/fork/fo4_gui.md): the app;
+- [fo4_plan_release.md](docs/fork/fo4_plan_release.md#release-identity):
+  releases (`f3nv-<major>.<minor>` tags).
 
 [CLAUDE.md](CLAUDE.md) holds the working rules. The command-line build of the
 whole map is:

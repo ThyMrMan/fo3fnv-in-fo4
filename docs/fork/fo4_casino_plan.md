@@ -1275,6 +1275,74 @@ counts aces or suits the wrong way round, a King on a sold caravan counts
 twice its card, the Queen is never played, and a hand discard scores its
 place in the hand.
 
+### <a id="lucky-horseshoes"></a>Lucky Horseshoes (Festus)
+
+<a id="horseshoes-built"></a>**Built 2026-11-22, not played** (`as3/f3nv/casino/Horseshoes.as`,
+`HorseshoesScreen.as`; `tests/casino/horseshoes.py`). Question 8 is reversed: the game is in.
+
+**How FNV runs it.** Not an engine game: it is all dialogue on quest
+`VFreeformSSHQ` (001019A6), with `VFreeformSSHQScript`'s variables
+(`PlayerTotal`, `FestusTotal`, their distances from 21, `PlayerWinning`,
+`PlayerHolding`, `FestusHolding`, `LuckyHorseshoes`, `CardNumber` and a used
+count per value). "I feel lucky" (INFO 0014282A) offers "How do I play?"
+(SSHQFestusLHInstructions, the rules spoken) and "Lucky Horseshoes."
+(SSHQFestusLuckyHorseshoes, INFO 00105940: resets the variables, rolls the
+first card, offers Draw/Hold/Quit). Draw (SSHQLHPlayerDraw) and Festus's turn
+(SSHQLHFestusDraw) are ten card lines each, picked by `CardNumber`; each
+line's result script adds the card and works out the lead; their follow-ups,
+in order, call Lucky Horseshoes, a win, a loss or a taunt, then pass the turn.
+The rules, read from those scripts and conditions:
+- **Deck:** values 1 (the ace) to 10, four of each. A value is rolled
+  alike (`1 + GetRandomPercent * 0.1`); one used four times is rolled again,
+  twice at most, so a fifth copy is possible.
+- **Turns:** the player draws first; after each player card Festus takes
+  his turn.
+- **The lead:** nearer 21 either way leads; equal distances with different
+  totals (20 and 22) leave the lead as it was. A draw that makes both totals
+  equal pushes the **other** player up one ("Lucky Horseshoes!"), so there
+  are no ties.
+- **Winning** (INFOs 00142831, 00142839): the leader wins once the other is
+  over 21 or holding.
+- **Hold** (SSHQLHPlayerHold): allowed only while leading; behind, Festus
+  says "If you hold now, pardner, I'll win! Let's pretend you drew" and the
+  player draws. Once the player holds, Festus draws until the game ends.
+- **Festus** (INFO 00142835 and 00142E0E): he holds when he leads and is
+  within 4 of 21 (`FestusDistance < 5`, 21 included); otherwise he draws.
+- **No bet.** A win gives a reward (INFO 00142831): a star cap
+  (NVStarBottleCap) at `GetRandomPercent <= 5`, else a random Caravan card
+  (RandomCaravanBaseCards) at a second roll `<= 25`, else `CapsChange100` (a
+  few caps). A loss costs nothing. "Play again" and "I'm done" have no lines
+  in FNV.
+
+**Why a menu.** The dialogue route converts (Festus's chains play through
+their chat scenes' topic copies, [preflight](fo4_preflight.md)) but was
+never played, and a game of 40 conditioned lines and follow-ups on quest
+variables is the fragile kind of chain on FO4. The game is built on the
+casino menu as a blackjack variant: the blackjack table's layout, felt, rows
+and card size, Festus's cards in the dealer's row. The rules share nothing
+with blackjack's (no shoe, dealer rule, bet or payout), so they are their own
+class.
+- **Opener:** `GAME_TOPICS` (`script_convert/constants.py`) maps the start
+  topic to `TES4Casino.OpenHorseshoes(akSpeakerRef)`, added to its line's
+  end fragment as a barter topic's menu call is, after `F3NV_Talk.EndTalk`,
+  so the dialogue's own Draw/Hold/Quit choices don't follow. The topic is
+  named by its EditorID: the game has no other authored marker.
+- **Bank:** `OpenHorseshoes` opens the menu (game 5) with Festus's name, a
+  seed and `HorseshoesTexts`; `F3NV_HorseshoesResult(won)` comes back after
+  each game and a win draws the reward (`HorseshoesStar`, `HorseshoesCards`,
+  `HorseshoesCaps`, filled by `records.HORSESHOES_REWARDS`).
+- **Screen:** Draw and Hold while playing, Play Again after, Exit at any time
+  (FNV's Quit). Enter draws, Right holds. Cards are drawn plain, ace to ten
+  (FNV shows no cards). "Lucky Horseshoes!" shows when a tie pushes a total.
+- **Self-test:** `cqf FNV_Casino SelfTest` logs a `horseshoes` line (seeds
+  1-3, 20 games each: draw below 17, then hold); paste it into
+  `tests/casino/selftest.txt` for `test_the_movies_horseshoes_matches_the_model`.
+- **Not built:** Festus's spoken lines in the menu (draws, taunts, "Lucky
+  horseshoes!"), sounds.
+- **In game:** say "I feel lucky", then "Lucky Horseshoes."; the menu opens
+  with the talk ended. Hold while behind draws instead; hold while ahead and
+  Festus draws to the end; win a few games for the reward.
+
 ### <a id="phase-6"></a>Phase 6. Dead Money and polish (S)
 
 - The Sierra Madre's three games (power switch, holograms, 100 roulette
@@ -1372,7 +1440,8 @@ To record in [fo4_drift.md](fo4_drift.md) as each piece is built:
 7. Mouse and keyboard first; FO4's own controls are wired (`Accept`,
    `Cancel`, `Left`, `Right`), so a gamepad may already work. The spike
    logs which inputs arrive.
-8. Left out.
+8. Left out at first; built 2026-11-22 at the user's request
+   ([Lucky Horseshoes](#lucky-horseshoes)).
 
 ---
 

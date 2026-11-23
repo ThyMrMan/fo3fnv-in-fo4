@@ -18,7 +18,7 @@ Issue-plan rows covered ([issue plan](fo4_issue_plan.md)):
 
 | Row | Size | Doc |
 |---|---|---|
-| Super mutants unarmed with shotguns, the gatling laser, launchers, the Fat Man | S (rest of a built row) | [super mutants](fo4_build_next.md#super-mutants) |
+| Super mutants with shotguns, the gatling laser and the grenade launcher: built, not played; check them in game | S | [super mutants](fo4_build_next.md#super-mutants) |
 | Seated and weapon-out idles | M | [furniture](fo4_idles.md#furniture), [trees](fo4_idles.md#trees) |
 | Gun animation (third person) | L | [plan](fo4_gun_animation.md#order) |
 | Own-rig creature reactions and sounds | L | [idles](fo4_own_rig.md#idles), [sounds](fo4_own_rig.md#sounds) |
@@ -147,7 +147,10 @@ Each needs the user's approval. None is needed before phase 6.
 
 ### <a id="p1"></a>Phase 1 (S): super mutant rows
 
-Add three `NEAREST` rows. Data only. **Fixed 2026-11-09, not built.** On
+Add three `NEAREST` rows. Data only. **Fixed 2026-11-09, built (checked
+on the 2026-11-22 FalloutNV.esm: the grenade launcher's own
+`FNV_AnimsRailwayRifle_*` keyword, the shotguns and the gatling laser each
+have a `FNV_SuperMutantRaceSubGraphDataAdditive` entry), not played.** On
 the 2026-11-08 build's 119 guns (WEAP animation type Gun) the rows newly
 cover exactly 7: Gatling Laser, Caravan Shotgun and Cass's, Riot Shotgun,
 Sawed-Off Shotgun and its unique, Grenade Launcher (a KWDA-only count, so

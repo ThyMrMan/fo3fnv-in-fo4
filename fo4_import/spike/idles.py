@@ -8,10 +8,10 @@ when FNV loops the idle forever) and the clip converted onto FO4's skeleton
 conditions, parent and previous idles when built, and replay delay; an idle
 without a parent is loose, as vanilla's loose dynamic idles are. An idle
 whose clip is missing or not a human one is left out. A clip that starts
-seated plays only by script (PlayIdle), on the chair's furniture graph, as
-vanilla's seated scripted idles do, when a script's Idle property names it.
-A line's seated idle is left out: as SNAM it crashed on both graphs, and
-played by script as each line began it crashed later in a plain graph update.
+seated is a flavor idle on the chair's furniture graph (dyn_Flavor, or
+dyn_FlavorLooping when FNV loops it forever), as vanilla's seated flavor
+idles are: it plays inside the sitting pose and returns to it, never
+leaving the seat's state as dyn_Activation does.
 
 FNV's ambient idle tree is built whole (fo4_idles.md#trees): its root under
 FO4's ActionIdle, its group nodes as vanilla's (graph and conditions only).
@@ -37,8 +37,6 @@ from fo4_import.spike.idle_props import IdleProps
 from fo4_import.spike.say_topics import conditions_of, parsed
 from tes5_import.base.writer import pack_string_subrecord, pack_subrecord
 
-#: Seated idles a script may play, each played safely in game; other seated idles stay out (fo4_idles.md#standing).
-SEATED_PLAYED = frozenset({'VCG01DocGiveMirror'})
 #: Encoder probe (fo4_idles.md#encoder-test), {FNV idle: (vanilla clip, re-encoded, seconds kept)}; empty when off.
 PROBE = {}
 #: The archive holding vanilla's clips (under Meshes).
@@ -46,10 +44,12 @@ ANIMATIONS = 'Fallout4 - Animations.ba2'
 #: Behavior graphs: standing (the human root) and a chair's (AnimFurnChairSitAnims, HumanRaceSubGraphData).
 ROOT_GRAPH = 'Actors\\Character\\Behaviors\\RaiderRootBehavior.hkx'
 FURNITURE_GRAPH = 'Actors\\Character\\Behaviors\\FurnitureBehavior.hkx'
-#: Why a seated clip is left out of a line (and the mark of one a script plays on the furniture graph).
+#: The mark of a seated clip, played on the furniture graph.
 SEATED = 'seated'
 #: FO4 dynamic-idle events (played once, and looped until stopped): the human graphs', and vanilla creatures' (ENAM).
 HUMAN_EVENTS, RIG_EVENTS = ('dyn_Activation', 'dyn_ActivationLoop'), ('dynamicAnim', 'dynamicAnimLooping')
+#: The same for a seated human: the sitting pose's flavor (vanilla IdleFlavorFurniture_PoseA, ...LoopingFurniture).
+FLAVOR_EVENTS = ('dyn_Flavor', 'dyn_FlavorLooping')
 #: FNV loop counts (min, max) meaning "forever", FO4's looping seconds meaning the same.
 FOREVER = (255, 255)
 #: FO4 IDLE DATA flag of an idle with no parent.
@@ -87,12 +87,10 @@ class Idles:
         for fid, rec in self.records.items():
             self.kids[int(rec.get('ANAM.Parent', '0'), 16)].append(fid)
 
-    def idle(self, fnv: int, scripted: bool = False) -> 'int | None':
-        """The FO4 FormID of FNV idle `fnv`, played by a script when `scripted`; None when it is left out (the
-        module notes)."""
-        played = scripted and self.records.get(fnv, {}).get('EditorID') in SEATED_PLAYED
-        why = '' if played and self._reason(fnv) == SEATED else self._reason(fnv)
-        if why:
+    def idle(self, fnv: int) -> 'int | None':
+        """The FO4 FormID of FNV idle `fnv`; None when it is left out (the module notes)."""
+        why = self._reason(fnv)
+        if why and why != SEATED:
             if (fnv, why) not in self.counted:
                 self.counted.add((fnv, why))
                 self.builder.counts[f'idle left out ({why})'] += 1
@@ -107,7 +105,8 @@ class Idles:
         return self.checked[fnv]
 
     def _left_out(self, model: str) -> str:
-        """Why an idle playing `model` is left out; '' when it converts (a human clip, or one in an own rig's folder)."""
+        """Why an idle playing `model` is left out; '' when it converts (a human clip, or one in an own rig's folder),
+        SEATED when it converts seated."""
         if rig_of(model) and (self.meshes / model).is_file():
             return ''
         if not model.lower().startswith(FNV_HUMAN) or not (self.meshes / model).is_file():
@@ -116,9 +115,9 @@ class Idles:
         return SEATED if self.clips.seated(model) else ''
 
     def named(self, edid: str) -> 'int | None':
-        """`idle` of the FNV idle named `edid`, played by a script; None if unknown."""
+        """`idle` of the FNV idle named `edid`; None if unknown."""
         fnv = self.names.get(edid.lower())
-        return None if fnv is None else self.idle(fnv, scripted=True)
+        return None if fnv is None else self.idle(fnv)
 
     def line(self, rec: dict) -> tuple:
         """(speaker, listener) FO4 idle (0: none) per response of FNV line `rec`."""
@@ -230,14 +229,14 @@ class Idles:
             held = HELD if counted_loops(rec) and not links[0] and played[2] == HUMAN_EVENTS else b''
             self.builder.counts['idle held through its FNV loops'] += bool(held)
             self.builder.writer.add_record('IDLE', pack_idle(fid, rec, held + conditions, played, links))
-            kind = ' (ambient tree)' if fnv in self.tree else ' (seated, scripted)' if played[0] == FURNITURE_GRAPH \
+            kind = ' (ambient tree)' if fnv in self.tree else ' (seated flavor)' if played[0] == FURNITURE_GRAPH \
                 else ' (own rig)' if played[2] == RIG_EVENTS else ''
             self.builder.counts['IDLE' + kind] += 1
 
     def _played(self, fnv: int, rec: dict, group: bool, data_dir: Path) -> tuple:
         """(behavior graph, clip under Meshes, (once, looped) events) of handed-out idle `fnv`: a group node plays
-        no clip; a clip in an own rig's folder plays on that rig (Rigs.idle_clip), a human one on the human root or
-        chair graph.
+        no clip; a clip in an own rig's folder plays on that rig (Rigs.idle_clip), a human one on the human root or,
+        seated, as the chair graph's flavor.
         See: docs/fork/fo4_own_rig.md#idles
         """
         rig = None if group else rig_of(rec.get('Model.MODL', ''))
@@ -245,8 +244,9 @@ class Idles:
             name = rec['Model.MODL'][len(rig.folder) + 1:]
             clip = self.builder.creatures.own_rigs().idle_clip(rig, self.meshes / rec['Model.MODL'], name)
             return rig.path('Behaviors', f'{rig.project}RootBehavior.hkx'), clip, RIG_EVENTS
-        graph = FURNITURE_GRAPH if self.checked.get(fnv) == SEATED else ROOT_GRAPH
-        return graph, '' if group else str(self._clip(rec, data_dir)), HUMAN_EVENTS
+        seated = self.checked.get(fnv) == SEATED
+        return (FURNITURE_GRAPH if seated else ROOT_GRAPH, '' if group else str(self._clip(rec, data_dir)),
+                FLAVOR_EVENTS if seated else HUMAN_EVENTS)
 
     def _clip(self, rec: dict, data_dir: Path) -> Path:
         """Convert FNV idle `rec`'s clip into `data_dir` (PROBE's when it names `rec`); its path under Meshes."""

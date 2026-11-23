@@ -13,6 +13,7 @@ from fo4_import.app import addons
 from fo4_import.app import settings as S
 from fo4_import.app import stages as ST
 from fo4_import.pipeline.export_index import export_records, own_records
+from fo4_import.pipeline import run as RUN
 from fo4_import.pipeline.run import edited_grids
 from fo4_import.spike.exterior import PERSISTENT, grid_of
 from fo4_import.spike.interiors import edited_interiors
@@ -116,6 +117,17 @@ def test_build_scope_matches_the_hand_made_dlc_builds(name, want):
     if not (EXPORT / name / '_HEADER.txt').is_file():
         pytest.skip(f'{name} is not exported here')
     assert addons.build_scope(EXPORT / name) == want
+
+
+def test_a_deleted_persistent_reference_has_no_grid(tmp_path, monkeypatch):
+    """A master's persistent reference the add-on deletes (no position) adds no edited cell; a placed one does."""
+    cell = {'FormID': '00002DB4', 'ParentWRLD': '0000003C', 'RecordFlags': str(PERSISTENT)}
+    refs = [{'FormID': '000C0184', 'ParentCELL': '00002DB4', 'RecordFlags': '1056'},
+            {'FormID': '01000800', 'ParentCELL': '00002DB4', 'RecordFlags': '1024', 'PosX': '5000', 'PosY': '-10'}]
+    monkeypatch.setattr(RUN, 'export_masters', lambda folder: ('Fallout3.esm',))
+    monkeypatch.setattr(RUN, 'export_records', lambda folder, sig: [cell] if sig == 'CELL' else [])
+    monkeypatch.setattr(RUN, 'own_records', lambda folder, sig: refs if sig == 'ACHR' else [])
+    assert edited_grids(tmp_path) == {'0000003C': {(1, -1)}}
 
 
 def test_an_addon_scope_covers_its_persistent_references_and_every_interior_it_edits():

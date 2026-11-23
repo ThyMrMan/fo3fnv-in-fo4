@@ -1669,10 +1669,20 @@ script-added entries after its authored ones (`pages.cpp` `ListIds`: F4SE's
   `Completed` on the state global (a
   property named for the challenge); a left-out challenge's property stays
   empty and the call does nothing.
-- <a id="challenges-left-out"></a>**Left out (44), no FO4 event:** damage
+- <a id="challenges-games"></a>**Casino and Caravan games (built
+  2026-11-23, not played):** the 6 challenges on FNV's five game stats
+  (`GAME_STATS`: Blackjack, Roulette and Slots Games Played, Caravan Games
+  Won and Lost) are kept. FO4 tracks no such stat, so each has a stat group
+  of its own, handed to `F3NV_Challenges` as `GameStats`/`GameGroups`
+  rather than `StatNames` (no tracked-stats registration). `F3NV_Casino`
+  calls `CountGame` after every round the menu reports (`OnMenuRound`:
+  one blackjack hand, roulette spin or slots spin) and after every Caravan
+  game (`OnCaravanResult`). That a round is one of FNV's "games" is
+  assumed, not traced in FalloutNV.exe. FalloutNV.esm: 67 of 105 counted.
+- <a id="challenges-left-out"></a>**Left out (38), no FO4 event:** damage
   dealt (18), hits by body part, cripples and knockdowns (11; FO4's hit
-  event needs a target registered), and 15 misc stats FO4 does not track:
-  caravan (3), casino (3), Barter Amount Traded, Health From Stimpaks and
+  event needs a target registered), and 9 misc stats FO4 does not track:
+  Barter Amount Traded, Health From Stimpaks and
   Food, Speech Failures, Disintegrations, Dismembered Limbs, Items
   Repaired, Miss Fortunate Occurrences, Doctor Bags Used. They have no
   row. Damage and hits would need a combat-hit perk entry point with a
@@ -5378,6 +5388,11 @@ hand.
   records:
   - `status`: `running`, `finished` or `failed`;
   - when the build started and ended, and its command;
+  - `release`: the release that built it (`fo4_import.base.release`: an
+    `f3nv-` tag, from the `VERSION` file a release download carries, else
+    `git describe`; [release identity](fo4_plan_release.md#release-identity)).
+    The install check calls a plugin from an older release `OLD RELEASE`,
+    since an update needs a new conversion;
   - the commit it started from, and the files that then differed from it;
   - once it ends, each stage's seconds and peak memory, every count, and the
     resource profile ([memory per stage](fo4_build_resources.md#stage-memory));

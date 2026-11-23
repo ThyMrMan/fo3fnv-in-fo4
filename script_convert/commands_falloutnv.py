@@ -68,6 +68,8 @@ _QUEST_NATIVES = {
     'getobjectivefailed': 'IsObjectiveFailed',
     'setquestdelay': 'RegisterForSingleUpdate',
 }
+#: Papyrus arguments each native takes after the quest; the engine ignored any further ones the author wrote.
+_NATIVE_ARGS = {'SetObjectiveDisplayed': 3, 'SetObjectiveCompleted': 2, 'SetObjectiveFailed': 2}
 
 
 #: FO3/FNV quest command -> the argument-less Quest native it becomes (ForceActiveQuest: the tracked quest).
@@ -146,7 +148,7 @@ def quest_native(ctx, call):
     prop = safe_property_name(quest_edid)
     if not typed_already(ctx.sc.property_refs, prop):
         ctx.sc.property_refs[prop] = 'Quest'
-    args = ', '.join(call.arg(i) for i in range(1, len(parts)))
+    args = ', '.join(call.arg(i) for i in range(1, min(len(parts), 1 + _NATIVE_ARGS.get(native, 1))))
     if native == 'RegisterForSingleUpdate':
         return _quest_delay(ctx, quest_edid, prop, args)
     started = (f'TES4Polyfill.StartForObjective({prop})\n  '

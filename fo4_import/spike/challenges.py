@@ -68,10 +68,13 @@ FO4_STATS = {**{name: (name,) for name in SAME_STATS}, 'Books Read': ('Skill Boo
              'Items Crafted': ('Chems Crafted', 'Food Cooked'), 'Weapon Modifications': ('Weapons Improved',)}
 #: FNV stats counted by an event instead.
 STAT_EVENTS = {'Total Things Killed': KILL, 'Have Limbs Crippled': CRIPPLED, 'Challenges Completed': COMPLETED}
+#: FNV stats FO4 has none of: the casino menu counts each game (F3NV_Casino through F3NV_Challenges.CountGame).
+GAME_STATS = ('Blackjack Games Played', 'Caravan Games Lost', 'Caravan Games Won', 'Roulette Games Played',
+              'Slots Games Played')
 #: The FO4 stat a critical hit raises, and the one a map marker's discovery does.
 CRITICALS, DISCOVERIES = ('Critical Strikes',), ('Locations Discovered',)
 #: Every stat group a challenge can count, in one fixed order: the group numbers every plugin's rows share.
-STAT_GROUPS = tuple(sorted({*FO4_STATS.values(), CRITICALS, DISCOVERIES}))
+STAT_GROUPS = tuple(sorted({*FO4_STATS.values(), CRITICALS, DISCOVERIES, *((name,) for name in GAME_STATS)}))
 #: CHAL DATA.Flags.
 START_DISABLED, RECURRING, SHOW_ZERO = 1, 2, 4
 #: FNV's Unarmed skill (actor value) and the hand-to-hand weapon type (Value3: animation type 0 + 1).
@@ -109,9 +112,16 @@ def counting(rec: dict) -> 'tuple | str':
         return MARKER, DISCOVERIES
     if kind == MISC_STAT:
         name = FNV_STATS[value1] if value1 < len(FNV_STATS) else str(value1)
+        if name in GAME_STATS:
+            return STAT, (name,)
         return (STAT_EVENTS[name], ()) if name in STAT_EVENTS else (STAT, FO4_STATS[name]) if name in FO4_STATS \
             else f'misc stat {name}'
     return LEFT_OUT.get(kind, f'type {kind}')
+
+
+def counting_quest(writer) -> int:
+    """The FormID of the game's counting quest (F3NV_Challenges)."""
+    return writer.derive_formid(SITE, 'quest')
 
 
 def creature_types(export_dir: Path) -> dict:
@@ -221,8 +231,8 @@ class Challenges:
         See: docs/fork/fo4_pipeline.md#challenges
         """
         writer = self.builder.writer
-        quest, sources, tab_rows, tab_shown = (writer.derive_formid(SITE, key)
-                                               for key in ('quest', 'sources', 'rows', 'states'))
+        quest = counting_quest(writer)
+        sources, tab_rows, tab_shown = (writer.derive_formid(SITE, key) for key in ('sources', 'rows', 'states'))
         mine = quest >> 24 == writer.own_index
         own_quest = quest if mine else writer.derive_formid(SITE, 'plugin quest')
         kept = [k for k in self.kept if mine or self.builder.ids.is_own(int(k[0]['FormID'], 16))]
@@ -286,8 +296,10 @@ class Challenges:
         `sources`, the game's challenges (`rows`, F3NV_ChallengeSource), its player alias running
         F3NV_ChallengesPlayer."""
         self.builder.writer.add_record('FLST', R.pack_flst(sources, 'FNV_ChallengeSources', []))
-        stat_names = [(name, i) for i, stats in enumerate(STAT_GROUPS) for name in stats]
-        values = {'StatNames': ('strings', [n for n, _ in stat_names]), 'StatGroups': ('ints', [g for _, g in stat_names]),
+        named = [(name, i) for i, stats in enumerate(STAT_GROUPS) for name in stats]
+        tracked, games = ([(n, g) for n, g in named if (n in GAME_STATS) == own] for own in (False, True))
+        values = {'StatNames': ('strings', [n for n, _ in tracked]), 'StatGroups': ('ints', [g for _, g in tracked]),
+                  'GameStats': ('strings', [n for n, _ in games]), 'GameGroups': ('ints', [g for _, g in games]),
                   'CompletedText': ('string', COMPLETE_TEXT), 'ProgressText': ('string', PROGRESS_TEXT)}
         hub = (SCRIPT, {'Fists': fo4_weapon(self.builder.fo4, FISTS), 'Sources': sources}, values)
         vmad = quest_fragments('', [], aliases=[(0, quest, [(PLAYER_SCRIPT, {}, {})])], scripts=[hub, rows])

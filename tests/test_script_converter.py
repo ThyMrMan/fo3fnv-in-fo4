@@ -5783,6 +5783,11 @@ class TestFalloutObjectiveCommands:
                          'SetObjectiveCompleted MQ01 20 0', 'Quest')
         assert line == 'MQ01.SetObjectiveCompleted(20, 0)'
 
+    def test_a_read_drops_the_extra_argument_the_engine_ignored(self, converter_with_quests):
+        """`GetObjectiveDisplayed Q 20 1` (as NVBII writes it) keeps one argument."""
+        line = conv_line(converter_with_quests, 'GetObjectiveDisplayed MQ01 20 1', 'Quest')
+        assert line == 'MQ01.IsObjectiveDisplayed(20)'
+
     def test_set_completed_keeps_the_mirror_globals_in_step(self, converter_with_quests,
                                                             monkeypatch):
         """Completing a condition-tested objective sets its Done and Shown globals.

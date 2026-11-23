@@ -42,6 +42,10 @@ TAR, SSH = str(SYSTEM32 / 'tar.exe'), str(SYSTEM32 / 'OpenSSH' / 'ssh.exe')
 REMOTE_TAR = r'"%SystemRoot%\System32\tar.exe"'
 CONFIG = S.config_dir() / 'fo4_laptop.json'
 TASK = 'F3NVStoryCases'
+#: Stops the story-case runner the task started, which `schtasks /end` leaves running.
+RUNNER_KILL = ('powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object '
+               "{ $_.CommandLine -match 'tools.live.fo4_story_cases' -and $_.Name -eq 'python.exe' } | "
+               'ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"')
 PROFILE_FILES = ('modlist.txt', 'plugins.txt', 'loadorder.txt', 'fallout4.ini', 'fallout4prefs.ini',
                  'fallout4custom.ini')
 #: What `fetch` brings back from the instance profile.
@@ -179,8 +183,9 @@ def instance(cfg: dict, args: list) -> int:
 
 
 def stop(cfg: dict) -> int:
-    """Ends the run task (it relaunches a stopped game), then the game."""
+    """Ends the run task, the case runner it leaves (RUNNER_KILL), then the game."""
     subprocess.run([SSH, '-o', 'BatchMode=yes', cfg['host'], 'schtasks /end /tn %s' % TASK], capture_output=True)
+    subprocess.run([SSH, '-o', 'BatchMode=yes', cfg['host'], RUNNER_KILL], capture_output=True)
     return instance(cfg, ['stop'])
 
 

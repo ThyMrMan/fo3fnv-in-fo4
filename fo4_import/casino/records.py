@@ -23,6 +23,7 @@ from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.nif.convert_static import fo4_texture, texture_source
 from fo4_import.pipeline.export_index import export_file, export_records
 from fo4_import.spike import records as R
+from fo4_import.spike.challenges import counting_quest
 from fo4_import.spike.say_topics import CASINO_KEY
 from fo4_import.spike.statics import copy_texture
 from tes5_import.base.tes5_reader import subrecords
@@ -97,6 +98,12 @@ CARAVAN_TEXTS = (('sPlayCaravanText', 'Play Caravan'), ('sTotalFundsText', 'Tota
                  ('sCaravanLossesText', 'Losses to Date: '), ('sCaravanWinLossText', 'Win/Loss Totals: '),
                  ('sCaravanBiggestAnteText', 'Biggest Ante Pot Won: '),
                  ('sCaravanPressAnyKeyText', 'Press Any Button to Continue'), ('sSelectCardText', 'Select Card'))
+#: Lucky Horseshoes' screen texts in HorseshoesScreen.as's order (FNV's settings, else the dialogue's words).
+HORSESHOES_TEXTS = (('', 'Lucky Horseshoes'), ('', 'Draw'), ('', 'Hold'), ('', 'Play Again'), ('sExit', 'Exit'),
+                    ('sYouWin', 'You win'), ('sYouLose', 'You lose'), ('', 'Lucky Horseshoes!'), ('', 'You'))
+#: FNV's Lucky Horseshoes win reward (INFO 00142831's result script), by the bank's property: FNV EditorID.
+HORSESHOES_REWARDS = {'HorseshoesStar': 'NVStarBottleCap', 'HorseshoesCards': 'RandomCaravanBaseCards',
+                      'HorseshoesCaps': 'CapsChange100'}
 #: Card face suits in FNV's load order (hearts, clubs, diamonds, spades).
 SUITS = 'hcds'
 #: FNV's anti-cheat wait after a load (iAntiCheatDuration, seconds).
@@ -165,7 +172,8 @@ def texts(export_dir: Path) -> dict:
     gmst = {r.get('EditorID'): r.get('DATA.Value') for r in export_records(export_dir, 'GMST')}
     values = {prop: ('string', gmst.get(name) or default) for prop, (name, default) in TEXTS.items()}
     for prop, table in (('AntiCheatTexts', ANTI_CHEAT), ('SlotTexts', SLOT_TEXTS), ('RouletteTexts', ROULETTE_TEXTS),
-                        ('BlackjackTexts', BLACKJACK_TEXTS), ('CaravanTexts', CARAVAN_TEXTS)):
+                        ('BlackjackTexts', BLACKJACK_TEXTS), ('CaravanTexts', CARAVAN_TEXTS),
+                        ('HorseshoesTexts', HORSESHOES_TEXTS)):
         values[prop] = ('strings', [gmst.get(name) or default for name, default in table])
     values['AntiCheatSeconds'] = ('float', float(gmst.get(ANTI_CHEAT_SECONDS[0]) or ANTI_CHEAT_SECONDS[1]))
     return values
@@ -255,14 +263,16 @@ class Casino:
         self.builder.counts['Caravan deck cards left out'] += made.count(None)
 
     def _bank(self, data_dir: Path) -> None:
-        """The bank quest: F3NV_Casino with the texts and the player's two card lists, its player alias; the
-        spike's card face, the menu movie and our menus' translation files."""
+        """The bank quest: F3NV_Casino with the texts, the player's two card lists and Lucky Horseshoes' rewards, its
+        player alias; the spike's card face, the menu movie and our menus' translation files."""
         writer, own = self.builder.writer, self.builder.writer.derive_formid
         lists = {'Owned': own(SITE, OWNED), 'Deck': own(SITE, DECK)}
         for name, fid in zip((OWNED, DECK), lists.values()):
             writer.add_record('FLST', R.pack_flst(fid, name, []))
         cards = self._caravan_lists(lists)
-        values = {**texts(self.export_dir), 'SpikeImages': ('strings', [fo4_path(t) for t in (SPIKE_TEXTURE, *SPIKE_LEVEL_UP)]),
+        rewards = {prop: self.builder.items.by_name(edid) for prop, edid in HORSESHOES_REWARDS.items()}
+        lists.update({prop: form for prop, form in rewards.items() if form}, Challenges=counting_quest(writer))
+        values ={**texts(self.export_dir), 'SpikeImages': ('strings', [fo4_path(t) for t in (SPIKE_TEXTURE, *SPIKE_LEVEL_UP)]),
                   'CardTable': ('strings', card_table(cards))}
         vmad = quest_fragments('', [], aliases=[(0, self.quest, [(PLAYER_SCRIPT, {}, {})])],
                                scripts=[(SCRIPT, lists, values)])

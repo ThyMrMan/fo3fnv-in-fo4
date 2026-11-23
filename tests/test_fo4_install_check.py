@@ -154,6 +154,15 @@ def test_plugin_in_overwrite_unfinished_or_unticked(machine):
         ('WRONG PLACE', 'UNFINISHED', 'NOT ENABLED')
 
 
+def test_a_plugin_built_by_an_older_release_is_old_release(machine, monkeypatch):
+    """A stamp from release f3nv-0.1 under f3nv-0.2 is OLD RELEASE; a stamp with no release passes."""
+    monkeypatch.setattr(IC.release, 'current', lambda: 'f3nv-0.2')
+    touch(machine.mo2 / 'mods' / DLC_MOD / ('DeadMoney.esm' + IC.STAMP_SUFFIX),
+          json.dumps({'status': 'finished', 'release': 'f3nv-0.1'}))
+    got = report(machine)
+    assert got['DeadMoney.esm'][0] == 'OLD RELEASE' and got[IC.BASE_PLUGIN][0] == 'OK'
+
+
 def test_dll_missing_and_nothing_converted(machine):
     """A DLL not there is MISSING; with no converted plugin the output check is NOT YET and passes."""
     for dll in IC.RUNTIME_DLLS:

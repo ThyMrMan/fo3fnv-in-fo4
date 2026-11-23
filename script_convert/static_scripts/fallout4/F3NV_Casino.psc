@@ -32,6 +32,16 @@ String[] Property RouletteTexts Auto Const
 {The roulette screen's labels, bet names and results (FNV's settings), in RouletteScreen.as's order.}
 String[] Property BlackjackTexts Auto Const
 {The blackjack screen's buttons, labels and results (FNV's settings), in BlackjackScreen.as's order.}
+String[] Property HorseshoesTexts Auto Const
+{Lucky Horseshoes' screen texts, in HorseshoesScreen.as's order.}
+Form Property HorseshoesStar Auto Const
+{FNV's Lucky Horseshoes reward (INFO 00142831): a Sunset Sarsaparilla star cap at 5 or under of 0-99,}
+Form Property HorseshoesCards Auto Const
+{else a random Caravan card at 25 or under of a second roll,}
+Form Property HorseshoesCaps Auto Const
+{else a few caps (FNV's CapsChange100 list).}
+F3NV_Challenges Property Challenges Auto Const
+{The challenge counting quest: each finished round and Caravan game counts toward FNV's casino and Caravan challenges.}
 String[] Property SpikeImages Auto Const
 {Spike: the images the test screen mounts (under Textures): a converted card face, then level-up images.}
 
@@ -45,6 +55,8 @@ Int Property CardChunk = 30 AutoReadOnly Hidden
 {Cards per CardTable string and per deck chunk the menu sends (bits 0-29 of an Int).}
 Int Property CaravanGame = 4 AutoReadOnly Hidden
 {Caravan's game number while its menu is open.}
+Int Property HorseshoesGame = 5 AutoReadOnly Hidden
+{Lucky Horseshoes' game number while its menu is open.}
 
 Int Property Blackjack = 1 AutoReadOnly Hidden
 {The blackjack table's game number (Open's aiGame).}
@@ -98,7 +110,7 @@ Function Register()
     UI.RegisterCustomMenu(MenuName, MenuName, "root1", data)
   EndIf
   UnregisterForMenuOpenCloseEvent(MenuName)
-  String[] events = new String[9]
+  String[] events = new String[10]
   events[0] = "F3NV_CasinoClose"
   events[1] = "F3NV_CasinoReady"
   events[2] = "F3NV_CasinoRound"
@@ -108,6 +120,7 @@ Function Register()
   events[6] = "F3NV_CasinoSelfTest"
   events[7] = "F3NV_CaravanDeck"
   events[8] = "F3NV_CaravanResult"
+  events[9] = "F3NV_HorseshoesResult"
   Int i = 0
   While i < events.Length
     UnregisterForExternalEvent(events[i])
@@ -123,6 +136,7 @@ Function Register()
   RegisterForExternalEvent("F3NV_CasinoSelfTest", "OnMenuSelfTest")
   RegisterForExternalEvent("F3NV_CaravanDeck", "OnCaravanDeck")
   RegisterForExternalEvent("F3NV_CaravanResult", "OnCaravanResult")
+  RegisterForExternalEvent("F3NV_HorseshoesResult", "OnHorseshoesResult")
 EndFunction
 
 ; ---- Openers (the converted scripts' ShowBlackjackMenuParams, ShowRouletteMenuParams, ShowSlotMachineMenuParams, ShowCaravanMenu)
@@ -380,6 +394,23 @@ Function OnCaravanResult(Bool abWon, Int aiStake)
     caravanLosses += aiStake
     caravanLossCount += 1
   EndIf
+  If Challenges && abWon
+    Challenges.CountGame("Caravan Games Won")
+  ElseIf Challenges
+    Challenges.CountGame("Caravan Games Lost")
+  EndIf
+EndFunction
+
+String Function GameStat(Int aiGame)
+  {FNV's misc stat counting a round of table game aiGame ("" for none).}
+  If aiGame == Blackjack
+    Return "Blackjack Games Played"
+  ElseIf aiGame == Roulette
+    Return "Roulette Games Played"
+  ElseIf aiGame == Slots
+    Return "Slots Games Played"
+  EndIf
+  Return ""
 EndFunction
 
 Function Pay(ObjectReference akFrom, ObjectReference akTo, Int aiStake)
@@ -413,6 +444,46 @@ Function Pay(ObjectReference akFrom, ObjectReference akTo, Int aiStake)
   EndIf
 EndFunction
 
+; ---- Lucky Horseshoes (FNV's dialogue game at Sunset Sarsaparilla; the converted start line opens it)
+
+Function OpenHorseshoes(ObjectReference akFestus)
+  {Play Lucky Horseshoes against akFestus: no bet, FNV's reward on a win. See docs/fork/fo4_casino_plan.md#lucky-horseshoes}
+  If !akFestus
+    Return
+  EndIf
+  spiking = False
+  playing = None
+  playingGame = HorseshoesGame
+  opponent = akFestus
+  Register()
+  UI.OpenMenu(MenuName)
+EndFunction
+
+Function OpenHorseshoesMenu()
+  {Hand the open menu Lucky Horseshoes: the dealer's name, a seed and the texts.}
+  Var[] args = new Var[3]
+  args[0] = opponent.GetDisplayName()
+  args[1] = Utility.RandomInt(1, 2147483647)
+  args[2] = StringsAsVar(HorseshoesTexts)
+  UI.Invoke(MenuName, "root1.OpenHorseshoes", args)
+EndFunction
+
+Function OnHorseshoesResult(Bool abWon)
+  {A finished game: a win gives FNV's reward, each roll 0-99 as GetRandomPercent (INFO 00142831).}
+  If !abWon
+    Return
+  EndIf
+  Form reward = HorseshoesCaps
+  If Utility.RandomInt(0, 99) <= 5
+    reward = HorseshoesStar
+  ElseIf Utility.RandomInt(0, 99) <= 25
+    reward = HorseshoesCards
+  EndIf
+  If reward
+    Game.GetPlayer().AddItem(reward, 1)
+  EndIf
+EndFunction
+
 ; ---- The bank
 
 Function Settle(F3NV_CasinoData akCasino, Int aiNet)
@@ -435,6 +506,9 @@ Function OnMenuRound(Int aiNet)
     Return
   EndIf
   Settle(casino, aiNet)
+  If Challenges
+    Challenges.CountGame(GameStat(playingGame))
+  EndIf
   If playingGame != Slots && Game.GetPlayer().GetItemCount(casino.Chip) < betLow
     Debug.Notification(BrokeText)
     UI.CloseMenu(MenuName)
@@ -520,6 +594,8 @@ Event OnMenuOpenCloseEvent(String asMenuName, Bool abOpening)
     OpenBlackjack()
   ElseIf abOpening && opponent && playingGame == CaravanGame
     OpenCaravanMenu()
+  ElseIf abOpening && opponent && playingGame == HorseshoesGame
+    OpenHorseshoesMenu()
   ElseIf !abOpening
     spiking = False
     playing = None

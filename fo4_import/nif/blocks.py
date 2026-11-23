@@ -139,6 +139,16 @@ def pack_bsx(b: dict) -> bytes:
     return struct.pack('<iI', b['name'], b['value'])
 
 
+def read_string_extra(r: Reader) -> dict:
+    """NiStringExtraData: name and text, both string indices."""
+    return {'name': r.take('i'), 'text': r.take('i')}
+
+
+def pack_string_extra(b: dict) -> bytes:
+    """NiStringExtraData's bytes."""
+    return struct.pack('<ii', b['name'], b['text'])
+
+
 def read_alpha(r: Reader) -> dict:
     """NiAlphaProperty: NiObjectNET, flags, threshold."""
     out = {}
@@ -407,7 +417,8 @@ BLOCKS = {
     'NiNode': (read_node, pack_node), 'BSFadeNode': (read_node, pack_node), 'BSLeafAnimNode': (read_node, pack_node),
     'BSValueNode': (read_value_node, pack_value_node),
     **dict.fromkeys(('BSRangeNode', 'BSBlastNode', 'BSDamageStage', 'BSDebrisNode'), (read_range_node, pack_range_node)),
-    'BSXFlags': (read_bsx, pack_bsx), 'NiAlphaProperty': (read_alpha, pack_alpha),
+    'BSXFlags': (read_bsx, pack_bsx), 'NiStringExtraData': (read_string_extra, pack_string_extra),
+    'NiAlphaProperty': (read_alpha, pack_alpha),
     'BSShaderTextureSet': (read_texture_set, pack_texture_set),
     'BSLightingShaderProperty': (read_lighting, pack_lighting),
     'BSEffectShaderProperty': (read_effect, pack_effect),

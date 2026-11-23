@@ -77,9 +77,9 @@ machine):
   asked again through `mod_dirs.ask` and `creation_kit.ask`
   ([build plan](fo4_plugin_layout.md#build-plan),
   [MO2 answers](fo4_mod_builds.md#mo2-answers)).
-- `pipeline/build_steps.write_stamp` records the git commit. `_git`
-  returns '' when git fails, so a build from a ZIP download carries no
-  release identity ([stamp](fo4_pipeline.md#build-stamp)).
+- `pipeline/build_steps.write_stamp` records the release
+  ([below](#release-identity)) and the git commit, so a build from a ZIP
+  download still names its release ([stamp](fo4_pipeline.md#build-stamp)).
 
 **Releases and profiles:**
 - `.github/workflows/tag-on-push.yml` tags master and writes notes with
@@ -139,7 +139,7 @@ existing Python tools. Nothing here needs new runtime code.
 | 1 | Install check (**built**, [below](#install-check)) | S | A read-only command that reports each README requirement on this machine: Fallout 4 version, the CK, F4SE, the MO2 instance and its "Creation Kit" executable, the required mods enabled in the profile (`replacements.presence`), free disk | A test on a fake MO2 instance (one missing per requirement); all ready on the dev machine | The play test |
 | 2 | Clean-machine run | M | The user follows the README on a clean Windows account with phase 1's check; every failed or unclear step listed here | The run's notes; the build reaches Doc Mitchell's house in game | 1, the user |
 | 3 | MO2 from settings | M | `creation_kit.MO2`, `fo4_deploy.MOD` and `HOTFIX_MOD` come from the app's `mo2_profile` source through one function; the hard-coded path stays only as the fallback | Tests with a fake instance at another path; `build_plan` gives the same verdicts before and after | 2 |
-| 4 | Release identity | S | The tag in a file the stamp reads when git is absent; the app shows it; deploy and hotfix refuse a build from another release | Unit tests on the stamp and `refusal` | 2 |
+| 4 | Release identity (**built 2026-11-23**: the stamp's `release`, the app's title, the install check's `OLD RELEASE`; deploy and hotfix don't refuse yet) | S | The tag in a file the stamp reads when git is absent; the app shows it; deploy and hotfix refuse a build from another release | Unit tests on the stamp and `refusal` | 2 |
 | 5 | App phase 7 | L | DLC and pack stages found from the exports, built in master order through `build_plan`; each plugin into its own MO2 mod; the FaceGen stage (`spike.facegen`); a Play button; Finished notes and README rewritten for the route | The app driven off screen as in phase 5 of the [app](fo4_gui.md#phases): test block plus one pack, FormID ledger identical to the command line; in game, the DLC loads from its own mod | 3, 4 |
 | 6 | Updates in the app | M | "Update" runs `build_plan --run`, or `fo4_hotfix` for a scripts-only release; `build_plan --verify` passed on every plugin first | `test_fo4_build_plan.py`, `test_fo4_hotfix.py`; in game, a hotfixed script on a tester's build | 5 |
 | 7 | Replacement profiles | S | `vanilla-fo4` in `fo4_import/data/profiles/`; the app's profile picker lists the folder | Loader reads it with 0 warnings; a test-cell build moves 0 FormIDs | 5 |
@@ -187,6 +187,38 @@ misplaced). On the dev machine (2026-11-08) all 28 checks are OK: 1.11.240,
 `F3NV - <name>` mod, `F3NV.dll` in the base game's mod. The MO2 F4SE
 executable is titled `F4SE` there, which answers the open question below
 for this instance; phase 5 should read it the same way.
+
+## <a id="release-identity"></a>Phase 4 as built: the release identity
+
+**Tags of our own.** This repo's releases are tagged `f3nv-<major>.<minor>`;
+the first alpha is `f3nv-0.1`. The 0.6xx tags in a developer's clone are the
+Skyrim fork's (`tes4skyrim` remote): on 2026-11-23 `origin` had no tags or
+releases, and `version.current_version()` answered the Skyrim fork's
+`0.689+g3122364`. Tags live in one namespace per clone, so reusing plain
+numbers would show the wrong project's release and could collide with a
+later Skyrim tag. `version.py` and the Skyrim workflows (`tag-on-push.yml`,
+which fires on `master`; this repo's branch is `main`) stay untouched.
+
+**Where it is read.** `fo4_import/base/release.py`: `current()` is the tag in
+`VERSION` (an `export-subst` template: GitHub's "Source code (zip)" for a tag
+is made by `git archive`, which writes the tag in), else
+`git describe --tags --match "f3nv-*"`, else `f3nv-dev`. `older(built)`
+compares major and minor.
+
+**Where it shows:**
+- the build stamp's `release` ([stamp](fo4_pipeline.md#build-stamp));
+- the app's window title;
+- the install check's `OLD RELEASE` line for a plugin a previous release
+  built (a stamp with no `release`, from before this, passes).
+
+**Not built:** deploy and hotfix refusing a build from another release. The
+hotfix is meant to apply a newer release's scripts to an older build, so
+for it the rule needs deciding first.
+
+**Making a release** (by hand, until a workflow does it for `main`): tag
+the commit (`git tag -a f3nv-0.1 -m "<notes>"`), push the tag, then
+`gh release create f3nv-0.1 --prerelease --notes-file <notes>`. Checked by
+`tests/test_fo4_release.py` and `tests/test_fo4_install_check.py`.
 
 ## <a id="load-time"></a>Load time: meshes in the Main BA2
 

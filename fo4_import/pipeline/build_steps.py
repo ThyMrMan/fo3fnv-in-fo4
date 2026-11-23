@@ -17,6 +17,7 @@ from core.worker_budget import WORKERS_ENV_VAR
 from fo4_import.base.build_files import moved_in
 from fo4_import.pipeline.build_inputs import leave_out
 from script_convert.ownership import OWNED_SUFFIX
+from fo4_import.base.release import current as current_release
 
 ROOT = Path(__file__).resolve().parents[2]
 #: The stamp's file name ending, after the plugin's name.
@@ -24,7 +25,7 @@ STAMP_SUFFIX = '.build.json'
 #: The build history's file name ending: one line per finished build (tools.validate.fo4_runs).
 HISTORY_SUFFIX = '.builds.jsonl'
 #: The stamp fields a history line keeps.
-HISTORY_KEYS = ('started', 'ended', 'commit', 'changed files', 'command')
+HISTORY_KEYS = ('started', 'ended', 'release', 'commit', 'changed files', 'command')
 
 
 def convert_scripts(export_dir: Path, scripts_dir: Path) -> None:
@@ -60,9 +61,10 @@ def _git(*args: str) -> str:
 
 
 def source_state() -> dict:
-    """The commit the build starts from and the files then differing from it (git status)."""
+    """The release (fo4_import.base.release), the commit and the files differing from it."""
     changed = [line[3:] for line in _git('status', '--porcelain', '--untracked-files=no').splitlines() if line]
-    return {'commit': _git('rev-parse', 'HEAD').strip(), 'changed files': sorted(changed)}
+    return {'release': current_release(),'commit': _git('rev-parse', 'HEAD').strip(),
+            'changed files': sorted(changed)}
 
 
 def write_stamp(plugin: Path, status: str, started: float, extra: dict) -> None:

@@ -45,8 +45,15 @@ echo Installing Python packages. The first time this can take a few minutes ...
 echo Checking Python packages ...
 "%VENV_PY%" -m pip install --disable-pip-version-check -q -r requirements.txt >>"%LOG%" 2>&1 || goto fail
 call :get_xwmaencode
+if defined FO4_APP goto fo4_app
 "%VENV_PY%" -m core.setup_check %FIRST_RUN%
 start "" ".venv\Scripts\pythonw.exe" gui.py
+exit /b 0
+
+:fo4_app
+rem Convert to Fallout 4.cmd: the Fallout 4 install check (kept on screen when something needs doing), then its app.
+"%VENV_PY%" -m tools.validate.fo4_install_check || pause
+start "" ".venv\Scripts\pythonw.exe" fo4_app.py
 exit /b 0
 
 :drop_broken_venv

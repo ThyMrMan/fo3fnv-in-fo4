@@ -13,6 +13,9 @@ FormList Property Sources Auto Const
 String[] Property StatNames Auto Const
 {The Fallout 4 tracked stats counted, each in group StatGroups[k] (one fixed numbering for every plugin).}
 Int[] Property StatGroups Auto Const
+String[] Property GameStats Auto Const
+{FNV's misc stats Fallout 4 has none of (the casino's and Caravan's games), each in group GameGroups[k]: CountGame counts them.}
+Int[] Property GameGroups Auto Const
 Weapon Property Fists Auto Const
 String Property CompletedText Auto Const
 String Property ProgressText Auto Const
@@ -73,6 +76,14 @@ Function Note(Int aiEvent, Int aiGroup, Int aiAmount, Actor akVictim, Form akIte
     EndIf
     k += 1
   EndWhile
+EndFunction
+
+Function CountGame(String asStat)
+  {One game of FNV misc stat asStat (one of GameStats) finished, as the casino menu reports it: count it as that stat's event.}
+  Int k = GameStats.Find(asStat)
+  If k >= 0
+    Note(StatEvent, GameGroups[k], 1, None, None)
+  EndIf
 EndFunction
 
 Function CheckMarkers()
