@@ -66,13 +66,15 @@ def _old_face_texture(fo4_rgba, fo4: tuple, fnv: FnvHead, pieces: tuple, variant
     fnv_surface = surface(fnv.mean, fnv.triangles)
     s, r, t = align(points, fnv.mean, fnv_surface)
     rows, cols, where = TX.texel_points(points, uv, tris, fo4_rgba.shape[0])
-    _, idx = cKDTree(fnv_surface[0]).query(s * where @ r.T + t)
-    _, owner, bary = fnv_surface
-    fnv_uv = (bary[idx][:, :, None] * fnv.uvs[fnv.triangles[owner[idx]]]).sum(1)
-    colours = TX.bilinear(pieces[1] if variant == 'T1' else pieces[0] + pieces[1], fnv_uv)
+    placed = s * where @ r.T + t
+    _, idx = cKDTree(fnv_surface[0]).query(placed)
+    fnv_uv = TX.surface_uv((fnv.mean, fnv.triangles[fnv_surface[1]], fnv.uvs), placed, idx)
     out = fo4_rgba.astype(float)
     fo4_median = np.median(out[rows, cols, :3], 0)
-    out[rows, cols, :3] = colours + (out[rows, cols, :3] if variant == 'T1' else 0.0)
+    if variant == 'T1':
+        out[rows, cols, :3] *= TX.fnv_ratios(pieces, fnv_uv)[0]
+    else:
+        out[rows, cols, :3] = TX.bilinear(pieces[0] + pieces[1], fnv_uv)
     tone = np.median(out[rows, cols, :3], 0) / fo4_median
     out[rows, cols, :3] /= tone
     filled = np.zeros(fo4_rgba.shape[:2], bool)
@@ -269,11 +271,13 @@ def test_each_faces_step_is_charged_to_its_stage(tmp_path, monkeypatch):
     monkeypatch.setattr(FG.facegen_skin, 'refine', lambda *_: ['refit'])
     monkeypatch.setattr(FG.facegen_skin_cache, 'skin', lambda *_: ['skinned'])
     monkeypatch.setattr(FG.facegen_inherit, 'inherit', lambda *_: ['inherited'])
-    args = SimpleNamespace(plugin='Spike.esp', own_facegen=True, collected=False, keep_loose=False)
+    monkeypatch.setattr(FG, 'override_faces', lambda *_: ['override heads'])
+    args = SimpleNamespace(plugin='Spike.esp', own_facegen=True, collected=False, keep_loose=False,
+                           overrides_only=False)
     assert FG.steps(args, tmp_path, tmp_path)
     timed = set(stage_timer.records())
-    assert {'faces restore', 'faces heads', 'faces refit', 'faces heads refitted', 'faces skin', 'faces overrides',
-            'faces pack'} <= timed
+    assert {'faces restore', 'faces heads', 'faces refit', 'faces heads refitted', 'faces skin',
+            'faces override heads', 'faces overrides', 'faces pack'} <= timed
 
 
 def test_prune_keeps_only_faces_of_the_plugins_npcs_from_the_last_export(tmp_path, monkeypatch):

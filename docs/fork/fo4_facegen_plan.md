@@ -1613,14 +1613,23 @@ and failed none, in 81 s.
   FaceGen drawn. On scratch copies all of YUP's 209 and Goodies' 21 fitted
   overrides then equal their master's. FO4 FormIDs are hashed, so the FNV
   records pair by EditorID.
-- **Overrides that change a face** are reported: their authored FNV face
-  (`face_fits.FIT_FIELDS`, sex, head parts) differs from the adding
-  plugin's. YUP has 23 (21 hair length, 2 eyes). They get the adding
-  plugin's values too, matching the FaceGen they are drawn with. Drawing
-  their own face needs FaceGen under the adding plugin's folder name in
-  the overriding mod, which nothing builds yet. An override the FNV plugin
-  does not hold (Dead Money's two) was made by the converter from the
-  master's record, so its face is the master's.
+- <a id="override-faces"></a>**Overrides that change a face** (2026-11-22):
+  their authored FNV face (`face_fits.FIT_FIELDS`, sex, head parts)
+  differs from the adding plugin's. The add-on builds log 27, all of
+  FalloutNV.esm NPCs (YUP 23: 21 hair length, 2 eyes). Fallout 4 looks
+  for an NPC's FaceGen under its adding plugin's folder name
+  (`FaceGeom\FalloutNV.esm\<id>.nif`) in whatever folder or archive wins,
+  so the overriding mod ships its own copy there
+  (`facegen.override_faces`). It runs heads, refit, the refitted heads
+  and skin as for the plugin's own NPCs, reading the override's record
+  (`facegen_skin.reader`). The refit and skin tone are patched into the
+  override, which keeps its own values (`facegen_inherit.inherit` skips
+  one with FaceGen of its own). The files pack into the mod's archives,
+  which load after the master's. There is no CK fallback, since the CK
+  exports only a plugin's own NPCs. A face that fails loses its files and
+  takes its master's FaceGen and values, as before. An override the FNV
+  plugin does not hold (Dead Money's two) was made by the converter from
+  the master's record, so its face is the master's.
 
 **Skin cache, measured** on the scratch Dead Money (19 skinned faces), each
 run from the unpatched built plugin: the plugin and all 63 FaceGen files

@@ -48,26 +48,35 @@ class Face:
     own: bool
 
 
-def fitted_faces(data_dir: Path, plugin: str, export_dir: Path) -> list:
-    """fitted_npcs() whose FaceGeom NIF the heads step wrote.
+def fitted_faces(data_dir: Path, plugin: str, export_dir: Path, reader: str = None) -> list:
+    """fitted_npcs() of `plugin`'s records in the plugin file `reader` (default `plugin`) whose FaceGeom NIF the
+    heads step wrote.
     See: docs/fork/fo4_facegen_plan.md#own-stage
     """
     geom = data_dir / own_facegen.GEOM_DIR / plugin
-    return [f for f in fitted_npcs(data_dir / plugin, export_dir) if (geom / f'{f.form_id:08X}.nif').is_file()]
+    npcs = fitted_npcs(data_dir / (reader or plugin), export_dir, plugin if reader else None)
+    return [f for f in npcs if (geom / f'{f.form_id:08X}.nif').is_file()]
 
 
-def fitted_npcs(plugin_path: Path, export_dir: Path) -> list:
-    """The plugin's fitted NPCs (module doc) that FNV made as NPCs (`export_dir`'s NPC_ records), by FormID; a
-    converted creature has no FNV FaceGen to refit or skin to."""
+def slot_of(data: bytes, owner: str = None) -> int:
+    """Load slot of plugin `data`'s records of master `owner` (None: its own)."""
+    names = [n.lower() for n in masters_of(data)]
+    return names.index(owner.lower()) if owner else len(names)
+
+
+def fitted_npcs(plugin_path: Path, export_dir: Path, owner: str = None) -> list:
+    """The plugin's fitted NPCs (module doc) that FNV made as NPCs (`export_dir`'s NPC_ records), by FormID: those
+    it adds, or with `owner` its overrides of that master's; a converted creature has no FNV FaceGen to refit or
+    skin to. A face set of the plugin's own or of the NPC's owner is an own face set."""
     out, data = [], plugin_path.read_bytes()
     npcs = {own_facegen.FNV_PREFIX + r['EditorID'] for r in export_records(export_dir, 'NPC_') if 'EditorID' in r}
-    slot = len(masters_of(data))
+    slot, sets = slot_of(data, owner), {slot_of(data), slot_of(data, owner)}
     for rec, _ in walk(data, b'NPC_'):
         subs = dict(subrecords(rec.body))
         edid = facegeom.zstr(subs.get(b'EDID', b'\0'))
-        if b'FMRI' in subs and edid in npcs:
+        if b'FMRI' in subs and edid in npcs and rec.form_id >> 24 == slot:
             female = bool(struct.unpack_from('<I', subs[b'ACBS'])[0] & FEMALE)
-            own = b'FTST' in subs and struct.unpack('<I', subs[b'FTST'])[0] >> 24 == slot
+            own = b'FTST' in subs and struct.unpack('<I', subs[b'FTST'])[0] >> 24 in sets
             out.append(Face(rec.form_id & 0xFFFFFF, edid[len(own_facegen.FNV_PREFIX):], female, own))
     return sorted(out, key=lambda f: f.form_id)
 
@@ -96,12 +105,25 @@ def sources(plugin_path: Path, data_dir: Path) -> facegeom.Sources:
     return facegeom.Sources(plugin_path, [data_dir, *dirs], order)
 
 
+def reader(job: tuple) -> str:
+    """The plugin file read and patched: job[4] (its overrides of job[2]), else job[2]."""
+    return job[4] if len(job) > 4 else job[2]
+
+
+def full_ids(job: tuple, edits: dict) -> dict:
+    """`edits` {local id of job[2]'s NPC: edit} keyed by full FormID in reader(job)."""
+    data = (job[1] / reader(job)).read_bytes()
+    slot = slot_of(data, job[2] if reader(job) != job[2] else None) << 24
+    return {slot | fid: edit for fid, edit in edits.items()}
+
+
 def _start(job: tuple) -> None:
-    """A worker's start: join the pool job; job = (export, data folder, plugin, Skin Tone layers)."""
+    """A worker's start: join the pool job; job = (export, data folder, plugin, Skin Tone layers[, reader])."""
     join_pool_job()
-    export_dir, data_dir, plugin, layers = job
+    export_dir, data_dir, plugin, layers = job[:4]
     templates = own_facegen.template_tones(FALLOUT4_ESM.read_bytes(), layers)
-    _worker.update(export=export_dir, data=data_dir, plugin=plugin, src=sources(data_dir / plugin, data_dir),
+    _worker.update(export=export_dir, data=data_dir, plugin=plugin, reader=reader(job),
+                   src=sources(data_dir / reader(job), data_dir),
                    templates={f: np.array(struct.unpack('<4f', t[0])[:3]) for f, t in templates.items()})
 
 
@@ -148,7 +170,7 @@ def refit_face(face: Face) -> 'tuple | None':
     """
     p = slider_fit.problem(face.female)
     npc = facegeom.npc_face(_worker['src'], _worker['plugin'], face.form_id)[0]
-    if npc.owner != _worker['plugin'].lower():
+    if npc.owner != _worker.get('reader', _worker['plugin']).lower():
         return None
     values, weights = record_sliders(npc, p)
     goal = slider_fit.target(p, npc_head(_worker['export'], face.edid)[0])
@@ -185,12 +207,11 @@ def skin_face(face: Face) -> tuple:
     return face.form_id, qnam, lines
 
 
-def patch(plugin_path: Path, edits: dict, mask: int = 0xFFFFFF) -> None:
-    """Apply `edits` {FormID & `mask`: edit(raw, [(tag, data offset, size)])} to the plugin's NPC_ records where
-    they lie."""
+def patch(plugin_path: Path, edits: dict) -> None:
+    """Apply `edits` {FormID: edit(raw, [(tag, data offset, size)])} to the plugin's NPC_ records where they lie."""
     raw = bytearray(plugin_path.read_bytes())
     for rec, _ in walk(bytes(raw), b'NPC_'):
-        edit = edits.get(rec.form_id & mask)
+        edit = edits.get(rec.form_id)
         if edit:
             edit(raw, record_subrecords(raw, rec.offset, rec.size))
     plugin_path.write_bytes(bytes(raw))
@@ -226,10 +247,9 @@ def tone_edit(qnam: np.ndarray, layers: frozenset):
 def refine(job: tuple, faces: list) -> list:
     """Refit every face the plugin's own record shows (refit_face) to the export and patch the plugin; report
     lines."""
-    data_dir, plugin = job[1], job[2]
     results = pool(job, refit_face, faces)
     fits = [fit for fit in results if fit]
-    patch(data_dir / plugin, {fid: slider_edit(values, weights) for fid, values, weights, _ in fits})
+    patch(job[1] / reader(job), full_ids(job, {fid: slider_edit(values, weights) for fid, values, weights, _ in fits}))
     misses = [miss for *_, miss in fits]
     return [f'sliders refitted to the export: {len(fits)} faces, rms miss median {np.median(misses):.3f}, '
             f'max {max(misses):.3f}; overridden by a later plugin, left: {len(results) - len(fits)}'] if fits else []

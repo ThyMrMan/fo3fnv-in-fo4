@@ -10,7 +10,7 @@ from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record
 from fo4_import.face import facegeom, own_facegen
 from fo4_import.face.facegeom import Rec
 from fo4_import.pipeline import work_cache
-from fo4_import.spike import facegen, facegen_own, facegen_skin
+from fo4_import.spike import facegen, facegen_inherit, facegen_own, facegen_skin
 from tes5_import.base.writer import pack_subrecord
 
 
@@ -260,3 +260,57 @@ def test_a_failed_ck_fallback_is_reported_and_our_heads_kept(tmp_path, monkeypat
     lines = facegen.fallback('p.esp', data, {0x801: 'ValueError: x'})
     assert seen == [False] and ours.read_bytes() == b'ours'
     assert lines == ['CK fallback failed, 1 NPCs have no FaceGen: the Creation Kit crashed']
+
+
+def _overriding_mod(tmp_path) -> None:
+    """mod.esp on Fallout4.esm and FalloutNV.esm: its own fitted NPC 800 and its override of FNV's 123, whose
+    face set is FNV's own."""
+    w = FO4PluginWriter(masters=['Fallout4.esm', 'FalloutNV.esm'], is_esm=False, description='t')
+    for fid, ftst in ((0x02000800, 0x02000900), (0x01000123, 0x01000456)):
+        subs = pack_subrecord('EDID', f'{own_facegen.FNV_PREFIX}Npc{fid & 0xFFF:X}\0'.encode())
+        subs += pack_subrecord('ACBS', bytes(20)) + pack_subrecord('FMRI', b'\0' * 4)
+        subs += pack_subrecord('FTST', struct.pack('<I', ftst))
+        w.add_record('NPC_', pack_fo4_record('NPC_', fid, 0, subs))
+    w.write(str(tmp_path / 'mod.esp'))
+
+
+def test_a_masters_faces_the_mod_overrides_are_read_from_the_mod(tmp_path, monkeypatch):
+    """fitted_npcs takes the plugin's own NPCs, or with a master its overrides of that master's (FNV's face set an
+    own one); their edits land on the override's full FormID.
+
+    See: docs/fork/fo4_facegen_plan.md#override-faces
+    """
+    _overriding_mod(tmp_path)
+    npcs = ({'EditorID': 'Npc800'}, {'EditorID': 'Npc123'})
+    monkeypatch.setattr(facegen_skin, 'export_records', lambda export_dir, sig: npcs if sig == 'NPC_' else ())
+    own = facegen_skin.fitted_npcs(tmp_path / 'mod.esp', tmp_path)
+    fnv = facegen_skin.fitted_npcs(tmp_path / 'mod.esp', tmp_path, 'FalloutNV.esm')
+    assert [(f.form_id, f.own) for f in own] == [(0x800, True)] and [(f.form_id, f.own) for f in fnv] == [(0x123, True)]
+    job = (tmp_path, tmp_path, 'FalloutNV.esm', None, 'mod.esp')
+    assert facegen_skin.full_ids(job, {0x123: 'e'}) == {0x01000123: 'e'}
+    assert facegen_skin.full_ids((tmp_path, tmp_path, 'mod.esp', None), {0x800: 'e'}) == {0x02000800: 'e'}
+    assert facegen.geometry(tmp_path, 'mod.esp')[2] == 'meshes/actors/character/facegendata/facegeom/falloutnv.esm/'
+
+
+def test_an_override_drawn_with_its_own_face_keeps_its_values(tmp_path, monkeypatch):
+    """A changed face with FaceGen of its own under the master's name (loose, or packed for an overrides-only run)
+    keeps its values; one without, and an unchanged one, take the master's.
+
+    See: docs/fork/fo4_facegen_plan.md#override-faces
+    """
+    rows = [(0x01000123, 'FalloutNV.esm', [], 'A', True), (0x01000124, 'FalloutNV.esm', [], 'B', True),
+            (0x01000125, 'FalloutNV.esm', [], 'C', False)]
+    patched = {}
+    monkeypatch.setattr(facegen_inherit, 'overridden', lambda *_: rows)
+    monkeypatch.setattr(facegen_skin, 'patch', lambda path, edits: patched.update(edits))
+    nif = tmp_path / facegen_inherit.geom_path('FalloutNV.esm', 0x01000123)
+    nif.parent.mkdir(parents=True)
+    nif.write_bytes(b'')
+    lines = facegen_inherit.inherit(tmp_path, 'mod.esp', tmp_path)
+    assert sorted(patched) == [0x01000124, 0x01000125] and lines[-1].endswith(': 1')
+    nif.unlink()
+    patched.clear()
+    packed = {facegen_inherit.geom_path('FalloutNV.esm', 0x124).as_posix().lower()}
+    monkeypatch.setattr(facegen_inherit, 'archived_names', lambda data_dir: packed)
+    facegen_inherit.inherit(tmp_path, 'mod.esp', tmp_path, True)
+    assert sorted(patched) == [0x01000123, 0x01000125]

@@ -1,9 +1,10 @@
 """Faces of the NPCs a plugin overrides. The faces stage patches sliders and skin tone (PATCHED) only into the
-records of the plugin that adds an NPC, and FO4 draws an override with that plugin's FaceGen. So every converted
-face (FMRI) a plugin overrides takes the adding plugin's patched values, matching the FaceGen drawn; one whose
-authored FNV face (face_fits.FIT_FIELDS, sex, head parts) differs from the adding plugin's is reported, as it would
-need FaceGen of its own. An override the FNV plugin does not hold was made by the converter from the master's
-record: the same face. FO4 FormIDs are hashed, so FNV records pair by EditorID.
+records of the plugin that adds an NPC, and FO4 draws an override with FaceGen under that plugin's folder name.
+So every converted face (FMRI) a plugin overrides takes the adding plugin's patched values, matching the FaceGen
+drawn, but one whose authored FNV face (face_fits.FIT_FIELDS, sex, head parts) differs from the adding plugin's
+(changed): the stage gives it FaceGen of its own under that folder name in the mod, and its own values. An
+override the FNV plugin does not hold was made by the converter from the master's record: the same face. FO4
+FormIDs are hashed, so FNV records pair by EditorID.
 
 See: docs/fork/fo4_facegen_plan.md#addon-faces
 """
@@ -11,6 +12,7 @@ See: docs/fork/fo4_facegen_plan.md#addon-faces
 import functools
 from pathlib import Path
 
+from fo4_import.base.ba2_pack import archived_names
 from fo4_import.base.source import plugin_name, record_dir
 from fo4_import.face import facegeom, own_facegen
 from fo4_import.pipeline.export_index import master_names, own_records
@@ -84,21 +86,50 @@ def copy_edit(master: list, missed: list, form_id: int):
     return edit
 
 
-def inherit(data_dir: Path, plugin: str, export_dir: Path) -> list:
-    """Give every converted face the plugin overrides its adding plugin's patched values (module doc); report
-    lines."""
+def overridden(data_dir: Path, plugin: str, export_dir: Path) -> list:
+    """[(FormID, master's name, master's subrecords, FNV EditorID, changes the face)] of every converted face
+    (FMRI) the plugin overrides of an FNV master's (module doc)."""
     data, dirs = (data_dir / plugin).read_bytes(), facegen_skin.profile_dirs(data_dir)[0]
-    own, fnv = masters(data), {n.lower() for n in master_names(export_dir)}
-    edits, missed, lines = {}, [], []
+    own, fnv, out = masters(data), {n.lower() for n in master_names(export_dir)}, []
     for rec, _ in walk(data, b'NPC_'):
         owner, subs = (own + [None])[min(rec.form_id >> 24, len(own))], list(subrecords(rec.body))
         master = fo4_npcs(own_facegen.find(dirs, owner)).get(rec.form_id & 0xFFFFFF) if owner in fnv else None
-        if master is None or b'FMRI' not in dict(subs):
+        if master is not None and b'FMRI' in dict(subs):
+            edid = fnv_edid(subs)
+            out.append((rec.form_id, owner, master, edid, not same_face(export_dir, owner, edid)))
+    return out
+
+
+def changed(data_dir: Path, plugin: str, export_dir: Path) -> dict:
+    """{master's name: [local ids]} of the faces the plugin's overrides change (overridden)."""
+    out = {}
+    for form_id, owner, *_, changes in overridden(data_dir, plugin, export_dir):
+        if changes:
+            out.setdefault(owner, []).append(form_id & 0xFFFFFF)
+    return out
+
+
+def geom_path(owner: str, form_id: int) -> Path:
+    """Where FaceGeom NIF of master `owner`'s NPC `form_id` lies under Data."""
+    return own_facegen.GEOM_DIR / owner / f'{form_id & 0xFFFFFF:08X}.nif'
+
+
+def inherit(data_dir: Path, plugin: str, export_dir: Path, packed: bool = False) -> list:
+    """Give every converted face the plugin overrides its master's patched values (module doc), but a changed one
+    with FaceGen of its own in the mod folder (loose, or with `packed` in its archives); report lines.
+    See: docs/fork/fo4_facegen_plan.md#override-faces
+    """
+    names = archived_names(data_dir) if packed else set()
+    edits, missed, lines, drawn = {}, [], [], 0
+    for form_id, owner, master, edid, changes in overridden(data_dir, plugin, export_dir):
+        path = geom_path(owner, form_id)
+        if changes and ((data_dir / path).is_file() or path.as_posix().lower() in names):
+            drawn += 1
             continue
-        if not same_face(export_dir, owner, fnv_edid(subs)):
-            lines.append(f'{rec.form_id:08X} {fnv_edid(subs)} changes its face from {owner}\'s, whose FaceGen it is '
-                         f'drawn with')
-        edits[rec.form_id] = copy_edit(master, missed, rec.form_id)
-    facegen_skin.patch(data_dir / plugin, edits, 0xFFFFFFFF)
+        if changes:
+            lines.append(f'{form_id:08X} {edid} changes its face from {owner}\'s, whose FaceGen it is drawn with')
+        edits[form_id] = copy_edit(master, missed, form_id)
+    facegen_skin.patch(data_dir / plugin, edits)
     lines += [f'{fid:08X} keeps its own face values: its fields do not pair with its master\'s' for fid in missed]
-    return lines + [f'overridden faces given their master\'s values: {len(edits) - len(missed)} of {len(edits)}']
+    return lines + [f'overridden faces given their master\'s values: {len(edits) - len(missed)} of {len(edits)}',
+                    f'overridden faces drawn with FaceGen of their own: {drawn}']

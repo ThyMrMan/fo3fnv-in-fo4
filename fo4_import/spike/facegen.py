@@ -39,7 +39,7 @@ from pathlib import Path
 
 from fo4_import.base.ba2_pack import (archived, drop_packed, pack_main, pack_textures, restore_packed, stashed,
                                       staging_root)
-from fo4_import.base.install import FALLOUT4_ESM
+from fo4_import.base.install import FALLOUT4_ESM, masters_of
 from fo4_import.classic_look import CLASSIC_FOLDER
 from fo4_import.face import facegeom
 from fo4_import.face.texture import vanilla_face_texture
@@ -198,10 +198,13 @@ def run_ck(plugin: str, data_dir: Path = None) -> None:
     creation_kit.run(f'-ExportFaceGenData:{plugin} {CK_TARGET}', timeout, f'exporting {plugin}')
 
 
-def clear(plugin: str, data_dir: Path) -> None:
-    """Remove `plugin`'s FaceGen from `data_dir`, so the CK's lands in overwrite."""
+def clear(plugin: str, data_dir: Path, staged: bool = False) -> None:
+    """Remove `plugin`'s FaceGen from `data_dir` (so the CK's lands in overwrite), with `staged` its face
+    textures staged for the texture archive too."""
     for folder in FACEGEN_DIRS:
         shutil.rmtree(data_dir / folder / plugin, ignore_errors=True)
+    if staged:
+        shutil.rmtree(staging_root(data_dir) / FACEGEN_DIRS[1] / plugin, ignore_errors=True)
 
 
 def collect(plugin: str, data_dir: Path, only: set = None) -> list:
@@ -336,9 +339,43 @@ def own_export(job: tuple, forms: list, textures: bool = True, redrawn: frozense
     return lines + (fallback(plugin, data_dir, failed) if failed else [])
 
 
-def geometry(plugin: str) -> tuple:
-    """The archive prefix of the FaceGeom folder this stage rewrites."""
-    return ((FACEGEN_DIRS[0] / plugin).as_posix().lower() + '/',)
+def override_faces(job: tuple, export_dir: Path) -> list:
+    """FaceGen of their own for the faces the plugin's overrides change (facegen_inherit.changed), under their
+    master's folder name, each master's old one cleared first; report lines.
+    See: docs/fork/fo4_facegen_plan.md#override-faces
+    """
+    data_dir, plugin, lines = job[1], job[2], []
+    for owner in masters_of((data_dir / plugin).read_bytes()):
+        clear(owner, data_dir, staged=True)
+    for owner, forms in facegen_inherit.changed(data_dir, plugin, export_dir).items():
+        lines += owner_faces((*job[:2], owner, job[3], plugin), forms)
+    return lines
+
+
+def owner_faces(job: tuple, forms: list) -> list:
+    """Heads, refit, heads of the refitted and skin of master job[2]'s NPCs `forms` as the plugin job[4] overrides
+    them, patched into its records. No CK fallback (the CK exports only a plugin's own NPCs): a failed face's
+    files go, so it keeps its master's FaceGen and values. Report lines."""
+    data_dir, owner, plugin = job[1], job[2], job[4]
+    redrawn = frozenset(f.form_id for f in facegen_skin.fitted_npcs(data_dir / plugin, job[0], owner) if not f.own)
+    written, kept, skipped, failed, _ = facegen_own.export_own(job, forms, True, redrawn)
+    for form_id in failed:
+        for folder in FACEGEN_DIRS:
+            for path in (data_dir / folder / owner).glob(f'{form_id:08X}*'):
+                path.unlink()
+    lines = [f'{owner} faces the overrides change: {written + kept} drawn ({kept} from the work cache), '
+             f'not exported (as the CK): {skipped}, failed: {len(failed)}']
+    lines += [f'  {form_id:08X} {error}' for form_id, error in sorted(failed.items())]
+    faces = facegen_skin.fitted_faces(data_dir, owner, job[0], plugin)
+    lines += facegen_skin.refine(job, faces)
+    facegen_own.export_own(job, [f.form_id for f in faces], False, redrawn)
+    return lines + facegen_skin_cache.skin(job, faces)
+
+
+def geometry(data_dir: Path, plugin: str) -> tuple:
+    """Archive prefixes of the plugin's and its masters' FaceGeom folders."""
+    names = [plugin, *masters_of((data_dir / plugin).read_bytes())]
+    return tuple((FACEGEN_DIRS[0] / name).as_posix().lower() + '/' for name in names)
 
 
 def restore(data_dir: Path, plugin: str) -> int:
@@ -359,7 +396,7 @@ def pack(data_dir: Path, plugin: str, keep_loose: bool) -> None:
     print('textures packed:', charged('faces pack textures', pack_textures, data_dir, plugin,
                                       (LUT_FOLDER, CLASSIC_FOLDER), False))
     print('files packed into the Main and voices archives:',
-          charged('faces pack main', pack_main, data_dir, plugin, geometry(plugin)))
+          charged('faces pack main', pack_main, data_dir, plugin, geometry(data_dir, plugin)))
     if not keep_loose:
         print('loose files the archives hold, removed:', charged('faces drop loose', drop_packed, data_dir, plugin))
 
@@ -404,14 +441,18 @@ def steps(args, data_dir: Path, export_dir: Path) -> bool:
                                                          data_dir))
     for line in charged('faces skin', facegen_skin_cache.skin, job, faces):
         print(line)
+    for line in charged('faces override heads', override_faces, job, export_dir) if args.own_facegen else []:
+        print(line)
     overrides(args, data_dir, export_dir)
     charged('faces pack', pack, data_dir, args.plugin, args.keep_loose)
     return whole
 
 
 def overrides(args, data_dir: Path, export_dir: Path) -> bool:
-    """The overrides step (facegen_inherit.inherit), printed; True."""
-    for line in charged('faces overrides', facegen_inherit.inherit, data_dir, args.plugin, export_dir):
+    """The overrides step (facegen_inherit.inherit; FaceGen of its own looked for packed when only it runs),
+    printed; True."""
+    for line in charged('faces overrides', facegen_inherit.inherit, data_dir, args.plugin, export_dir,
+                        args.overrides_only):
         print(line)
     return True
 

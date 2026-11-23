@@ -80,9 +80,9 @@ def skin_face(face: facegen_skin.Face) -> tuple:
 
 def skin(job: tuple, faces: list) -> list:
     """Write every face's skin, FaceGeom and skin tone (skin_face; tones patched into the plugin); report lines."""
-    data_dir, plugin, layers = job[1], job[2], job[3]
     done = facegen_skin.pool(job, skin_face, faces)
-    facegen_skin.patch(data_dir / plugin, {fid: facegen_skin.tone_edit(qnam, layers) for fid, qnam, *_ in done})
+    edits = {fid: facegen_skin.tone_edit(qnam, job[3]) for fid, qnam, *_ in done}
+    facegen_skin.patch(job[1] / facegen_skin.reader(job), facegen_skin.full_ids(job, edits))
     kept = sum(hit for *_, hit in done)
     return ([f'{fid:08X} {line}' for fid, _, lines, _ in done for line in lines]
             + [f'faces skinned: {len(done)} ({kept} from the work cache)'])

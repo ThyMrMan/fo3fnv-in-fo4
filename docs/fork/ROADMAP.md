@@ -31,7 +31,9 @@ every face is made by our own FaceGen. Since then:
   (the G.O.A.T.), the shading-overlay fix, and Mr. House's idle on his
   screen and pod (built 2026-11-21, not played);
 - race look skins for every look race, rebuilt 2026-11-22 in
-  FalloutNV.esm, Fallout3.esm and 13 add-ons (FNV's raiders played).
+  FalloutNV.esm, Fallout3.esm and 13 add-ons (FNV's raiders played);
+- FaceGen of their own for mod overrides that change a face (YUP's 22,
+  faces rebuilt 2026-11-22, not played).
 
 **States:**
 
@@ -77,7 +79,7 @@ every face is made by our own FaceGen. Since then:
 | Outfits and clothing | New Vegas's clothes and armor fitted onto Fallout 4's body | Partial | 21 of 98 armors use Fallout 4 stand-in models. The wrist seam shows, loose cloth sits off the body, and cut-off limbs don't cut the clothes. | [clothing](fo4_build_next.md#human-clothing) |
 | Headgear | Hats, masks and glasses on New Vegas's own models | Works | | [headgear](fo4_spikes.md#spike-4-headgear) |
 | Own FaceGen heads and hair | Each NPC's face files written by the build itself instead of the Creation Kit, plus mods' own hairstyles | Built, not played | The 2026-11-13 build's faces are all ours: 2,382 heads and their face textures, none failed, so the Creation Kit fallback never ran (869 s with the work cache, against 39 minutes to 4.3 hours for the Creation Kit). Offline they match the Creation Kit's within a median 0.076 units and about 1 to 3 of 255 in color. Still the Creation Kit's: `texconv` for the face textures. Not built: mods' own hairstyles. The remaining Fallout 4 face shape is accepted drift (Willow, 2026-11-11). | [own stage](fo4_facegen_plan.md#own-stage) |
-| DLC and mod faces | Face files for the NPCs the story DLC, packs and mods add | Built, not played | `build_plan` runs the faces stage for every built plugin with converted faces (all four story DLC, Gun Runners' Arsenal and 17 mods have run), and again after a master's faces change. An NPC a mod overrides takes its master's patched skin tone and sliders, matching the FaceGen the game draws (YUP 209, Goodies 21). An override that changes the face itself (YUP: 23, hair length or eyes) still draws its master's face. The skin step is kept per NPC, so a rebuild redraws only changed faces. | [DLC and mods](fo4_facegen_plan.md#addon-faces), [skin cache](fo4_facegen_plan.md#skin-cache) |
+| DLC and mod faces | Face files for the NPCs the story DLC, packs and mods add | Built, not played | `build_plan` runs the faces stage for every built plugin with converted faces (all four story DLC, Gun Runners' Arsenal and 17 mods have run), and again after a master's faces change. An NPC a mod overrides takes its master's patched skin tone and sliders, matching the FaceGen the game draws (YUP 209, Goodies 21). An override that changes the face itself (YUP 22, hair length or eyes) gets FaceGen of its own under its master's name in the mod (built 2026-11-22, not played). The skin step is kept per NPC, so a rebuild redraws only changed faces. | [DLC and mods](fo4_facegen_plan.md#addon-faces), [skin cache](fo4_facegen_plan.md#skin-cache) |
 | Race looks | Raider grime, tribal paint, Marked Men burns and mods' race skins, on Fallout 4's own skin and face system | Partial | Faces fade their extras out before the neck. FNV's raiders' body skin works (314 NPCs). Every other look race's skin is built, not played: Fallout 3's raiders, Honest Hearts' tribes, the Marked Men (ghoul and human) and the mods' races, 1 to 5 skins in each of 15 plugins. Outfits keep Fallout 4's clean bare skin, as vanilla raiders do. | [plan](fo4_look_races_plan.md#body) |
 | Body choice (CBBE, BodySlide) | Choosing which body converted outfits fit | Partial | Only the vanilla body in the build. Researched: the cause of the scrambled bare skin with CBBE is found; a hook fits outfits to any body's mesh, and a writer makes BodySlide projects that BodySlide 5.9.1 builds without clicks. Neither is in the build yet. | [body plan](fo4_bodies_cbbe.md) |
 | Super mutants and nightkin | New Vegas's mutants in their own armor | Partial | Fallout 4's mutant body and head, tinted, under New Vegas's armor. Pistols, the Multiplas rifle, shotguns, the gatling laser and the railway rifle map to super mutant animations (built, not played); grenade launchers still fight unarmed. | [super mutants](fo4_build_next.md#super-mutants) |
@@ -241,9 +243,6 @@ every face is made by our own FaceGen. Since then:
 
 - Holes and dark blocks in distant land, closing up as you approach (skirts
   over the tile seams built, not played). ([terrain LOD](fo4_pipeline.md#terrain-lod))
-- An NPC a mod overrides with a changed face (YUP: 23) is drawn with its
-  master's face.
-  ([own stage](fo4_facegen_plan.md#own-stage))
 - No distant objects in 14 worlds: one in Honest Hearts, seven in Lonesome
   Road, Old World Blues' Big MT, and five in the New Vegas Bounties II and
   III and Russell mods. LODGen gives up when a `_lod.nif` they name is
