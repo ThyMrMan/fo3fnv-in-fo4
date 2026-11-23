@@ -42,7 +42,7 @@ FO4's own transitions end it the way FO3's engine did.
 | Line speaker idles (INFO `SNAM`) | 715 uses, 148 idles (137 human) | 333 uses, 115 idles (97 human) | Converted; seated and creature clips left out |
 | Line listener idles (`LNAM`) | 61 uses, 15 idles | 1, 1 | Converted the same way |
 | Package event idles (OnBegin/OnEnd/OnChange `INAM`) | 76 in 55 packages, 52 idles | 87 in 60 packages, 54 idles | Converted (`packages.with_event_idles`, uncommitted in the main checkout); the 2026-11-19 Vault 101 build has 50 |
-| **Package idle lists** (`IDLF`/`IDLC`/`IDLT`/`IDLA`) | 126 packages | 242 packages | **Dropped.** The exporter writes them since [step 1](#plan), but the import does not use them yet |
+| **Package idle lists** (`IDLF`/`IDLC`/`IDLT`/`IDLA`) | 126 packages | 242 packages | Written into FO4's PACK idle list since [step 3](#plan), standing idles only |
 | Idle markers (IDLM) | 122 markers, 1,417 placed (103 markers placed) | 211, 1,424 (98) | A vanilla marker chosen by the clip's file-name prefix (`idle_markers.PLAYS`); 168 FO3 and 197 FNV placed refs get an empty marker |
 | Script `PlayIdle` | 18 (outside comments) | 145 | `Actor.PlayIdle(<converted IDLE>)` |
 | Script `PickIdle` | 0 | 0 | Row sends `IdleForceDefaultState` ([below](#graph)) |
@@ -149,7 +149,7 @@ copied field for field.
 2. **Package idle lists are dropped**, starting in the exporter (126 FO3,
    242 FNV). The G.O.A.T. students, Gloria's sobbing and the Overseer's
    hands-on-hip are among them. FO4 has the field; vanilla holds poses
-   with it.
+   with it. Exported in step 1, written in step 3 (standing idles).
 3. **Held idles fight the graph's rules.** Counted loops are baked onto
    the one-shot event, which nothing can interrupt, so lines need
    `F3NV_SwitchIdle`. Forever loops have no authored release once (1) is
@@ -207,13 +207,24 @@ Each step is its own change and play test. Step 1 unblocks 3 and 5.
      (`NVopeningThug01Idle`, 4 uses).
    - *Then:* check whether `F3NV_LoopIdle` is still needed. FO3's rule is
      "until another idle plays", which this and step 4 give back.
-3. **Package idle lists into FO4's PACK idle list,** written after the
-   conditions, as vanilla does. Copy the flags, count and timer as they
-   are, and write each idle through `Idles.idle()`. Rebuild: import.
-   - *Play:* Gloria crying, the Overseer waiting, MQ01's checkpoint.
-   - *The students' lists are seated clips,* the route that crashed in
-     October. Build them only together with step 7, or behind
-     `SEATED_PLAYED` one at a time.
+3. **Package idle lists into FO4's PACK idle list (built 2026-11-22, not
+   played).** `packages.pack_idle_list` writes `IDLF`/`IDLC`/`IDLT`/`IDLA`
+   right after the conditions, as vanilla does, in place of the template's
+   own list. Each idle goes through `Idles.idle()`, so seated and clipless
+   ones are left out; a list with none left is not written. The timer is
+   copied. Of the flags, Run In Sequence (0x01) and Do Once (0x04) are
+   copied, and 0x08 is always set, because all 12 vanilla lists set it.
+   A guard's or follower's HoldPosition combat copy gets the same list.
+   - Built lists (the export's lists in brackets): FalloutNV 136 (242),
+     Fallout3 57 (126), DeadMoney 3 (5), HonestHearts 8 (10),
+     LonesomeRoad 1 (3), OldWorldBlues 1 (7), NVBII 17 (21), NVBIII 17
+     (21), NVWillow 12 (12), Russell 6 (6), YUP 1 (2), TLD 4 (4).
+     The rest are lists on packages that are left out, or lists whose
+     every idle is seated or has no human clip.
+   - *Play:* Gloria crying, the Overseer waiting, MQ01's checkpoint,
+     Willow's waits.
+   - *The students' lists are seated clips,* so they are left out until
+     step 7.
 4. **Held idles on the loop event.** A counted loop keeps its baked clip
    but plays on `dyn_ActivationLoop`, with looping seconds equal to the
    clip's length. A forever loop writes 0/0, as vanilla does. Then the next

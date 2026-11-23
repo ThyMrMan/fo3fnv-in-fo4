@@ -1390,6 +1390,28 @@ def test_a_package_copy_sets_value_inputs_by_slot():
     assert [d for t, d in subrecords(body) if t == b'CNAM'] == [b'\5', b'\1', b'\7']
 
 
+def test_a_package_idle_list_follows_its_conditions_in_place_of_the_templates():
+    """The FNV idle list lands after the conditions, as vanilla's do: FNV's Run In Sequence and Do Once kept, the
+    loose flag all 12 vanilla lists set added, a one-byte count; the template's own list goes. Without one, the
+    template's stays.
+
+    See: docs/fork/fo4_idle_review.md#plan
+    """
+    vanilla = (pack_subrecord('PKDT', b'\0' * 12) + pack_subrecord('PSDT', b'\0' * 12)
+               + PK.pack_idle_list(0, 0.0, [0x99]) + pack_subrecord('PKCU', b'\0' * 12))
+    rec = {'EditorID': 'X', 'PSDT.Month': '-1', 'PSDT.DayOfWeek': '-1', 'PSDT.Date': '0', 'PSDT.Time': '-1',
+           'PSDT.Duration': '0', 'PKDT.Flags': '0'}
+    cond = pack_subrecord('CTDA', b'\0' * 32)
+    listed = PK.pack_idle_list(0x15, 2.5, [0x800, 0x801])
+    body = list(subrecords(PK.pack_package(0x900, rec, vanilla, b'', cond, idle_list=listed)[24:]))
+    assert [t for t, _ in body] == [b'PKDT', b'PSDT', b'CTDA', b'IDLF', b'IDLC', b'IDLT', b'IDLA', b'PKCU']
+    fields = dict(body)
+    assert fields[b'IDLF'] == b'\x0d' and fields[b'IDLC'] == b'\2' and fields[b'IDLT'] == struct.pack('<f', 2.5)
+    assert fields[b'IDLA'] == struct.pack('<2I', 0x800, 0x801)
+    kept = dict(subrecords(PK.pack_package(0x900, rec, vanilla, b'', cond)[24:]))
+    assert kept[b'IDLA'] == struct.pack('<I', 0x99)
+
+
 def test_a_subrecord_goes_before_the_first_listed_tag_in_place_of_its_own():
     """ZNAM lands before NAM5 (all 1,745 vanilla ZNAMs do), replacing an old one; without NAM5 it goes last."""
     subs = pack_subrecord('ZNAM', b'\1\0\0\0') + pack_subrecord('HCLF', b'\0' * 4) + pack_subrecord('NAM5', b'\0\0')

@@ -18,6 +18,7 @@ from fo4_import.spike.condition_forms import condition_items
 from fo4_import.spike.dialogue import GREETING
 from fo4_import.spike import greet_template
 from fo4_import.spike.greet_once import GreetOnce
+from fo4_import.spike.idle_markers import listed_idles
 from fo4_import.spike.say_topics import blocker, conditions_of
 from fo4_import.spike.readiness import PACKAGE_LEFT_OUT
 from fo4_import.spike.records import pack_flst
@@ -128,6 +129,12 @@ ANY_MINUTE = -1
 DROPPED = (b'QNAM', b'VMAD', b'CTDA', b'CIS1', b'CIS2')
 #: FO4 package event markers, each followed by its idle (INAM), and FNV's idle of each event, in that order.
 EVENT_MARKERS, EVENT_IDLES = (b'POBA', b'POEA', b'POCA'), ('OnBegin.Idle', 'OnEnd.Idle', 'OnChange.Idle')
+#: FO4's idle list subrecords, which follow a package's conditions.
+IDLE_LIST = (b'IDLF', b'IDLC', b'IDLT', b'IDLA', b'IDLB')
+#: The idle list flag all 12 vanilla lists set (xEdit names it only for FO76: Loose Only).
+IDLE_LIST_LOOSE = 0x08
+#: The idle list flags FNV and FO4 share: Run In Sequence, Do Once.
+IDLE_LIST_SHARED = 0x05
 
 
 class Packages:
@@ -256,9 +263,10 @@ class Packages:
             template, lambda *_: {})(rec, form_map)
         own = self.once.unspoken(number) if number else b''
         own += self.once.undone(rec) if day_marked(rec) or self._chat(rec) and daily(rec) else b''
-        args = (self.vanilla[template], plan[1], conditions + own)
+        args, idle_list = (self.vanilla[template], plan[1], conditions + own), self._idle_list(rec)
         self.builder.writer.add_record('PACK', pack_package(fid, rec, *args, self._fragments(rec, form_map, number),
-                                                            values, inputs, idles=self._event_idles(rec)))
+                                                            values, inputs, idles=self._event_idles(rec),
+                                                            idle_list=idle_list))
         if says_to_player(rec):
             self._walk(fnv, rec, form_map)
         self.builder.counts[f'PACK {template}'] += 1
@@ -266,7 +274,7 @@ class Packages:
             self.combat[fnv] = held = self.builder.writer.derive_formid(COMBAT_SITE, int(fnv, 16))
             self.builder.writer.add_record('PACK', pack_package(held, {**rec, 'EditorID': rec['EditorID'] + 'Combat'},
                                                                 self.vanilla['HoldPosition'], *args[1:], b'',
-                                                                override=COMBAT_OVERRIDE))
+                                                                override=COMBAT_OVERRIDE, idle_list=idle_list))
             self.builder.counts['PACK HoldPosition (combat override)'] += 1
         if number:
             self._park(fnv, rec, number, conditions)
@@ -387,6 +395,17 @@ class Packages:
         if place is None or place not in SHARED_LOCATIONS or place in NAMED_LOCATIONS and ref not in form_map:
             return None
         return int(place), form_map.get(ref, 0), int(rec.get('PLD2.Radius', 0) or 0) or round(self.boxes.get(ref, 0))
+
+    def _idle_list(self, rec: dict) -> bytes:
+        """The FO4 idle list (pack_idle_list) of FNV package `rec`'s idles that convert (Idles.idle; a seated one is
+        left out); b'' when none does.
+        See: docs/fork/fo4_idle_review.md#plan
+        """
+        idles = [fid for fid in (self.builder.idles.idle(i) for i in listed_idles(rec)) if fid]
+        if not idles:
+            return b''
+        self.builder.counts['PACK idle lists'] += 1
+        return pack_idle_list(int(rec.get('IDLF.Flags', 0) or 0), float(rec.get('IDLT.Timer', 0) or 0), idles)
 
     def _event_idles(self, rec: dict) -> tuple:
         """FO4 idles of FNV package `rec`'s OnBegin, OnEnd, OnChange (0: none)."""
@@ -709,14 +728,21 @@ def with_event_idles(vanilla: bytes, idles: tuple) -> bytes:
     return out
 
 
+def pack_idle_list(flags: int, timer: float, idles: list) -> bytes:
+    """FO4 idle list of `idles`: FNV `flags`' shared bits, loose, `timer`."""
+    return (pack_subrecord('IDLF', bytes([flags & IDLE_LIST_SHARED | IDLE_LIST_LOOSE]))
+            + pack_subrecord('IDLC', bytes([len(idles)])) + pack_subrecord('IDLT', struct.pack('<f', timer))
+            + pack_subrecord('IDLA', struct.pack(f'<{len(idles)}I', *idles)))
+
+
 def pack_package(fid: int, rec: dict, vanilla: bytes, first_input: bytes, conditions: bytes,
                  vmad: bytes = b'', values: 'dict | None' = None, inputs: 'dict | None' = None,
-                 override: int = NO_OVERRIDE, idles: tuple = (0, 0, 0)) -> bytes:
-    """A copy of vanilla instance `vanilla` for FNV package `rec`: its EditorID, `vmad` (its fragments), schedule
-    and conditions after PSDT, the first PLDT/PTDA from `first_input`, later ones from `inputs` (by ordinal;
-    vanilla bytes past each kept), CNAMs (by slot) from `values`, PKDT flags the games share (_pkdt), interrupt
-    override `override` (none for an NPC's package list, where a combat override hangs the load) and the
-    OnBegin/OnEnd/OnChange idles `idles` (with_event_idles).
+                 override: int = NO_OVERRIDE, idles: tuple = (0, 0, 0), idle_list: bytes = b'') -> bytes:
+    """A copy of vanilla instance `vanilla` for FNV package `rec`: its EditorID, `vmad` (fragments), schedule,
+    conditions and `idle_list` (for the vanilla one) after PSDT, the first PLDT/PTDA from `first_input`, later
+    ones from `inputs` (by ordinal; vanilla bytes past each kept), CNAMs (by slot) from `values`, PKDT flags the
+    games share (_pkdt), interrupt override `override` (none in an NPC's package list: a combat one hangs the
+    load) and event idles `idles` (with_event_idles).
     See: docs/fork/fo4_pipeline.md#packages
     """
     fields, out = {b'EDID': f'FNV_{rec["EditorID"]}'.encode() + b'\0', b'PSDT': schedule(rec)}, b''
@@ -729,6 +755,7 @@ def pack_package(fid: int, rec: dict, vanilla: bytes, first_input: bytes, condit
             data = payload + data[len(payload):]
         elif tag == b'CNAM':
             data, slot = values.get(slot, data), slot + 1
-        if tag not in DROPPED:
-            out += pack_subrecord(tag.decode(), fields.get(tag, data)) + {b'PSDT': conditions, b'EDID': vmad}.get(tag, b'')
+        if tag not in DROPPED and not (idle_list and tag in IDLE_LIST):
+            after = {b'PSDT': conditions + idle_list, b'EDID': vmad}.get(tag, b'')
+            out += pack_subrecord(tag.decode(), fields.get(tag, data)) + after
     return pack_fo4_record('PACK', fid, 0, out)

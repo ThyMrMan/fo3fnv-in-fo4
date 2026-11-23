@@ -24,8 +24,9 @@ every face is made by our own FaceGen. Since then:
 - the 2026-11-19 play-test batch (NPC health and armor, Vault 101's rooms,
   text encoding, terminal prompts, guards at their posts, chair seating,
   one mesh per gun) and the world pausing while a talk's choices wait;
-- the idle markers' idle lists read from the export (package idle lists
-  are exported, not yet converted);
+- the idle markers' idle lists read from the export, and package idle
+  lists written into FO4's PACK idle list, standing idles only (built
+  2026-11-22, not played);
 - Fallout 3's stage sweep fixes and projectiles for its guns;
 - own-rig crippled-limb reactions and backward walks, projector slides
   (the G.O.A.T.), the shading-overlay fix, and Mr. House's idle on his
@@ -368,11 +369,11 @@ Please report what you find in
 - **Fallout 3:** finish the opening's story runs (the CG04 walk to the vault
   door) and play it, then the whole Capital Wasteland, then Mart's Mutant
   Mod ([FO3 spike](fo4_fo3_plan.md#next)).
-- **Idles from every authored place:** package idle lists (the G.O.A.T.
-  students and the Overseer's waits; exported since 2026-11-19, not yet
-  converted), own idle markers, and held idles on FO4's loop event so its
-  graph releases them. Package event idles (FO3's birth scene) are built,
-  not played on their own ([review](fo4_idle_review.md#plan)).
+- **Idles from every authored place:** own idle markers, held idles on
+  FO4's loop event so its graph releases them, and seated idles (the
+  G.O.A.T. students) on furniture subgraphs. Package event idles (FO3's
+  birth scene) and standing package idle lists (the Overseer's waits) are
+  built, not played ([review](fo4_idle_review.md#plan)).
 
 ## <a id="parked"></a>Parked
 
