@@ -60,8 +60,7 @@ def add(settings: dict, source: str, plugin: str, mod: str = '') -> dict:
 
 
 def output(settings: dict, source: str, plugin: str, master: str) -> Path:
-    """Where `plugin` builds: the game's output for `master`, else its entry's folder, else `F3NV - <stem>` beside
-    the game's output."""
+    """Where `plugin` builds: the game's output for `master`, else its entry's folder, else default_output."""
     if plugin.lower() == master.lower():
         return S.output_dir(settings, source)
     chosen = (entry(settings, source, plugin) or {}).get('output')
@@ -70,12 +69,13 @@ def output(settings: dict, source: str, plugin: str, master: str) -> Path:
 
 def default_output(settings: dict, source: str, plugin: str) -> Path:
     """An add-on's output when none is chosen: the folder beside the game's output holding its build stamp
-    (an earlier build's), else `F3NV - <stem>` there.
+    (an earlier build's, whatever its name), else the game's mod folder name for its stem there
+    (S.mod_folder_name: `F3NV FNV - DeadMoney`).
     See: docs/fork/fo4_gui.md#addons
     """
     parent = S.output_dir(settings, source).parent
     built = [d for d in (parent.iterdir() if parent.is_dir() else ()) if stamp_path(d / plugin).is_file()]
-    return built[0] if built else parent / f'F3NV - {Path(plugin).stem}'
+    return built[0] if built else parent / S.mod_folder_name(source, Path(plugin).stem)
 
 
 def target(settings: dict, source: str, master: str) -> Target:

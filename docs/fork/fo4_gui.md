@@ -224,7 +224,11 @@ and `target_box.py`.
 - **Output.** An add-on builds into its own folder, editable in the box; by
   default the folder beside the game's output that holds its build stamp
   (`<plugin>.build.json`), so the command-line builds' folders such as
-  `F3NV - Honest Hearts` are found, else `F3NV - <plugin stem>` there.
+  `F3NV - Honest Hearts` are found whatever their name, else
+  `settings.mod_folder_name` there: `F3NV FNV - <plugin stem>` for New
+  Vegas, `F3NV FO3 - <plugin stem>` for Fallout 3, so the two games' mods
+  tell apart in MO2. An earlier build's folder keeps its old name, so an
+  installed mod never moves.
   Its masters' built plugins are
   read from their outputs (`--plugin-dirs`), so a master not built yet blocks
   the Build stage with its name.

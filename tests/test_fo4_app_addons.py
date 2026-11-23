@@ -56,10 +56,12 @@ def test_dlc_are_found_by_their_master(tmp_path):
 
 
 def test_a_dlc_builds_into_its_own_folder_on_the_game_output(tmp_path, monkeypatch):
-    """The DLC's plugin goes to `F3NV - <stem>` beside the game's output; the game's output is its plugin folder."""
+    """The DLC's plugin goes to `F3NV FNV - <stem>` beside the game's output (FO3 for Fallout 3's); the game's output
+    is its plugin folder."""
     s = _settings(tmp_path, 'HonestHearts.esm')
     game_out = S.output_dir(s, 'falloutnv')
-    assert ST.plugin_path(s, 'falloutnv') == game_out.parent / 'F3NV - HonestHearts' / 'HonestHearts.esm'
+    assert ST.plugin_path(s, 'falloutnv') == game_out.parent / 'F3NV FNV - HonestHearts' / 'HonestHearts.esm'
+    assert addons.default_output(s, 'fallout3', 'BrokenSteel.esm').name == 'F3NV FO3 - BrokenSteel'
     assert ST.master_dirs(s, 'falloutnv') == [game_out]
     assert ST.unavailable(s, 'falloutnv', 'build') == 'build its master FalloutNV.esm first'
     game_out.mkdir(parents=True)
@@ -97,7 +99,7 @@ def test_a_mod_folder_is_imported_then_exported(tmp_path, monkeypatch):
     assert ST.command(s, 'falloutnv', 'export', ST.Scope(), tmp_path / 'x.json')[2:] == [
         '--export-only', '-f', 'Better Brotherhood.esm']
     out = S.output_dir(s, 'falloutnv')
-    assert ST.master_dirs(s, 'falloutnv') == [out, out.parent / 'F3NV - HonestHearts']
+    assert ST.master_dirs(s, 'falloutnv') == [out, out.parent / 'F3NV FNV - HonestHearts']
     built = out.parent / 'F3NV - Honest Hearts'
     built.mkdir(parents=True)
     (built / 'HonestHearts.esm.build.json').write_text('{}', encoding='utf-8')

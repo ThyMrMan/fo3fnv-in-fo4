@@ -133,7 +133,8 @@ screen.
    profile.
 4. **Where files go:** choose an output folder **inside your MO2
    instance's `mods` folder**, for example
-   `...\mods\F3NV - Fallout New Vegas`. That lets the app enable everything
+   `...\mods\F3NV FNV - Fallout New Vegas` (`FNV` or `FO3` in the name tells
+   the two games' mods apart in MO2). That lets the app enable everything
    in MO2 for you. Pick a work folder on a drive with plenty of free space.
    Each game keeps its own output folder.
 
@@ -185,7 +186,7 @@ own mod folder.
 - **A DLC or add-on pack:** pick it under **2. What to convert** (the app
   lists the ones in your game's `Data` folder) and click **Convert** (the
   button carries its name). It goes into its own folder beside the game's, such as
-  `F3NV - Dead Money`.
+  `F3NV FNV - DeadMoney`.
 - **A mod:** click **Add a mod folder...** beside the list and choose the
   folder holding the mod's plugin (for example a mod you unpacked, or one
   from your old mod manager). It joins the list, picked; click
@@ -207,7 +208,7 @@ new-game quest, so with both loaded, both openings start at once.
 - In MO2, make a second Fallout 4 profile for it, for example "Fallout 3".
 - On the **Setup** screen, with **Convert from** set to Fallout 3, choose
   its own output folder inside MO2's `mods` folder, for example
-  `...\mods\F3NV - Fallout 3`.
+  `...\mods\F3NV FO3 - Fallout 3`.
 - Under **Mods to pick replacements from**, set your MO2 row's **MO2
   profile** to the Fallout 3 one while you work on Fallout 3, and back to your New Vegas
   profile afterward. **Set up in MO2** and **Play** use that profile.
@@ -217,7 +218,7 @@ then **Fallout3.esm: the game**, and click **Convert Fallout3.esm**. Its
 DLC (Operation: Anchorage, The Pitt, Broken Steel, Point Lookout and
 Mothership Zeta) then show in the list as `convert Fallout3.esm first`
 until it is built, and each converts into its own folder, such as
-`F3NV - BrokenSteel`. Then click **Set up in MO2** on the Finished screen.
+`F3NV FO3 - BrokenSteel`. Then click **Set up in MO2** on the Finished screen.
 
 **What to expect in game:**
 - Fallout 4's own intro movie plays first; Fallout 3's isn't converted yet.

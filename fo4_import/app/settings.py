@@ -20,6 +20,8 @@ APP_DIR = Path(__file__).resolve().parents[2]
 FILE_NAME = 'fo4_app.json'
 #: The games the app converts from, and the folder name each gets under the work folder.
 SOURCES = {'falloutnv': 'FalloutNV', 'fallout3': 'Fallout3'}
+#: Each source's short name in the MO2 mod folders the app names (mod_folder_name).
+MOD_TAGS = {'falloutnv': 'FNV', 'fallout3': 'FO3'}
 GAMES = ('fallout4', 'falloutnv', 'fallout3')
 OUTPUT_KINDS = ('folder', 'zip')
 #: Where a source's replacement file lives: beside the app, in its output folder, or a path of the user's.
@@ -106,6 +108,11 @@ def output_dir(settings: dict, source: str) -> Path:
     """`source`'s output: the user's choice, else default_output_dir()."""
     chosen = settings['per_source'][source]['output']['path']
     return Path(chosen) if chosen else default_output_dir(settings, source)
+
+
+def mod_folder_name(source: str, name: str) -> str:
+    """MO2 mod folder of `name` from `source`: `F3NV FNV - Dead Money`."""
+    return f'F3NV {MOD_TAGS[source]} - {name}'
 
 
 def default_output_dir(settings: dict, source: str) -> Path:
