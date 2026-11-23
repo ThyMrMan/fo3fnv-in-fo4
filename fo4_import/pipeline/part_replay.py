@@ -52,10 +52,10 @@ def moved_reads(rec: dict) -> list:
     return [path for path, kept in rec.get('made_reads', {}).items() if not same_file(path, kept)]
 
 
-def meshes(data_dir: Path, manifest: dict) -> 'dict | None':
+def meshes(data_dir: Path, manifest: dict, masters: list) -> 'dict | None':
     """The meshes part again from replay `manifest`: each mesh's pre-Elric bytes held (elric_cache.write_mesh) and
-    finished, the weapons dressed (finish_meshes), object LOD baked; the counts, None when a pre-Elric mesh is gone
-    from the store."""
+    finished, the weapons dressed (finish_meshes), object LOD baked (with built masters' folders `masters`); the
+    counts, None when a pre-Elric mesh is gone from the store."""
     held = {path: elric_cache.kept_input(key) for path, key in manifest['pre_elric'].items()}
     if any(raw is None for raw in held.values()):
         return None
@@ -64,7 +64,7 @@ def meshes(data_dir: Path, manifest: dict) -> 'dict | None':
     failed = charged('collision', finish_meshes, data_dir, list(held), manifest['theirs'], manifest['weapons'],
                      part=MESHES)
     counts = dict(charged('object LOD', object_lod.bake_all, Path(manifest['export']), data_dir,
-                          manifest['lod_worlds'], part=MESHES))
+                          manifest['lod_worlds'], masters, part=MESHES))
     return {**counts, 'meshes without collision (Elric failed)': len(failed)}
 
 
@@ -112,7 +112,7 @@ def replay(plugin: Path) -> int:
     why = scripts(data, manifest['scripts']) if SCRIPTS in parts else None
     if why:
         return needs_build(plugin, why)
-    counts = meshes(data, manifest) if MESHES in parts else {}
+    counts = meshes(data, manifest, master_dirs(rec, data)) if MESHES in parts else {}
     if counts is None:
         return needs_build(plugin, 'a pre-Elric mesh is gone from the store')
     if parts & {MESHES, ARCHIVES}:

@@ -192,7 +192,8 @@ def finish_meshes(data_dir: Path, paths: list, theirs: dict, weapons: list) -> l
 @timed('object LOD', MESHES)
 def _object_lod(builder, export_dir: Path, data_dir: Path) -> None:
     """Built worldspaces' object LOD (after Elric, before the texture BA2)."""
-    builder.counts.update(object_lod.bake_all(export_dir, data_dir, builder.object_lod.worlds))
+    builder.counts.update(object_lod.bake_all(export_dir, data_dir, builder.object_lod.worlds,
+                                              master_copies.master_dirs(builder)))
 
 
 @timed('assets')

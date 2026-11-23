@@ -7899,6 +7899,20 @@ What we write:
    The run is cached: its key is the list, the LOD meshes and materials
    they name, the atlas map and the worldspace's `.btr` (LODGen drops faces
    under the land); a hit copies the kept `.bto` back.
+4. <a id="object-lod-masters"></a>**A master's LOD meshes** (2026-11-22).
+   LODGen reads every mesh under its one `PathData`, the plugin's own
+   folder, and a mesh it cannot find aborts the whole worldspace (exit
+   404, no tiles). A DLC's or mod's world places the game's statics, and
+   their `_lod.nif` ship in the master's `Main` archive. So 14 worlds had
+   no distant objects: Honest Hearts' Zion Canyon (FNV's road LOD
+   meshes), seven Lonesome Road worlds, Big MT, and five in New Vegas
+   Bounties II and III and Russell. `stage_masters` copies each LOD mesh
+   the folder lacks, and each material those name, from the built
+   masters' folders (loose, then their archives) before the atlas and the
+   run, and `unstage` removes the copies after. The list of copies is
+   kept in the work folder, so a killed run's copies go at the next bake.
+   The inherited Skyrim pass solves the same failure the same way
+   (`lod_gen._import_master_mesh`), from loose folders only.
 
 **Scratch run (2026-10-31, WastelandNV, no game build):** the build's pieces
 driven on a scratch Data folder (references through `pack_refr` into

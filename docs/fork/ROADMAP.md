@@ -33,7 +33,10 @@ every face is made by our own FaceGen. Since then:
 - race look skins for every look race, rebuilt 2026-11-22 in
   FalloutNV.esm, Fallout3.esm and 13 add-ons (FNV's raiders played);
 - FaceGen of their own for mod overrides that change a face (YUP's 22,
-  faces rebuilt 2026-11-22, not played).
+  faces rebuilt 2026-11-22, not played);
+- distant objects in the 14 DLC and mod worlds that had none (Honest
+  Hearts, Lonesome Road, Old World Blues, Bounties II and III and Russell
+  rebuilt 2026-11-22, not played).
 
 **States:**
 
@@ -53,7 +56,7 @@ every face is made by our own FaceGen. Since then:
 |---|---|---|---|---|
 | Mojave landscape | The Mojave's ground, roads and land textures, built from New Vegas's own world | Works | Needs the Black Landscape Fix mod, listed in the install steps; without it a Fallout 4 engine bug turns some bare ground black. Soft land seams in a few places. | [exterior](fo4_spikes.md#spike-4-exterior) |
 | Distant terrain (LOD) | The far-off hills you see before you get close | Partial | Distant water (Lake Mead, the Colorado) shows as water. Tiles now hang vanilla-depth skirts over the seams between them (none left open around Goodsprings, [measured offline](fo4_terrain_lod_plan.md#p0)); not yet seen in game. | [terrain LOD](fo4_pipeline.md#terrain-lod) |
-| Distant objects (LOD) | Low-detail buildings and landmarks seen from far away | Partial | Buildings work. Distant trees are built, not played. LODGen fails (exit code 404, 0 tiles) on one Honest Hearts and seven Lonesome Road worlds when a `_lod.nif` they name is missing, so those worlds have no distant objects. | [object LOD](fo4_pipeline.md#object-lod) |
+| Distant objects (LOD) | Low-detail buildings and landmarks seen from far away | Partial | Buildings work. Distant trees are built, not played. The 14 DLC and mod worlds that had none (LODGen could not find their masters' LOD meshes) now bake 299 tiles (built 2026-11-22, not played). | [object LOD](fo4_pipeline.md#object-lod-masters) |
 | Pip-Boy world map | The Mojave map in the Pip-Boy, with New Vegas's markers | Partial | The Mojave and Freeside maps show, at the larger size. Markers sat below their places; fixed, not built. | [world map](fo4_pipeline.md#world-map) |
 | Worldspaces and exteriors | The whole Mojave plus Freeside, the Strip and the other separate areas, with their doors | Partial | Trap triggers, stand-in smoke and damage stages (burning cars, their explosions) are built, not played. The skipped statics are audio markers, built as music regions. | [whole map](fo4_pipeline.md#whole-map) |
 | Interiors | Buildings and dungeons with New Vegas's layout, objects, furniture and lighting | Works | | [interiors](fo4_pipeline.md#interiors) |
@@ -243,10 +246,6 @@ every face is made by our own FaceGen. Since then:
 
 - Holes and dark blocks in distant land, closing up as you approach (skirts
   over the tile seams built, not played). ([terrain LOD](fo4_pipeline.md#terrain-lod))
-- No distant objects in 14 worlds: one in Honest Hearts, seven in Lonesome
-  Road, Old World Blues' Big MT, and five in the New Vegas Bounties II and
-  III and Russell mods. LODGen gives up when a `_lod.nif` they name is
-  missing. ([object LOD](fo4_pipeline.md#object-lod))
 - Scripts that wait for an animated window or the Lucky 38 lights do nothing. ([census](fo4_idles.md#census))
 - NPCs and the player catch on some stairs (the Novac motel, Vikki and
   Vance's steps). ([stairs](fo4_pipeline.md#stair-helper-pitch))

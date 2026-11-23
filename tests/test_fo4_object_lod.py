@@ -285,3 +285,28 @@ def test_tree_cards_are_fallout_3_s_tree_types():
     listed = [(t[3:7], t[1:3]) for t in types]
     for rect, card in O.TREE_CARDS.values():
         assert any(np.allclose(rect, r, atol=1e-6) and np.allclose(card, c, atol=1e-3) for r, c in listed)
+
+
+def test_a_masters_lod_mesh_and_its_material_are_staged_for_the_run_then_removed(tmp_path, monkeypatch):
+    """A LOD mesh only a master's archive holds, and the material it names (loose in the master), are copied in
+    for LODGen; the plugin's own mesh is left alone; unstage removes only the copies.
+
+    See: docs/fork/fo4_pipeline.md#object-lod-masters
+    """
+    data, master = tmp_path / 'dlc', tmp_path / 'game'
+    monkeypatch.setattr(P, 'work_dir', lambda data_dir: tmp_path / 'work')
+    (tmp_path / 'work').mkdir()
+    archive = types.SimpleNamespace(by_name={'meshes\\fnv\\a_lod.nif': None}, read=lambda key: b'nif')
+    monkeypatch.setattr(P, 'Archives', lambda folder, pattern: archive)
+    monkeypatch.setattr(P.F, 'read', lambda raw: types.SimpleNamespace(
+        strings=['materials\\fnv\\a.bgsm'] if raw == b'nif' else []))
+    (master / 'materials' / 'fnv').mkdir(parents=True)
+    (master / 'materials' / 'fnv' / 'a.bgsm').write_bytes(b'mat')
+    own = data / 'Meshes' / 'fnv' / 'own_lod.nif'
+    own.parent.mkdir(parents=True)
+    own.write_bytes(b'own')
+    assert P.stage_masters(data, ['fnv\\a_lod.nif', 'fnv\\own_lod.nif', 'fnv\\gone_lod.nif'], [master]) == 2
+    assert (data / 'Meshes' / 'fnv' / 'a_lod.nif').read_bytes() == b'nif'
+    assert (data / 'materials' / 'fnv' / 'a.bgsm').read_bytes() == b'mat'
+    assert P.unstage(data) == 2 and P.unstage(data) == 0
+    assert own.read_bytes() == b'own' and not (data / 'Meshes' / 'fnv' / 'a_lod.nif').exists()

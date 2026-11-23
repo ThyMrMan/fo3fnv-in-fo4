@@ -19,6 +19,7 @@ import struct
 from pathlib import Path
 
 from asset_convert.lod.lod_gen import LODGEN_EXE, run_lodgen
+from fo4_import.base.ba2 import Archives
 from fo4_import.base.ba2_pack import staging_root
 from fo4_import.nif import file as F
 from fo4_import.nif.convert_static import SLOT_SPECULAR
@@ -37,6 +38,8 @@ SETTINGS = ('RemoveUnseenFaces=True', 'IgnoreWater=False', 'DontGenerateVertexCo
 SPECULAR = 0x1
 #: The end of the atlas diffuse's path in a LODGen tile, lowercase.
 ATLAS_DIFFUSE = '.objects.dds'
+#: In the work folder: the master files a bake copied into the Data folder, until it removes them (unstage).
+STAGED = 'staged_from_masters.txt'
 
 
 def work_dir(data_dir: Path) -> Path:
@@ -78,6 +81,48 @@ def with_specular(data: bytes) -> bytes:
         else:
             block['flags1'] &= ~SPECULAR
     return F.write(nif)
+
+
+def master_file(rel: str, masters: list) -> 'bytes | None':
+    """File `rel` (under Data) from the first of `masters` [(built folder, its Archives)] holding it, loose first."""
+    for folder, archives in masters:
+        key = rel.lower().replace('/', '\\')
+        if (Path(folder) / rel).is_file():
+            return (Path(folder) / rel).read_bytes()
+        if key in archives.by_name:
+            return archives.read(key)
+    return None
+
+
+def unstage(data_dir: Path) -> int:
+    """Delete the master files the last bake copied into `data_dir` (STAGED lists them); how many."""
+    listed = work_dir(data_dir) / STAGED
+    paths = listed.read_text(encoding='utf-8').splitlines() if listed.is_file() else []
+    for path in paths:
+        Path(path).unlink(missing_ok=True)
+    listed.unlink(missing_ok=True)
+    return len(paths)
+
+
+def stage_masters(data_dir: Path, meshes: list, master_dirs: list) -> int:
+    """Copy into `data_dir` each LOD mesh of `meshes` it lacks, then each material those name it lacks, from its
+    built masters' folders (master_file), listed in STAGED for unstage(); how many. LODGen reads every file under
+    its one PathData.
+    See: docs/fork/fo4_pipeline.md#object-lod-masters
+    """
+    masters, listed, written = [(d, Archives(d, '*.ba2')) for d in master_dirs], work_dir(data_dir) / STAGED, []
+    wanted = [f'Meshes/{mesh}' for mesh in meshes]
+    while wanted:
+        rel = wanted.pop(0)
+        raw = None if (data_dir / rel).is_file() else master_file(rel, masters)
+        if raw is None:
+            continue
+        (data_dir / rel).parent.mkdir(parents=True, exist_ok=True)
+        (data_dir / rel).write_bytes(raw)
+        written.append(str(data_dir / rel))
+        listed.write_text('\n'.join(written) + '\n', encoding='utf-8')
+        wanted += [s for s in F.read(raw).strings if s.lower().endswith('.bgsm')] if rel.endswith('.nif') else []
+    return len(written)
 
 
 def lod_meshes(rows: list) -> list:
@@ -143,14 +188,24 @@ def install(kept: Path, data_dir: Path, world: str, levels: tuple) -> int:
     return len(tiles)
 
 
-def bake(export_dir: Path, data_dir: Path, world: str) -> tuple:
-    """Write FO4 worldspace `world`'s object LOD from the build's list (module notes); (outcome, tiles)."""
+def bake(export_dir: Path, data_dir: Path, world: str, master_dirs: list = ()) -> tuple:
+    """Write FO4 worldspace `world`'s object LOD from the build's list (module notes), the masters' LOD meshes it
+    names staged for the run (stage_masters, then unstage); (outcome, tiles)."""
     grid, rows = lod_settings(data_dir, world), list_path(data_dir, world).read_text(encoding='utf-8').splitlines()
     if grid is None or not rows:
         return ('skipped, no terrain LOD' if grid is None else 'skipped, no references'), 0
+    meshes = lod_meshes(rows)
+    stage_masters(data_dir, meshes, master_dirs)
+    try:
+        return _bake(export_dir, data_dir, world, grid, rows, meshes)
+    finally:
+        unstage(data_dir)
+
+
+def _bake(export_dir: Path, data_dir: Path, world: str, grid: tuple, rows: list, meshes: list) -> tuple:
+    """bake()'s atlas, LODGen run (kept by its key) and install; (outcome, tiles)."""
     folder = work_dir(data_dir) / world
     folder.mkdir(parents=True, exist_ok=True)
-    meshes = lod_meshes(rows)
     atlas = lod_atlas.build(export_dir, data_dir, world, [m.replace('\\', '/') for m in meshes])
     atlas_map = folder / 'atlas.txt' if atlas else None
     if atlas_map:
@@ -160,11 +215,12 @@ def bake(export_dir: Path, data_dir: Path, world: str) -> tuple:
     return ('LODGen failed', 0) if kept is None else ('baked', install(kept, data_dir, world, grid[3:]))
 
 
-def bake_all(export_dir: Path, data_dir: Path, worlds: list) -> collections.Counter:
-    """bake() each of `worlds` with a list; counts per outcome."""
-    counts = collections.Counter()
+def bake_all(export_dir: Path, data_dir: Path, worlds: list, master_dirs: list = ()) -> collections.Counter:
+    """bake() each of `worlds` with a list, reading LOD meshes from `master_dirs` too (a killed run's copies
+    removed first); counts per outcome."""
+    counts = collections.Counter({'object LOD master files left by a killed run, removed': unstage(data_dir)})
     for world in worlds:
-        outcome, tiles = bake(export_dir, data_dir, world)
+        outcome, tiles = bake(export_dir, data_dir, world, master_dirs)
         print(f'object LOD {world}: {outcome}, {tiles} tiles')
         counts[f'object LOD worldspaces {outcome}'] += 1
         counts['object LOD tiles'] += tiles
