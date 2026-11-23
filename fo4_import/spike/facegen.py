@@ -260,14 +260,17 @@ def drawn_parts(nif_bytes: bytes) -> set:
 
 
 def outdated(plugin_path: Path, data_dir: Path, master_dirs=()) -> list:
-    """`plugin_path`'s FaceGeom NIFs in `data_dir` drawing other head parts than their NPC_ now has (masters
-    and their files from `data_dir`, then `master_dirs`).
+    """`plugin_path`'s FaceGeom NIFs in `data_dir` drawing other head parts than their NPC_ now has, or whose
+    NPC_ the plugin no longer has (masters and their files from `data_dir`, then `master_dirs`).
     See: docs/fork/fo4_spikes.md#stale-facegen
     """
     nifs, plugin = sorted((data_dir / FACEGEN_DIRS[0] / plugin_path.name).glob('*')), plugin_path.name
     src = facegeom.Sources(plugin_path, [data_dir, *master_dirs]) if nifs else None
     stale = []
     for path in nifs:
+        if src.record(plugin.lower(), int(path.stem, 16) & 0xFFFFFF) is None:
+            stale.append(path)
+            continue
         npc, race, female, _ = facegeom.npc_face(src, plugin, int(path.stem, 16))
         parts = {facegeom.zstr(p.first(b'EDID')) for p in facegeom.head_parts(src, npc, race, female)}
         stale += [path] if parts != drawn_parts(path.read_bytes()) else []

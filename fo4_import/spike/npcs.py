@@ -360,8 +360,8 @@ class Npcs:
         races = export_records(export_dir, 'RACE')
         self.races = {int(r['FormID'], 16): r.get('EditorID', '') for r in races}
         self.child_races = {int(r['FormID'], 16) for r in races if int(r.get('DATA.Flags', 0)) & CHILD_RACE}
-        self.old_races, self.race_skins = old_races(races), RaceSkins(builder, export_dir, races)
         self.bodies = bodies(builder.fo4, builder.table.rules.body)
+        self.old_races, self.race_skins = old_races(races), RaceSkins(builder, export_dir, races, self.bodies)
         self.assets, self.made, self.voices = None, {}, creatures.voices
         self.lists = {int(r['FormID'], 16): r for sig in ('LVLN', 'LVLC') for r in export_records(export_dir, sig)}
         self.made_lists, self.tone_layers = {}, tint.skin_tone_layers(builder.fo4)
@@ -396,7 +396,7 @@ class Npcs:
         self.builder.writer.add_record('NPC_', R.clone_npc(
             fid, body.body, body.flags, f'FNV_{npc["EditorID"]}', npc.get('FULL', ''),
             (FACE_FIELDS if face else frozenset()) | BODY_TIES, morphs,
-            composed(edit, self._skin(traits, kind, female), with_class(self.classes.of(int(traits.get('CNAM.Class', '0'), 16))),
+            composed(edit, self._skin(traits, kind), with_class(self.classes.of(int(traits.get('CNAM.Class', '0'), 16))),
                      with_factions(self._factions(fnv)), self._packages(fnv),
                      self._inventory(fnv, struct.unpack('<I', child)[0] if child else 0),
                      with_voice(self.voices.of(int(traits.get('VTCK.Voice', '0'), 16))), self._actor_data(fnv),
@@ -425,12 +425,12 @@ class Npcs:
         kind = self._body(int(traits.get('RNAM.Race', '0'), 16), female)
         return kind, female, kind.startswith('human') and basis_hash(female) is not None
 
-    def _skin(self, traits: dict, kind: str, female: bool):
-        """WNAM edit giving a human of an FNV race with its own body or hand textures that race's skin; else None.
+    def _skin(self, traits: dict, kind: str):
+        """WNAM edit giving an NPC of an FNV look race (race_skins) that race's skin; else None.
         See: docs/fork/fo4_look_races_plan.md#body
         """
-        skin = self.race_skins.skin(int(traits.get('RNAM.Race', '0'), 16)) if kind.startswith('human') else None
-        self.builder.counts['human NPC on its race\'s FO4 skin'] += bool(skin)
+        skin = self.race_skins.skin(int(traits.get('RNAM.Race', '0'), 16), kind)
+        self.builder.counts['NPC on its race\'s look skin'] += bool(skin)
         return R.with_sub(b'WNAM', struct.pack('<I', skin), SKIN_BEFORE) if skin else None
 
     def _body(self, race: int, female: bool) -> str:

@@ -136,11 +136,15 @@ def test_race_dirt_skips_what_is_dark_in_both_fnv_textures():
 
 
 def test_a_race_on_fnvs_stock_textures_has_no_look_skin():
-    """race_textures: None for each part on FNV's stock texture, the raider's own paths otherwise."""
-    stock = {f'{p}.Texture': ['head.dds', race_skins.STOCK[p]] for p in race_skins.PARTS}
+    """race_textures: None for each part on its kind's stock texture (human or ghoul), the race's own otherwise."""
+    human, ghoul = (race_skins.KINDS[k].stock for k in ('human', 'ghoul'))
+    stock = {f'{p}.Texture': ['head.dds', t] for p, t in zip(race_skins.PARTS, human)}
     raider = dict(stock, **{'MalePart[0].Texture': ['head.dds', 'Characters\\Raider\\UpperBodyMale.dds']})
-    assert race_skins.race_textures(stock) == (None,) * 4
-    assert race_skins.race_textures(raider) == ('characters\\raider\\upperbodymale.dds', None, None, None)
+    marked = {f'{p}.Texture': ['head.dds', t] for p, t in zip(race_skins.PARTS, ghoul)}
+    marked['MalePart[1].Texture'] = ['head.dds', 'Characters\\NVDLC04\\MarkedMen\\HandMale.dds']
+    assert race_skins.race_textures(stock, human) == (None,) * 4
+    assert race_skins.race_textures(raider, human) == ('characters\\raider\\upperbodymale.dds', None, None, None)
+    assert race_skins.race_textures(marked, ghoul) == (None, 'characters\\nvdlc04\\markedmen\\handmale.dds', None, None)
 
 
 def _old_texel_points(points: np.ndarray, uv: np.ndarray, tris: np.ndarray, size: int) -> tuple:

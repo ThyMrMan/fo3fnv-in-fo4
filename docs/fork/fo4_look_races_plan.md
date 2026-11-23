@@ -116,7 +116,8 @@ mixed by the tint's alpha. A tint of 0.5 leaves the texture as it is.
 ## <a id="body"></a>Body
 
 Built (`fo4_import/spike/race_skins.py`); confirmed in game on FNV's raiders
-(2026-11-22).
+(2026-11-22). Every other look race (ghouls included) built 2026-11-22, not
+played: FalloutNV.esm, Fallout3.esm and 13 add-ons, 1 to 5 skins each.
 
 - **One skin per distinct set of FNV body and hand textures,** shared by
   every race using it (FNV's four raider races share one). A race on FNV's
@@ -133,8 +134,13 @@ Built (`fo4_import/spike/race_skins.py`); confirmed in game on FNV's raiders
 - **Textures** go to `Textures\FNV\Skin\<FNV texture path>_d.dds`, staged
   like the build's other textures (`stage_texture`) and packed in the
   plugin's texture archive.
-- **Not yet:** a ghoul look race (`MarkedMenGhoul`), since only human NPCs
-  take a race skin; the CBBE body below.
+- **Ghoul look races** (`MarkedMenGhoul`) copy `GhoulRace`'s clean skin
+  (`SkinGhoulNaked`). Its texture sets name a material (`MNAM`), so each
+  gets a copy of that material with the new diffuse. Their dirt is measured
+  against FNV's plain human stock and drawn on Fallout 4's clean human body,
+  fading to the ghoul's own clean skin at the neck: measured against FNV's
+  ghoul stock it was noise. The tint is the race's own NPC's skin tone.
+- **Child races** get no skin. **Not yet:** the CBBE body below.
 - **Which races:** every FNV/FO3 race whose body texture differs from its
   kind's stock body (the race census of the first version still holds):
 
@@ -197,8 +203,10 @@ files for each skin from the same transferred textures.
 ## <a id="body-transfer"></a>Body transfer (`fo4_import/face/race_body.py`)
 
 - **Dirt:** per channel, FNV's race texture over its stock texture, both
-  blurred past the DXT blocks over the stock's bare-skin texels only, at
-  most 1 (lighter paint, such as other underwear, isn't dirt), divided by
+  blurred past the DXT blocks over the stock's bare-skin texels only, each
+  stock channel at least half its median (a near-black channel made a blue
+  stripe on ghoul backs), not clamped at 1 (the White Legs' white paint is
+  lighter than skin; the raider textures came out byte-identical), divided by
   the race's overall shade (`fnv_npc.body_shade`), which the NPC's skin
   tone already carries ([face](#face)).
 - **Bare skin** is a stock texel at least half the stock's median

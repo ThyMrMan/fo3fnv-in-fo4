@@ -1,8 +1,8 @@
 """A look race's skin textures: Fallout 4's clean body and hands under FNV's race dirt, faded in from the body's
 neck edge as Fallout 4's own dirty skin fades in over its clean one.
 
-- Dirt: per channel, FNV's race texture over its stock one (both blurred past the DXT blocks), darkening only,
-  over the race's overall shade, which the NPC's skin tone already carries (fnv_npc.race_shade).
+- Dirt: per channel, FNV's race texture over its stock one (both blurred past the DXT blocks, on bare skin), over
+  the race's overall shade, which the NPC's skin tone already carries (fnv_npc.race_shade).
 - Body: the dirt carried onto Fallout 4's body UVs through the outfit body fit, faded by fade_curve.
 - Drawn: the texture the skin tint `tint` draws as the clean texture's drawing times the dirt (skin_tint).
 
@@ -71,10 +71,12 @@ def skin_texels(stock: np.ndarray) -> np.ndarray:
 
 def dirt(race: np.ndarray, stock: np.ndarray, shade: np.ndarray) -> np.ndarray:
     """Per texel and channel, FNV texture `race` over `stock` (resized to it), both blurred over the stock's skin
-    texels, at most 1, over `shade`; other texels take their nearest skin texel's."""
+    texels, each stock channel at least SKIN_SHARE of its median, over `shade`; other texels take their nearest
+    skin texel's."""
     clean = resized(stock, race.shape)
     skin = skin_texels(clean)
-    ratio = np.minimum(_blurred(race, skin) / np.maximum(_blurred(clean, skin), 1.0), 1.0)
+    floor = SKIN_SHARE * np.median(clean[skin][:, :3], 0)
+    ratio = _blurred(race, skin) / np.maximum(_blurred(clean, skin), floor)
     return _nearest_fill(ratio, skin) / shade
 
 
@@ -120,10 +122,13 @@ def fade_curve(distance: np.ndarray, clean: np.ndarray, dirty: np.ndarray) -> np
     return np.minimum(curve, 1.0)[steps][..., None]
 
 
-def drawn_dirt(clean: np.ndarray, dirt_image, weight, tint: np.ndarray) -> np.ndarray:
-    """FO4 RGBA `clean` as the texture skin tint `tint` draws as `clean` drawn times `dirt_image` (an image,
-    resized to it, or an RGB triple) faded by `weight` (likewise, or 1)."""
+def drawn_dirt(clean: np.ndarray, dirt_image, weight, tint: np.ndarray, base: np.ndarray = None) -> np.ndarray:
+    """FO4 RGBA `clean` as the texture skin tint `tint` draws as `base` (default `clean`; resized to it) drawn
+    times `dirt_image` (an image, resized to it, or an RGB triple), faded to `clean` drawn by 1 - `weight`
+    (likewise, or 1)."""
     ratio, fade = (resized(v, clean.shape) if np.ndim(v) == 3 else np.asarray(v, float) for v in (dirt_image, weight))
     out = clean.astype(float)
-    out[..., :3] = untinted(np.clip(tinted(out[..., :3], tint) * (1.0 + (ratio - 1.0) * fade), 0, 255), tint)
+    near = tinted(out[..., :3], tint)
+    far = near if base is None else tinted(resized(base, clean.shape)[..., :3], tint)
+    out[..., :3] = untinted(np.clip(near + (far * ratio - near) * fade, 0, 255), tint)
     return np.clip(out, 0, 255).round().astype(np.uint8)
