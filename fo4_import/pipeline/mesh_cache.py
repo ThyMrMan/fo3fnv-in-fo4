@@ -38,8 +38,9 @@ from fo4_import.pipeline.code_tag import ROOT
 from fo4_import.pipeline.ran_code import ran_while
 from fo4_import.pipeline.work_cache import current_ran, lookup, ran_path, store, write_ran
 from fo4_import.pipeline.export_index import export_file
+from asset_convert import paths as data_paths
 
-CACHE = ROOT / 'output' / 'fo4_cache' / 'meshes'
+CACHE = data_paths.FO4_CACHE / 'meshes'
 #: OBND's range: six signed 16-bit coordinates.
 OBND_RANGE = (-32768, 32767)
 

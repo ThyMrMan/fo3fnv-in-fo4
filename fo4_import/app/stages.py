@@ -28,7 +28,6 @@ from fo4_import.spike.facegen import faces_stamp
 from tools.validate.fo4_install_check import PLUGINS, RUNTIME_DLL
 
 REPO = Path(__file__).resolve().parents[2]
-EXPORT_ROOT = REPO / 'export'
 #: Per source game: name, note, master, plugin, start cell, worldspace, test block center, Classic Look made for it.
 GAMES = {
     'falloutnv': {'label': 'Fallout: New Vegas', 'note': '', 'master': 'FalloutNV.esm', 'plugin': 'FalloutNV.esm',
@@ -73,9 +72,9 @@ def target(settings: dict, source: str) -> addons.Target:
 def export_dir(settings: dict, source: str) -> Path:
     """Where the target's export lives (convert.py's export folder; an imported mod's by the registry)."""
     chosen = target(settings, source)
-    if chosen.mod and source_registry.get(EXPORT_ROOT, chosen.plugin):
-        return Path(source_registry.record_dir(EXPORT_ROOT, chosen.plugin))
-    return EXPORT_ROOT / (Path(chosen.mod).name if chosen.mod else chosen.plugin)
+    if chosen.mod and source_registry.get(S.export_root(settings), chosen.plugin):
+        return Path(source_registry.record_dir(S.export_root(settings), chosen.plugin))
+    return S.export_root(settings) / (Path(chosen.mod).name if chosen.mod else chosen.plugin)
 
 
 @dataclass(frozen=True)
@@ -91,7 +90,7 @@ def found(settings: dict, source: str, stage: str) -> 'Found | None':
     chosen, header = target(settings, source), export_dir(settings, source) / '_HEADER.txt'
     exported = header.stat().st_mtime if header.is_file() else 0
     if stage == 'import':
-        return Found('imported', True) if chosen.mod and source_registry.get(EXPORT_ROOT, chosen.plugin) else None
+        return Found('imported', True) if chosen.mod and source_registry.get(S.export_root(settings), chosen.plugin) else None
     if stage == 'export':
         return Found(f'export from {_when(exported)}', True) if exported else None
     if stage in ('build', 'faces'):
@@ -107,13 +106,16 @@ def _built(plugin: Path, stage: str) -> 'Found | None':
     Rebuild what changed then rebuilds it, and runs its faces again, when needed.
     See: docs/fork/fo4_gui.md#rebuild
     """
+    older = build_plan.from_older_release(plugin) if plugin.is_file() else ''
     if stage == 'faces':
         stamp = faces_stamp(plugin)
         finished = stamp is not None and stamp.get('status') == 'finished'
-        return Found(f'faces made {stamp["ended"]}', True) if finished else None
+        return Found(f'faces made {stamp["ended"]}', not older) if finished else None
     if not plugin.is_file():
         return None
-    return Found(f'{plugin.name} built {_when(plugin.stat().st_mtime)}', build_plan.record(plugin) is not None)
+    built = f'{plugin.name} built {_when(plugin.stat().st_mtime)}'
+    return Found(f'{built}, {older}: convert it in full' if older else built,
+                 not older and build_plan.record(plugin) is not None)
 
 
 def _when(stamp: float) -> str:
@@ -130,7 +132,7 @@ def plugin_path(settings: dict, source: str) -> Path:
 def master_dirs(settings: dict, source: str) -> list:
     """The output folders of the target's masters (an add-on's plugin folders), in its master order."""
     chosen, master = target(settings, source), GAMES[source]['master']
-    plugin = None if chosen.game else addons.source_file(settings, source, chosen, EXPORT_ROOT)
+    plugin = None if chosen.game else addons.source_file(settings, source, chosen, S.export_root(settings))
     names = addons.plugin_masters(plugin) if plugin else []
     return [addons.output(settings, source, name, master) for name in names]
 
@@ -160,7 +162,7 @@ def rebuilt(settings: dict, source: str) -> list:
 def missing_master(settings: dict, source: str) -> str:
     """The first of the target's masters with no built plugin in its output folder ('' when all are built)."""
     chosen, master = target(settings, source), GAMES[source]['master']
-    plugin = None if chosen.game else addons.source_file(settings, source, chosen, EXPORT_ROOT)
+    plugin = None if chosen.game else addons.source_file(settings, source, chosen, S.export_root(settings))
     for name in addons.plugin_masters(plugin) if plugin else []:
         built = GAMES[source]['plugin'] if name.lower() == master.lower() else name
         if not (addons.output(settings, source, name, master) / built).is_file():
@@ -185,6 +187,8 @@ def unavailable(settings: dict, source: str, stage: str, platform: str = sys.pla
         return f'build its master {missing_master(settings, source)} first'
     if stage == 'update' and build_plan.record(plugin_path(settings, source)) is None:
         return 'no finished build of it yet: build it once first'
+    if stage == 'update' and build_plan.from_older_release(plugin_path(settings, source)):
+        return f'{build_plan.from_older_release(plugin_path(settings, source))}: convert it in full'
     if stage in ('helpers', 'build', 'update', 'check', 'fo4edit') and not _has_data(settings, 'fallout4'):
         return "Fallout 4's game folder is not set, or has no Data folder"
     return ''
@@ -217,7 +221,8 @@ def next_step(settings: dict, source: str) -> str:
         return f"Set your {GAMES[source]['label']} folder on the Setup screen first."
     if missing:
         return f'Convert {missing} first: pick it in the list above.'
-    if build_plan.record(plugin_path(settings, source)) is None:
+    built = plugin_path(settings, source)
+    if build_plan.record(built) is None or build_plan.from_older_release(built):
         return f'Click Convert to build {name}; the line under the button says about how long it takes.'
     return (f'{name} is built. Click Convert to rebuild only what changed since, or open Finished to set it up in '
             'Mod Organizer and play.')

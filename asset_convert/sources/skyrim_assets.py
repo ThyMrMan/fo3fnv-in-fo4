@@ -27,7 +27,7 @@ from pathlib import Path
 from asset_convert import paths
 
 _REPO = paths.REPO
-_CACHE_DIR = _REPO / 'export' / 'skyrim_assets'
+_CACHE_DIR = paths.EXPORT / 'skyrim_assets'
 
 _skyrim_data_override = None
 _skyrim_data_cached = False

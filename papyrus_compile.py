@@ -23,6 +23,7 @@ from core.worker_budget import worker_count
 from output_layout import plugin_out_root, record_dir
 from script_convert.ownership import owner_key, read_owned, sibling_owned
 from source_paths import find_game_path
+from asset_convert import paths as data_paths
 
 #: TESConversion root, for the bundled compiler and as the compiler's cwd.
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -275,7 +276,7 @@ def _own_psc_files(file_name: str, script_src: Path) -> list:
 
     See: docs/commentary/script_convert.md#wipe-output-dir
     """
-    owner = owner_key(record_dir(str(SCRIPT_DIR / "export"), file_name))
+    owner = owner_key(record_dir(str(data_paths.EXPORT), file_name))
     every = sorted(script_src.glob("*.psc"))
     if not sibling_owned(script_src, owner):
         return every
@@ -291,7 +292,7 @@ def _master_source_dirs(file_name: str, out_root: Path) -> list:
     and every generated body calls it.
     See: docs/commentary/script_convert.md#vanilla-headers
     """
-    export_root = str(SCRIPT_DIR / "export")
+    export_root = str(data_paths.EXPORT)
     dirs = []
     for m in reversed(master_chain(record_dir(export_root, file_name))):
         d = plugin_out_root(out_root, m, export_root) / "scripts" / "source"
@@ -340,8 +341,8 @@ def _prepare(file_name: str, config: dict, output_dir):
     legitimately convert zero scripts, which every other phase reports as
     success -- and False for a missing compiler or missing vanilla headers.
     """
-    out_root = Path(output_dir) if output_dir else SCRIPT_DIR / "output"
-    pout = plugin_out_root(out_root, file_name, str(SCRIPT_DIR / "export"))
+    out_root = Path(output_dir) if output_dir else data_paths.OUTPUT
+    pout = plugin_out_root(out_root, file_name, str(data_paths.EXPORT))
     script_src, script_out = pout / "scripts" / "source", pout / "scripts"
 
     if not script_src.is_dir() or not any(script_src.glob("*.psc")):

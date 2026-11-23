@@ -18,10 +18,11 @@ from pathlib import Path
 from core import build_resources
 from fo4_import.pipeline import eta_inputs
 from fo4_import.pipeline.code_tag import ROOT
+from asset_convert import paths as data_paths
 
 DATA = ROOT / 'fo4_import' / 'data' / 'build_eta.json'
 #: Where machine_benchmark.py writes by default and the build looks for this machine's benchmark.
-BENCHMARK = ROOT / 'output' / 'machine_benchmark.json'
+BENCHMARK = data_paths.OUTPUT / 'machine_benchmark.json'
 #: How each feature's work scales to another machine (the rest is the main process: one core's speed).
 KIND = {'faces_cold': 'pool', 'guns_cold': 'pool', 'meshes_cold': 'pool', 'scripts_changed': 'pool',
         'voices_cold': 'pool', 'packed': 'disk'}
@@ -35,10 +36,10 @@ def load(path: Path = DATA) -> dict:
     return json.loads(path.read_text(encoding='utf-8'))
 
 
-def benchmark(path: Path = BENCHMARK) -> 'dict | None':
-    """A machine_benchmark.py result, or None when there is none."""
+def benchmark(path: 'Path | None' = None) -> 'dict | None':
+    """A machine_benchmark.py result (default: BENCHMARK in today's data_root()), or None when there is none."""
     try:
-        return json.loads(Path(path).read_text(encoding='utf-8'))
+        return json.loads(Path(path or data_paths.data_root() / 'output' / BENCHMARK.name).read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return None
 

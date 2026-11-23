@@ -36,12 +36,13 @@ from core.collision_options import default_for_plugin as _winding_default
 from core.run_log import DEFAULT_RUNS_KEPT
 from core.subprocess_flags import configure_multiprocessing
 from output_layout import asset_root
+from asset_convert import paths as data_paths
 
 #: The repo root: this file is `<root>/core/gui/config.py`.
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 CONFIG_FILE = REPO_ROOT / "conversion_config.json"
-EXPORT_DIR = REPO_ROOT / "export"
+EXPORT_DIR = data_paths.EXPORT
 
 
 #: Every color the window uses; the teal `global_btn` marks non-pipeline

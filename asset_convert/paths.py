@@ -6,6 +6,7 @@ per-module from `__file__` breaks the moment the module's depth changes, and
 one `generated/` site created an empty directory rather than raising.
 """
 
+import os
 from pathlib import Path
 
 #: Repository root: the directory holding `convert.py` and `external/`.
@@ -14,9 +15,24 @@ REPO = Path(__file__).resolve().parent.parent
 #: Bundled data shipped inside the package (skeleton bones, body-wrap caches).
 GENERATED = Path(__file__).resolve().parent / 'generated'
 
-#: Default export and output trees, overridden by an explicit root.
-EXPORT = REPO / 'export'
-OUTPUT = REPO / 'output'
+#: Names the folder holding the export, output and logs (the Fallout 4 app's work folder).
+DATA_ENV = 'F3NV_DATA'
+
+
+def data_root() -> Path:
+    """The folder holding export/, output/ and logs/: $F3NV_DATA, else this checkout.
+    See: docs/fork/fo4_gui.md#work-folder
+    """
+    return Path(os.environ.get(DATA_ENV) or REPO)
+
+
+#: Default export, output and log trees (data_root() at import), overridden by an explicit root.
+DATA = data_root()
+EXPORT = DATA / 'export'
+OUTPUT = DATA / 'output'
+LOGS = DATA / 'logs'
+#: The Fallout 4 build's caches.
+FO4_CACHE = OUTPUT / 'fo4_cache'
 
 #: Third-party executables committed under `external/`.
 EXTERNAL = REPO / 'external'

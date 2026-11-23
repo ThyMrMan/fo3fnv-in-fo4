@@ -93,7 +93,7 @@ what exists. Not played in game yet.
   `core/gui/config.py` (no Tk import), `classify` from `core/gui/runner.py`,
   and the update check from `version.py`.
 - **Run logs:** each Convert run writes every line it shows to one
-  `logs/run-<stamp>-<plugin>.log` (`runner.open_log`, through
+  `logs/run-<stamp>-<plugin>.log` in the [work folder](#work-folder) (`runner.open_log`, through
   `core/run_log.py`, which keeps the last 20). The stages get
   `TESCONV_RUN_LOG`, so `convert.py` doesn't write a second log. Before 0.3 a
   stage's output lived only in the window, so a user's warnings were lost once
@@ -367,8 +367,8 @@ sets them and Setup edits them later.
 | Game installs | FNV, FO3, FO4: detected, can be changed |
 | Mod sources | An ordered list of folders, any mix of kinds ([below](#mod-sources)). Empty means vanilla only |
 | Output | A folder of loose files plus plugins (default), or a zip. Setting up an MO2 mod or profile comes later and is optional |
-| Replacement file | Beside the app (`replacements/<source>.json`), inside the output folder, or any path |
-| Export and caches | The user folder (default) or a folder the user picks; they can take tens of GB |
+| Replacement file | In the work folder (`replacements/<source>.json`), inside the output folder, or any path |
+| Work folder: export, caches, run logs, scripts | `F3NV Work` beside the app folder (default) or a folder the user picks; about 100 GB for New Vegas ([below](#work-folder)) |
 | Replacement profile | `vanilla-fo4`, `fnv-look`, or a modlist's ([profiles](#replacement-data)) |
 | External tools | Wine or Proton prefix (macOS, Linux); NifSkope path (optional) |
 | How much of the PC a build uses | Low, Balanced (default) or Full ([resources](fo4_build_resources.md#profiles)) |
@@ -376,6 +376,42 @@ sets them and Setup edits them later.
 `run.py` reads these settings instead of its constants. `spike/facegen.py`
 should too, but its MO2 path is still hard-coded
 ([where things stand](#where-it-stands)).
+
+### <a id="work-folder"></a>The work folder: an app folder of code only
+
+The app folder holds only what a release ships, so a new release can be
+unzipped beside it (or over it) and the old one deleted. Everything a
+conversion makes lives in the work folder (`settings.work_dir`): `export/`,
+`output/` (with `output/fo4_cache`, the face bases and the mesh, work and
+script caches), `logs/`, `replacements/` and `scripts/`.
+
+- **One switch.** `asset_convert/paths.py` reads `F3NV_DATA`
+  (`DATA_ENV`); `EXPORT`, `OUTPUT`, `LOGS` and `FO4_CACHE` sit under it,
+  and every export, output and cache path in `convert.py`,
+  `papyrus_compile.py`, `source_paths.py`, `output_layout.py` and
+  `fo4_import` reads them. Unset (a developer checkout, the command line),
+  it is the checkout itself, as before.
+- **The app sets it** for itself at start and on Save (`workspace.use`)
+  and for every stage (`mo2_setup.environment`), and finds the export
+  through `settings.export_root`. In the app process, a value read at import
+  is the checkout's, so in-app readers ask `paths.data_root()` when called
+  (`eta.benchmark`).
+- **Default: `F3NV Work` beside the app folder** (`settings.DEFAULT_WORK`),
+  not the user's config folder: a New Vegas work folder is about 100 GB
+  and belongs on the drive the user unzipped to, and releases unzipped
+  side by side share it.
+- **Older releases' data moves on first start.** Up to f3nv-0.3 the export
+  and caches lived in the app folder. `workspace.adopt` renames
+  `export`, `output` and `replacements` into the work folder when that has
+  none yet, from this app folder (a release unzipped over the old one),
+  else from the newest older release's app folder beside it (its `VERSION`
+  tag; a release unzipped next to the old one). A rename is instant on one
+  drive; on another drive it says to move them by hand. A checkout (no
+  `VERSION` tag) and links are left alone. A saved replacement place `app`
+  reads as `work`.
+- **Builds an older release made convert in full**
+  ([plugin layout](fo4_plugin_layout.md#moved-app-folder)); a build from a
+  moved or renamed app folder of the same release still rebuilds.
 
 ## <a id="mod-sources"></a>Mod sources
 

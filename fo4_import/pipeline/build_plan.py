@@ -25,6 +25,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from fo4_import.base import release
 from fo4_import.base.install import file_masters
 from fo4_import.base.ledger import ID, Ledger, ledger_path
 from fo4_import.base.master_overrides import read_built
@@ -41,6 +42,8 @@ from tes5_import.base.tes5_reader import walk
 CURRENT, BUILD, AFTER = 'current', 'build', 'after'
 #: run()'s own exit codes (its docstring): rebuilt plugin still BUILD, hidden input leaked, scratch master.
 STILL_BUILD, LEAKED, SCRATCH_MASTER = 3, 4, 5
+#: run()'s exit code for a plugin an older release built: the app converts it in full instead.
+OLD_RELEASE = 7
 #: Folders holding scratch builds: a plugin outside them must not read a master inside them.
 SCRATCH = (ROOT / 'temp',)
 #: The build modules a stamp's command can name, each replayed with its own retarget (build_command).
@@ -68,10 +71,33 @@ def record(plugin: Path) -> 'dict | None':
 
 @functools.lru_cache(maxsize=256)
 def _record(path: Path, stamp_file: Path, *_mtimes) -> 'dict | None':
-    """record() of `path`, read once per pair of file mtimes (`_mtimes`)."""
+    """record() of `path` (here()), read once per pair of file mtimes (`_mtimes`)."""
     if json.loads(stamp_file.read_text(encoding='utf-8')).get('status') != 'finished':
         return None
-    return json.loads(path.read_text(encoding='utf-8'))
+    return here(json.loads(path.read_text(encoding='utf-8')))
+
+
+def moved(path: str, old: str) -> str:
+    """`path` in app folder `old` as the same path in this one; others as they are."""
+    inside = os.path.normcase(path).startswith(os.path.normcase(old) + os.sep)
+    return str(ROOT) + path[len(old):] if inside else path
+
+
+def made_in(rec: dict) -> 'str | None':
+    """Inputs record `rec`'s app folder: its root, else its fo4_import's folder."""
+    tail = os.sep + 'fo4_import'
+    return rec.get('root') or next((d[:-len(tail)] for d in rec['dirs'] if d.endswith(tail)), None)
+
+
+def here(rec: dict) -> dict:
+    """Inputs record `rec` with its paths in the app folder that made it (made_in) moved into this one.
+    See: docs/fork/fo4_plugin_layout.md#moved-app-folder
+    """
+    old = made_in(rec)
+    if not old or os.path.normcase(old) == os.path.normcase(str(ROOT)):
+        return rec
+    keyed = {k: {moved(p, old): v for p, v in rec.get(k, {}).items()} for k in ('files', 'dirs', 'programs', 'natives')}
+    return {**rec, **keyed, 'root': str(ROOT), 'argv': [moved(a, old) for a in rec['argv']]}
 
 
 def same_file(path: str, kept: list) -> bool:
@@ -234,11 +260,25 @@ def fresh_reads() -> None:
         memo.cache_clear()
 
 
+def built_release(plugin: Path) -> str:
+    """The release that last built `plugin` (its build stamp's), '' when none is recorded."""
+    try:
+        return json.loads(stamp_path(plugin).read_text(encoding='utf-8')).get('release') or ''
+    except (OSError, ValueError):
+        return ''
+
+
+def from_older_release(plugin: Path) -> str:
+    """'built by <release>, an older release' when one built `plugin`, else ''."""
+    made = built_release(plugin)
+    return f'built by {made}, an older release' if release.older(made) else ''
+
+
 def verdict(plugin: Path) -> tuple:
     """(CURRENT or BUILD, the first changed input or '') of built `plugin`, its masters taken as they are now."""
-    rec = record(plugin)
-    if rec is None:
-        return BUILD, 'no finished build with an inputs record'
+    rec, older = record(plugin), from_older_release(plugin)
+    if rec is None or older:
+        return BUILD, older or 'no finished build with an inputs record'
     key = changed(rec['code'])
     if key:
         parts = stale_parts(rec)
@@ -404,7 +444,7 @@ def build_argv(plugin: Path, dirs: list) -> list:
     masters in `dirs` as its build module (build_module) takes them.
     See: docs/fork/fo4_plugin_layout.md#replay
     """
-    rec = json.loads(inputs_path(plugin).read_text(encoding='utf-8')) if inputs_path(plugin).is_file() else None
+    rec = here(json.loads(inputs_path(plugin).read_text(encoding='utf-8'))) if inputs_path(plugin).is_file() else None
     if rec is None:
         kept = json.loads(stamp_path(plugin).read_text(encoding='utf-8'))
         argv = kept.get('argv') or stamp_argv(kept['command'])
@@ -517,10 +557,11 @@ def faces_due(plugin: Path, plugins: list) -> 'tuple | None':
     names = {m.lower() for m in file_masters(plugin)}
     later = [m.name for m in map(Path, plugins) if m.name.lower() in names
              and ((facegen.faces_stamp(m) or {}).get('ended') or '') > (kept.get('ended') or '')]
-    stale, argv = facegen.faces_stale(plugin), in_folder(kept['argv'], plugin)
+    old = kept.get('cwd') or str(ROOT)
+    stale, argv = facegen.faces_stale(plugin), in_folder([moved(a, old) for a in kept['argv']], plugin)
     if stale or not later:
-        return (stale, argv, kept.get('cwd') or ROOT) if stale else None
-    return f'its master {later[0]}\'s faces ran after its own', [facegen.OVERRIDES_ONLY, *argv], kept.get('cwd') or ROOT
+        return (stale, argv, ROOT) if stale else None
+    return f'its master {later[0]}\'s faces ran after its own', [facegen.OVERRIDES_ONLY, *argv], ROOT
 
 
 def in_folder(argv: list, plugin: Path) -> list:
@@ -548,18 +589,31 @@ def faces_again(plugins: list) -> int:
     return 0
 
 
+def refusal(plugins: list) -> 'tuple | None':
+    """(exit code, why) when run() must not replay `plugins`: a master from a scratch copy (SCRATCH_MASTER), or one
+    an older release built (OLD_RELEASE); None when it may."""
+    scratch = scratch_masters(plugins)
+    if scratch:
+        return SCRATCH_MASTER, ('masters from scratch copies under temp/ (build those plugins against the real '
+                                'masters):\n  ' + '\n  '.join(scratch))
+    old = [f'{Path(p).name} ({from_older_release(Path(p))})' for p in plugins if from_older_release(Path(p))]
+    if old:
+        return OLD_RELEASE, f'convert in full (the Build stage), not rebuilt: {", ".join(old)}'
+    return None
+
+
 def run(plugins: list) -> int:
     """Build every plugin of `plugins` that needs it, masters first, checking the rest again after each, and run a
     rebuilt plugin's faces stage again (faces_again); the first failing build's exit code, STILL_BUILD when a
     plugin still needs a build after its own with none of its masters built since, LEAKED when a build flips a plugin that does not depend on it,
-    SCRATCH_MASTER when a plugin reads a master from a scratch copy, else 0.
+    SCRATCH_MASTER when a plugin reads a master from a scratch copy, OLD_RELEASE when an older release built one,
+    else 0.
     See: docs/fork/fo4_plugin_layout.md#plan-guards
     """
-    scratch = scratch_masters(plugins)
-    if scratch:
-        print('masters from scratch copies under temp/ (build those plugins against the real masters):\n  '
-              + '\n  '.join(scratch), flush=True)
-        return SCRATCH_MASTER
+    refused = refusal(plugins)
+    if refused:
+        print(refused[1], flush=True)
+        return refused[0]
     built, before, last = set(), None, None
     while True:
         code, faces = clocked(faces_again, plugins)

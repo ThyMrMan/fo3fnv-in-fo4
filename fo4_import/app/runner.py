@@ -9,14 +9,13 @@ import os
 import subprocess
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
+from asset_convert import paths as data_paths
 from core import run_log
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.app.stages import REPO
 from fo4_import.base import release
-
-#: Where the app's run logs go (run_log.logs_root may move it).
-LOGS = REPO / 'logs'
 
 #: Output lines worth repeating on the Finished screen: replacement fallbacks and errors.
 WARNING_MARKS = ('replacements:', 'Traceback', 'Error', 'ERROR', 'FAILED')
@@ -31,10 +30,10 @@ class Result:
     seconds: float
 
 
-def open_log(name: str) -> 'run_log.RunLog | None':
-    """A new run log in logs/ named for `name` (the oldest beyond run_log's default count removed); None when
-    logs/ can't be written."""
-    folder = run_log.logs_root(LOGS)
+def open_log(name: str, data: 'str | None' = None) -> 'run_log.RunLog | None':
+    """A new run log in logs/ of folder `data` (else this checkout) named for `name` (the oldest beyond run_log's
+    default count removed); None when logs/ can't be written."""
+    folder = run_log.logs_root(Path(data or REPO) / 'logs')
     if not run_log.prune(folder):
         return None
     log = run_log.RunLog(run_log.free_log_path(folder, name), {'Release': release.current(), 'From': 'the app'})
@@ -52,7 +51,7 @@ class Runner:
     def run(self, on_line) -> list:
         """Run each stage in order, calling `on_line(text)` per output line and writing it to the run log; the
         Results, up to a failure."""
-        log = open_log(self.name)
+        log = open_log(self.name, self.env.get(data_paths.DATA_ENV))
         if log is not None:
             self.env = {**self.env, run_log.RUN_LOG_ENV_VAR: str(log.path)}
 

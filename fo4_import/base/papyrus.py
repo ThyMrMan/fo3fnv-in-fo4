@@ -15,11 +15,12 @@ from pathlib import Path
 
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base.install import FALLOUT4_DIR
+from asset_convert import paths as data_paths
 
 FO4_COMPILER = FALLOUT4_DIR / 'Papyrus Compiler' / 'PapyrusCompiler.exe'
 #: Where the install keeps script sources: the Creation Kit's zips in subfolders, F4SE's .psc loose.
 INSTALL_SOURCES = FALLOUT4_DIR / 'Data' / 'Scripts' / 'Source'
-FO4_HEADERS = Path(__file__).resolve().parents[2] / 'output' / 'fo4_cache' / 'fo4_headers'
+FO4_HEADERS = data_paths.FO4_CACHE / 'fo4_headers'
 #: The file Base must hold for the headers to count as unpacked.
 FLAGS_FILE = 'Institute_Papyrus_Flags.flg'
 

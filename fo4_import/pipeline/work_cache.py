@@ -30,8 +30,9 @@ from fo4_import.nif.convert_static import glow_image, spec_image
 from fo4_import.pipeline.code_identity import changed, hashes, relative, module_keys
 from fo4_import.pipeline.code_tag import ROOT, tagged_files
 from fo4_import.pipeline.ran_code import ran_while
+from asset_convert import paths as data_paths
 
-CACHE = ROOT / 'output' / 'fo4_cache' / 'work'
+CACHE = data_paths.FO4_CACHE / 'work'
 #: Days an entry of a cache prune() is given may go unused before it is deleted.
 UNUSED_DAYS = 14
 #: Seconds a used entry's time may lag before a lookup marks it again: prune() counts whole days.

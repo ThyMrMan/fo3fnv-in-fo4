@@ -92,7 +92,7 @@ def test_play_runs_f4se_through_mo2_or_the_game(tmp_path):
     (tmp_path / 'fo4' / 'f4se_loader.exe').write_bytes(b'')
     assert M.play_command(s) == ((str(tmp_path / 'fo4' / 'f4se_loader.exe'),), str(tmp_path / 'fo4'))
     assert M.environment(_settings(tmp_path / 'b', _instance(tmp_path / 'b'))) == {
-        'F3NV_MO2': str(tmp_path / 'b' / 'MO2')}
+        'F3NV_MO2': str(tmp_path / 'b' / 'MO2'), 'F3NV_DATA': str(tmp_path / 'b' / 'work')}
 
 
 def test_faces_and_runtime_stages(tmp_path):

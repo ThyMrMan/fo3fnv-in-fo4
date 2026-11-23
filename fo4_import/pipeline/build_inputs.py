@@ -20,6 +20,7 @@ from fo4_import.base.build_files import moved_in
 from fo4_import.pipeline import ran_code
 from fo4_import.pipeline.code_identity import hashes
 from fo4_import.pipeline.code_tag import ROOT
+from asset_convert import paths as data_paths
 
 #: The folder each process of a recorded build writes its record into (set for worker processes).
 ENV = 'F3NV_BUILD_INPUTS'
@@ -286,7 +287,7 @@ def _outside(path: str, skip: tuple) -> bool:
 
 def _skipped(data_dir: Path, folder: Path) -> tuple:
     """Case-folded roots no input lives under (outputs, caches, Python)."""
-    roots = [data_dir, folder, ROOT / 'output' / 'fo4_cache', sys.prefix, sys.base_prefix]
+    roots = [data_dir, folder, data_paths.FO4_CACHE, sys.prefix, sys.base_prefix]
     return tuple(norm(r) + os.sep for r in roots)
 
 
@@ -319,7 +320,7 @@ def write(plugin: Path, data_dir: Path, argv: list) -> Path:
     written = seen['writes'] | seen['covered'] | MASTERS.covered
     reads = sorted(p for p in seen['reads'] - written if _outside(p, skip))
     dirs = sorted(p for p in seen['dirs'] - _parents(seen['writes']) - seen['covered'] if not p.startswith(skip))
-    body = {'format': FORMAT, 'argv': argv, 'environment': _environment(),
+    body = {'format': FORMAT, 'root': str(ROOT), 'argv': argv, 'environment': _environment(),
             'files': {p: s for p in reads if (s := stamp(Path(p)))},
             'dirs': {p: d for p in dirs if (d := listing(Path(p)))},
             'programs': {p: s for p in sorted(seen['programs']) if (s := program(p))},

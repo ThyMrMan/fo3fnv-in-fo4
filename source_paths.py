@@ -9,6 +9,7 @@ See: docs/reference/pipeline.md#plugin-source-resolution
 import json
 import os
 from pathlib import Path
+from asset_convert import paths as data_paths
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -131,7 +132,7 @@ def resolve_plugin_path(file_name: str, tes4_data: str,
     EVERY `os.path.join(tes4_data, name)` must go through here.
     See: docs/reference/pipeline.md#plugin-source-resolution
     """
-    export_dir = export_dir or str(SCRIPT_DIR / "export")
+    export_dir = export_dir or str(data_paths.EXPORT)
     selected = os.path.join(tes4_data or "", file_name)
     in_selected = bool(tes4_data) and os.path.isfile(selected)
     return (_registered_source(export_dir, file_name, not in_selected)

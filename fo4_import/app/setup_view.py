@@ -19,7 +19,7 @@ GAME_LABELS = {'fallout4': 'Fallout 4', **{source: game['label'] for source, gam
 SOURCE_LABELS = {source: game['label'] + (f" ({game['note']})" if game['note'] else '')
                  for source, game in GAMES.items()}
 OUTPUT_LABELS = {'folder': 'A folder of loose files', 'zip': 'A zip of that folder'}
-PLACE_LABELS = {'app': 'Beside the app', 'output': 'In the output folder', 'custom': 'A path I choose'}
+PLACE_LABELS = {'work': 'In the work folder','output': 'In the output folder', 'custom': 'A path I choose'}
 RESOURCE_LABELS = {'low': 'Low: leave half the cores and memory free (slower; for a weaker PC or using it meanwhile)',
                    'balanced': 'Balanced: leave a quarter free', 'full': 'Full: every core but one (fastest)'}
 

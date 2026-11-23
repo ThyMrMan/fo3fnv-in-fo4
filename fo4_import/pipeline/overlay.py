@@ -31,6 +31,7 @@ from fo4_import.pipeline.mesh_cache import warm
 from fo4_import.pipeline.stale_files import list_path
 from fo4_import.pipeline.work_cache import spec_map
 from fo4_import.spike.statics import copy_texture, stage_derived, write_assets
+from asset_convert import paths as data_paths
 
 #: A shipped specular map derived from an FNV normal map (spec_map_path): its path before `_s`.
 SPEC = re.compile(r'^textures/fnv/(.+)_s(_g[^/]*)?\.dds$')
@@ -122,7 +123,7 @@ def arguments() -> argparse.Namespace:
     ap.add_argument('--built', required=True, nargs='+', type=Path, help='Built FO4 plugins the overlay replaces in')
     ap.add_argument('--mods', required=True, nargs='+', type=Path,
                     help='Replacer mod folders, in load order (a later one wins)')
-    ap.add_argument('--export-root', type=Path, default=ROOT / 'export', help='Folder of the FNV exports')
+    ap.add_argument('--export-root', type=Path, default=data_paths.EXPORT, help='Folder of the FNV exports')
     ap.add_argument('--workers', type=int, default=0, help='Mesh conversion processes (default: all CPUs but one)')
     return ap.parse_args()
 

@@ -104,6 +104,7 @@ from asset_convert.sources import source_registry
 from convert_cli import (SCOPED_STEPS, apply_config_overrides, build_parser,
                          selected_steps, unscoped_steps)
 import preflight
+from asset_convert import paths as data_paths
 import version as _version
 
 
@@ -527,7 +528,7 @@ def phase_extract(file_name: str, tes4_data: str, config: dict,
       * everything else extracts the BSAs sitting beside the plugin, in
         whichever registered Data directory holds it.
     """
-    extract_dir = str(SCRIPT_DIR / "export")
+    extract_dir = str(data_paths.EXPORT)
     if file_name == PATCH_NAME:
         print(f"[{file_name}] Its Export step extracts the assets it ships")
         return True
@@ -576,7 +577,7 @@ def _use_plugin_namespace(file_name: str) -> str:
     """
     from asset_convert.game_paths import namespace_for, set_namespace
     from asset_convert.nif import morroblivion_textures
-    rec_dir = record_dir(str(SCRIPT_DIR / "export"), file_name)
+    rec_dir = record_dir(str(data_paths.EXPORT), file_name)
     ns = namespace_for(rec_dir)
     set_namespace(ns)
     morroblivion_textures.activate(rec_dir)
@@ -600,8 +601,8 @@ def phase_assets(file_name: str, config: dict, output_dir: str = None,
     _use_plugin_namespace(file_name)
     from asset_convert.asset_pipeline import convert_meshes
 
-    extract_dir = str(SCRIPT_DIR / "export")
-    out_dir     = output_dir or str(SCRIPT_DIR / "output")
+    extract_dir = str(data_paths.EXPORT)
+    out_dir     = output_dir or str(data_paths.OUTPUT)
 
     if winding_fix is None:
         winding_fix = default_for_plugin(file_name)
@@ -658,8 +659,8 @@ def phase_speedtrees(file_name: str, config: dict, output_dir: str = None):
     _use_plugin_namespace(file_name)
     from asset_convert.asset_pipeline import convert_speedtrees
 
-    extract_dir = str(SCRIPT_DIR / "export")
-    out_dir     = output_dir or str(SCRIPT_DIR / "output")
+    extract_dir = str(data_paths.EXPORT)
+    out_dir     = output_dir or str(data_paths.OUTPUT)
 
     # Branches come from Oblivion's own SpeedTree code by DEFAULT.  It needs a
     # configured Oblivion.exe plus the committed native/dist harness; when
@@ -700,12 +701,12 @@ def phase_creatures(file_name: str, tes5_data: str, config: dict,
     _use_plugin_namespace(file_name)
     from asset_convert.havok.creature_pipeline import convert_creatures
 
-    export_root = str(SCRIPT_DIR / "export")
+    export_root = str(data_paths.EXPORT)
     export_subdir = str(record_dir(export_root, file_name))
     if not os.path.isdir(export_subdir):
         print(f"[{file_name}] No export directory, skipping creatures")
         return False
-    out_root = Path(output_dir) if output_dir else SCRIPT_DIR / "output"
+    out_root = Path(output_dir) if output_dir else data_paths.OUTPUT
     out_meshes = str(plugin_out_root(out_root, file_name, export_root)
                      / "meshes")
 
@@ -744,7 +745,7 @@ def phase_import(file_name: str, tes4_data: str, tes5_data: str,
 
     _install_navmesh_cache(file_name, config)
 
-    out_root = output_dir or str(SCRIPT_DIR / "output")
+    out_root = output_dir or str(data_paths.OUTPUT)
     os.makedirs(out_root, exist_ok=True)
     # Every plugin gets its own output folder (output/<plugin>/<plugin>), which
     # is also where the asset/mesh pipeline writes. Create it unconditionally:
@@ -789,8 +790,8 @@ def phase_sounds(file_name: str, config: dict, output_dir: str = None):
     _use_plugin_namespace(file_name)
     from asset_convert.asset_pipeline import convert_sounds
 
-    extract_dir = str(SCRIPT_DIR / "export")
-    out_dir     = output_dir or str(SCRIPT_DIR / "output")
+    extract_dir = str(data_paths.EXPORT)
+    out_dir     = output_dir or str(data_paths.OUTPUT)
 
     print(f"[{file_name}] Converting sounds to XWM...")
     stats = convert_sounds(
@@ -833,13 +834,13 @@ def phase_scripts(file_name: str, config: dict, output_dir: str = None):
     from script_convert.pipeline import convert_all_scripts
     from tes5_import.base.artifact_schema import StaleArtifactError
 
-    export_root = str(SCRIPT_DIR / "export")
+    export_root = str(data_paths.EXPORT)
     export_subdir = str(record_dir(export_root, file_name))
     if not os.path.isdir(export_subdir):
         print(f"[{file_name}] No export directory, skipping scripts")
         return False
 
-    out_root = Path(output_dir) if output_dir else SCRIPT_DIR / "output"
+    out_root = Path(output_dir) if output_dir else data_paths.OUTPUT
     if file_name == PATCH_NAME:
         staged = stage_pair_scripts(export_root, out_root)
         print(f"[{file_name}] Staged {staged} split-pair child script(s)")
@@ -888,7 +889,7 @@ def phase_modify_body_meshes(tes5_data: str = None, plugins: list = None,
     if not plugin_paths:
         print("WARNING: none of the selected plugins were found - body-slot patch not generated")
         return True
-    out_root = Path(output_dir) if output_dir else SCRIPT_DIR / "output"
+    out_root = Path(output_dir) if output_dir else data_paths.OUTPUT
     stage = out_root / f"_{BODY_SLOTS_PATCH}"
     shutil.rmtree(stage, ignore_errors=True)
     ret = subprocess.run(
@@ -916,9 +917,9 @@ def phase_pack(file_name: str, config: dict, output_dir: str = None):
     """
     from asset_convert.sources.bsa_pack import pack_bsas
 
-    out_dir = output_dir or str(SCRIPT_DIR / "output")
+    out_dir = output_dir or str(data_paths.OUTPUT)
     bsarch  = config.get("bsarchPath") or None
-    export_root = str(SCRIPT_DIR / "export")
+    export_root = str(data_paths.EXPORT)
     export_dir = record_dir(export_root, file_name)
 
     print(f"[{file_name}] Packing BSAs...")
@@ -953,9 +954,9 @@ def phase_pack_zip(file_name: str, config: dict, output_dir: str = None):
     """
     from asset_convert.sources.bsa_pack import LOOSE_ONLY_DIRS
 
-    out_root = Path(output_dir) if output_dir else SCRIPT_DIR / "output"
+    out_root = Path(output_dir) if output_dir else data_paths.OUTPUT
     src_root = plugin_out_root(out_root, file_name,
-                               str(SCRIPT_DIR / "export"))
+                               str(data_paths.EXPORT))
     if not src_root.is_dir():
         print(f"[{file_name}] Source not found: {src_root}, skipping zip pack")
         return False
@@ -1008,7 +1009,7 @@ def _run_pipeline():
     tes4_data = args.data_dir or tes4_data
     source_registry.select_directory(tes4_data)
     output_dir = args.output_dir or str(configured_output(config.get("outputDir")))
-    export_dir = str(SCRIPT_DIR / "export")
+    export_dir = str(data_paths.EXPORT)
     os.makedirs(export_dir, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
 
@@ -1278,7 +1279,7 @@ def main():
         "Command": " ".join(["convert.py"] + sys.argv[1:]),
     }
     log = (None if _is_informational_argv() or os.environ.get(SUPERVISED_ENV_VAR)
-           else run_log.start_cli_run(SCRIPT_DIR / "logs", config, header))
+           else run_log.start_cli_run(data_paths.LOGS, config, header))
     code = 1
     try:
         code = _run_pipeline()

@@ -434,6 +434,33 @@ def test_a_rebuild_writes_the_plugin_in_its_own_folder(tmp_path):
                                                  str(game), '--export', 'export/Dlc.esm', '--no-test-cell']
 
 
+def test_a_record_from_a_moved_app_folder_reads_its_paths_in_this_one(tmp_path):
+    """Paths inside the app folder a record names (its root, else its listed fo4_import's folder) move into this
+    one; paths elsewhere stay."""
+    old = str(tmp_path / 'f3nv-0.2')
+    rec = {'argv': ['--export', old + '\\export\\FalloutNV.esm', '--data', 'D:\\Mods\\Out'],
+           'files': {os.path.normcase(old + '\\fo4_import\\data\\x.json'): [1, 2, None]},
+           'dirs': {os.path.normcase(old + '\\fo4_import'): 'a', 'c:\\py': 'b'}, 'programs': {}, 'natives': {}}
+    moved = BP.here(rec)
+    assert moved['argv'] == ['--export', str(ROOT) + '\\export\\FalloutNV.esm', '--data', 'D:\\Mods\\Out']
+    assert set(moved['dirs']) == {str(ROOT) + '\\fo4_import', 'c:\\py'} and moved['root'] == str(ROOT)
+    assert list(moved['files']) == [str(ROOT) + '\\fo4_import\\data\\x.json']
+    assert BP.here({**rec, 'root': str(ROOT)})['argv'] == rec['argv']
+
+
+def test_a_plugin_an_older_release_built_is_converted_in_full_not_rebuilt(monkeypatch, tmp_path):
+    """Its stamp's older release makes it need a build, and run() refuses to replay it (OLD_RELEASE)."""
+    plugin = _game(tmp_path / 'FalloutNV.esm', [])
+    BS.stamp_path(plugin).write_text(json.dumps({'status': 'finished', 'release': 'f3nv-0.2'}), encoding='utf-8')
+    monkeypatch.setattr(BP.release, 'current', lambda: 'f3nv-0.4')
+    assert BP.from_older_release(plugin) == 'built by f3nv-0.2, an older release'
+    assert BP.verdict(plugin) == (BP.BUILD, 'built by f3nv-0.2, an older release')
+    monkeypatch.setattr(BP, 'rebuild', lambda *_: pytest.fail('replayed an older release'))
+    assert BP.run([plugin]) == BP.OLD_RELEASE
+    monkeypatch.setattr(BP.release, 'current', lambda: 'f3nv-0.2')
+    assert BP.from_older_release(plugin) == ''
+
+
 def test_a_plugin_still_out_of_date_after_its_build_stops_the_run(monkeypatch, tmp_path):
     """A build that leaves its plugin needing a build again stops the run instead of building it forever."""
     plugin, builds = tmp_path / 'Dlc.esm', []

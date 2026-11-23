@@ -58,10 +58,9 @@ def test_the_build_converts_scripts_itself():
 
 def test_found_says_what_earlier_runs_left(tmp_path, monkeypatch):
     """The export is done; built plugins are named."""
-    monkeypatch.setattr(ST, 'EXPORT_ROOT', tmp_path / 'export')
     s = _settings(tmp_path)
     assert [ST.found(s, 'falloutnv', k) for k, _ in ST.ORDER] == [None] * len(ST.ORDER)
-    header = tmp_path / 'export' / 'FalloutNV.esm' / '_HEADER.txt'
+    header = tmp_path / 'work' / 'export' / 'FalloutNV.esm' / '_HEADER.txt'
     header.parent.mkdir(parents=True)
     header.write_text('x')
     assert ST.found(s, 'falloutnv', 'export').done
@@ -69,6 +68,21 @@ def test_found_says_what_earlier_runs_left(tmp_path, monkeypatch):
     ST.plugin_path(s, 'falloutnv').write_text('x')
     built = ST.found(s, 'falloutnv', 'build')
     assert built.text.startswith('FalloutNV.esm built') and not built.done
+
+
+def test_a_build_by_an_older_release_is_converted_in_full(tmp_path, monkeypatch):
+    """The build stage is not done, and Rebuild what changed says why it can't run."""
+    s = _settings(tmp_path)
+    plugin = ST.plugin_path(s, 'falloutnv')
+    plugin.parent.mkdir(parents=True)
+    plugin.write_text('x')
+    ST.stamp_path(plugin).parent.mkdir(parents=True)
+    ST.stamp_path(plugin).write_text('{"status": "finished", "release": "f3nv-0.2"}', encoding='utf-8')
+    monkeypatch.setattr(ST.build_plan.release, 'current', lambda: 'f3nv-0.4')
+    built = ST.found(s, 'falloutnv', 'build')
+    assert not built.done and built.text.endswith('built by f3nv-0.2, an older release: convert it in full')
+    ST.build_plan.inputs_path(plugin).write_text('{"root": "", "dirs": {}}', encoding='utf-8')
+    assert ST.unavailable(s, 'falloutnv', 'update') == 'built by f3nv-0.2, an older release: convert it in full'
 
 
 def test_export_reads_the_chosen_game_folder(tmp_path):

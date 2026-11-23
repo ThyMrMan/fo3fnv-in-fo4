@@ -32,7 +32,7 @@ from pyffi.formats.nif import NifFormat
 
 def source_skeleton(plugin: str) -> str:
     """The exported human skeleton NIF for one source plugin."""
-    return os.path.join(str(paths.REPO), 'export', plugin, 'meshes',
+    return os.path.join(str(paths.EXPORT), plugin, 'meshes',
                         'characters', '_male', 'skeleton.nif')
 
 

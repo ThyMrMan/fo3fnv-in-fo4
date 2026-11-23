@@ -73,6 +73,7 @@ from core.gui.config import (
 from core.gui.selection import runnable
 from core.process_job import RC_CANCELLED
 from output_layout import BODY_SLOTS_PATCH
+from asset_convert import paths as data_paths
 
 # ---------------------------------------------------------------------------
 #  Classifying a log line
@@ -1117,7 +1118,7 @@ def bind_log(app, log_pane):
     sink = RunLogSink()
     bind(app, sink, text)
     app.log_sink = sink
-    app.logs_dir = REPO_ROOT / "logs"
+    app.logs_dir = data_paths.LOGS
     return sink
 
 

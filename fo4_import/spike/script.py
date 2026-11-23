@@ -34,6 +34,7 @@ from fo4_import.pipeline.code_tag import ROOT
 from output_layout import record_dir
 from script_convert.target import AV_PROPERTY_PREFIX
 from tools.script.compile_papyrus import compile_fallout4
+from asset_convert import paths as data_paths
 
 DOC_SCRIPT = 'FALLOUTNV_GSDocMitchellScript'
 #: Converted script kinds after the game prefix: quest stages, info results, packages, terminals, patrol markers.
@@ -53,7 +54,7 @@ _PROPERTY = re.compile(r'^(\w+)\s+Property\s+(\w+)', re.I | re.M)
 TRACE_SCRIPT = 'FNVSpike_SceneTrace'
 TRACE_LOG = 'FNVSpikeTrace'
 #: compile_into's staging folders (one per output Scripts folder).
-STAGE = ROOT / 'output' / 'fo4_cache' / 'script_stage'
+STAGE = data_paths.FO4_CACHE / 'script_stage'
 
 
 def use_prefix(export_dir) -> None:
@@ -161,7 +162,7 @@ def attach(scripts_dir: Path, forms: dict, helper_index: int) -> bytes:
 
 def converted_prefix(scripts_dir: Path) -> str:
     """Converted-script prefix of `scripts_dir` (named for its plugin): the namespace."""
-    return namespace_for(record_dir(ROOT / 'export', scripts_dir.name)).upper() + '_'
+    return namespace_for(record_dir(data_paths.EXPORT, scripts_dir.name)).upper() + '_'
 
 
 def with_types(dirs: list, names, prefix: str) -> set:

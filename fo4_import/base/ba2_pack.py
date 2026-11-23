@@ -38,9 +38,10 @@ from fo4_import.base.build_files import moved_in
 from fo4_import.base.install import game_language
 from fo4_import.pipeline.build_inputs import MASTERS
 from fo4_import.pipeline.code_tag import ROOT
+from asset_convert import paths as data_paths
 
 #: The staging folder's old place, under the Data folder (moved out by staging_root), and its new home.
-STAGING, STAGING_CACHE = '_ba2', ROOT / 'output' / 'fo4_cache' / 'ba2'
+STAGING, STAGING_CACHE = '_ba2', data_paths.FO4_CACHE / 'ba2'
 #: The staging folder's record of its files at the last pack: {texture key: [size, mtime_ns, signature or None]}.
 MANIFEST = 'manifest.json'
 #: Texture key prefixes a build writes itself (its textures, its worldspaces' LOD); only these are pruned, not FaceGen.

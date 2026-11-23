@@ -9,10 +9,11 @@ See: docs/fork/fo4_gui.md#app-shape
 
 from pathlib import Path
 
-from PySide6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QMainWindow, QPushButton, QTabWidget,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QMainWindow, QMessageBox, QPushButton,
+                               QTabWidget, QVBoxLayout, QWidget)
 
 from fo4_import.app import settings as S
+from fo4_import.app import workspace
 from fo4_import.app.convert_view import ConvertView
 from fo4_import.app.finished_view import FinishedView
 from fo4_import.app.preview.viewer import surface_format
@@ -74,6 +75,7 @@ class MainWindow(QMainWindow):
         """Save the Setup screen's settings; (settings, the file written)."""
         settings = self.setup.collect()
         self.settings_file = save_settings(settings, self.setup.portable.isChecked())
+        workspace.use(settings)
         self.setup.saved_at.setText(f'Settings file: {self.settings_file}')
         return settings, self.settings_file
 
@@ -116,6 +118,11 @@ def main() -> int:
     started = first_settings()
     if started is None:
         return 0
+    workspace.use(started[0])
+    moved = workspace.adopt(started[0])
     window = MainWindow(*started)
     window.show()
+    if moved:
+        QMessageBox.information(window, TITLE, 'The work folder now holds what the last release kept in its app '
+                                'folder:\n\n' + '\n'.join(moved))
     return app.exec()

@@ -1476,6 +1476,22 @@ decides.
     arguments, before anything else is planned (`faces_again`,
     [faces-stamp](fo4_facegen_plan.md#faces-stamp)). Its failure stops the
     run with the stage's exit code.
+  - <a id="moved-app-folder"></a>*A moved app folder, an older release
+    (2026-11-23).* A record names the app folder that made it (`root`;
+    before that, the folder of the `fo4_import` its `dirs` list).
+    `build_plan.here` reads every path inside it (`argv`, `files`, `dirs`,
+    `programs`, `natives`) as the same path in the app folder running now,
+    and the faces rerun starts in this app folder with its recorded paths
+    moved the same way: f3nv-0.3's first upgrade, unzipped over a renamed
+    0.2 folder, crashed starting the faces rerun in the deleted
+    `D:\fo3fnv-in-fo4-f3nv-0.2` (WinError 267), and would then have
+    replayed the build against the export there. A plugin whose build stamp
+    names an older release (`from_older_release`) needs a build, and
+    `--run` refuses to replay it (exit 7, `OLD_RELEASE`): its record holds
+    the old release's code and folders, so the app converts it in full
+    instead (its Build stage stays ticked, Rebuild what changed says why it
+    can't run). The export and caches now live outside the app folder
+    ([work folder](fo4_gui.md#work-folder)).
 - <a id="plan-memos"></a>**A plan reads each thing once (2026-11-14).** With
   33 plugins a `plan()` took 23–55 s, and `--run` makes one after every
   build: about 30 min of a full chain. Profiled:

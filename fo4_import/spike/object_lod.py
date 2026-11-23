@@ -38,6 +38,7 @@ from tes5_import.base.tes5_reader import subrecords
 
 apply_patches()
 from pyffi.formats.nif import NifFormat
+from asset_convert import paths as data_paths
 
 #: STAT flag Has Distant LOD (FNV's Visible When Distant, the same bit), also a reference's.
 VISIBLE_DISTANT = 0x8000
@@ -66,7 +67,7 @@ INITIALLY_DISABLED = 0x800
 #: Bytes of a record's header before its fields (signature, size, flags, FormID, version control, form version).
 RECORD_HEADER = 24
 #: Where FNV-format reductions of models without a LOD mesh are kept, and their work-cache site.
-FAR_CACHE, FAR_SITE = ROOT / 'output' / 'fo4_cache' / 'object_lod' / 'far', 'lod_far_reduction'
+FAR_CACHE, FAR_SITE = data_paths.FO4_CACHE / 'object_lod' / 'far', 'lod_far_reduction'
 #: Empty fields closing a row: enable parent, base and swap materials, a static collection part's 7 transforms.
 ROW_TAIL = '\t' * 10
 

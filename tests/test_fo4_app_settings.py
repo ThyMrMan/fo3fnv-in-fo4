@@ -25,11 +25,11 @@ def test_missing_file_is_defaults(tmp_path):
 
 
 def test_replacement_file_places(tmp_path):
-    """The replacement file sits beside the app, in the output folder, or at the user's path."""
+    """The replacement file sits in the work folder, in the output folder, or at the user's path."""
     s = settings.defaults()
     s['per_source']['falloutnv']['output']['path'] = str(tmp_path / 'out')
     block = s['per_source']['falloutnv']['replacements']
-    assert settings.replacement_file(s, 'falloutnv') == settings.APP_DIR / 'replacements' / 'falloutnv.json'
+    assert settings.replacement_file(s, 'falloutnv') == settings.work_dir(s) / 'replacements' / 'falloutnv.json'
     block['where'] = 'output'
     assert settings.replacement_file(s, 'falloutnv') == tmp_path / 'out' / 'replacements.json'
     block.update(where='custom', path=str(tmp_path / 'mine.json'))
@@ -37,10 +37,20 @@ def test_replacement_file_places(tmp_path):
 
 
 def test_default_output_under_work_dir(tmp_path):
-    """With no output chosen, output goes under the work folder, one per game."""
+    """With no output chosen, output goes under the work folder, one per game; the work folder defaults to one
+    beside the app folder, and the export is in it."""
     s = settings.defaults()
+    assert settings.work_dir(s) == settings.APP_DIR.parent / settings.DEFAULT_WORK
     s['work_dir'] = str(tmp_path)
     assert settings.output_dir(s, 'fallout3') == tmp_path / 'output' / 'Fallout3'
+    assert settings.export_root(s) == tmp_path / 'export'
+
+
+def test_replacements_saved_beside_the_app_read_as_the_work_folder(tmp_path):
+    """An older release's saved place 'app' loads as 'work'."""
+    path = tmp_path / settings.FILE_NAME
+    path.write_text(json.dumps({'per_source': {'falloutnv': {'replacements': {'where': 'app'}}}}), encoding='utf-8')
+    assert settings.load(path)['per_source']['falloutnv']['replacements']['where'] == 'work'
 
 
 def test_bad_choices_refused():

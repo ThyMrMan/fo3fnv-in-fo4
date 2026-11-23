@@ -87,7 +87,6 @@ def test_stages_follow_the_target(tmp_path):
 
 def test_a_mod_folder_is_imported_then_exported(tmp_path, monkeypatch):
     """A mod target imports its folder, exports its plugin by name, and reads its masters from the folder."""
-    monkeypatch.setattr(ST, 'EXPORT_ROOT', tmp_path / 'export')
     s = _settings(tmp_path)
     mod = tmp_path / 'mods' / 'Better Brotherhood'
     mod.mkdir(parents=True)

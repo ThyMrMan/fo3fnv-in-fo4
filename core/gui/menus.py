@@ -53,6 +53,7 @@ from core.gui import navmesh_editor
 from core.gui.widgets import open_folder, open_url
 from core.worker_budget import worker_count
 from tools.navmesh.navmesh_cache import DOWNLOAD_CONFIG_KEY
+from asset_convert import paths as data_paths
 
 DISCORD_URL = "https://discord.gg/NTkCDfYUru"
 YOUTUBE_URL = "https://www.youtube.com/@bryanthinton"
@@ -334,7 +335,7 @@ def _build_plugins_menu(app, menubutton, menu_opts, mods_ui) -> None:
         "Open the folder converted plugins and finished mods are written to")
     add_tipped_command(
         plugins_menu, "Open Logs Folder",
-        lambda: open_folder(app, str(REPO_ROOT / "logs"), "Logs folder"),
+        lambda: open_folder(app, str(data_paths.LOGS), "Logs folder"),
         "Open the folder holding each run's log files")
 
 

@@ -6,10 +6,12 @@ what is next. Dates, counts and history are in the
 
 ## <a id="fo4-state"></a><a id="alpha"></a>Where it stands
 
-**Release:** [f3nv-0.3](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases/tag/f3nv-0.3),
+**Release:** [f3nv-0.4](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases/tag/f3nv-0.4),
 an alpha (prerelease, 2026-11-23). A fresh download converts, NPC faces
-included: the face calibration is measured on the user's PC, without the
-Creation Kit. f3nv-0.2 converted everything but the faces.
+included (measured on the user's PC since 0.3, without the Creation Kit).
+0.4 keeps the export and caches in a work folder beside the app, so a new
+release unzips beside the old one and upgrades cleanly
+([work folder](fo4_gui.md#work-folder)).
 
 - **New Vegas** is playable from Doc Mitchell's house onward, with its four
   story DLC, five add-on packs and about 20 mods. Nearly every system is

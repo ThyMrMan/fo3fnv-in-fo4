@@ -33,11 +33,12 @@ from core.build_resources import pool_workers
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base.file_stamps import Stamps
 from fo4_import.base.papyrus import FLAGS_FILE, FO4_HEADERS
+from asset_convert import paths as data_paths
 
 CAPRICA = Path(__file__).resolve().parents[2] / 'external' / 'caprica' / 'Caprica.exe'
 FLAGS = FO4_HEADERS / 'Base' / FLAGS_FILE
 #: Where the patched header copies live, one folder per source folder and content.
-HEADER_CACHE = Path(__file__).resolve().parents[2] / 'output' / 'fo4_cache' / 'caprica_headers'
+HEADER_CACHE = data_paths.FO4_CACHE / 'caprica_headers'
 #: The header folders FO4's compiler imports that Caprica reads patched.
 HEADER_FOLDERS = (FO4_HEADERS / 'F4SE', FO4_HEADERS / 'Base')
 #: (pattern, replacement) of what Caprica's parser rejects in the headers (the module docs' link lists each).

@@ -24,8 +24,10 @@ SOURCES = {'falloutnv': 'FalloutNV', 'fallout3': 'Fallout3'}
 MOD_TAGS = {'falloutnv': 'FNV', 'fallout3': 'FO3'}
 GAMES = ('fallout4', 'falloutnv', 'fallout3')
 OUTPUT_KINDS = ('folder', 'zip')
-#: Where a source's replacement file lives: beside the app, in its output folder, or a path of the user's.
-REPLACEMENT_PLACES = ('app', 'output', 'custom')
+#: Where a source's replacement file lives: in the work folder, in its output folder, or a path of the user's.
+REPLACEMENT_PLACES = ('work', 'output', 'custom')
+#: The work folder when none is chosen: beside the app folder, so a new release unpacked next to it finds it.
+DEFAULT_WORK = 'F3NV Work'
 
 
 def defaults() -> dict:
@@ -39,7 +41,7 @@ def defaults() -> dict:
         'tools': {'wine': '', 'nifskope': ''},
         'resources': DEFAULT_RESOURCES,
         'per_source': {source: {'output': {'kind': 'folder', 'path': ''},
-                                'replacements': {'where': 'app', 'path': ''},
+                                'replacements': {'where': 'work', 'path': ''},
                                 'scripts': '', 'profile': '', 'addons': [], 'target': ''} for source in SOURCES},
     }
 
@@ -65,6 +67,9 @@ def load(path: 'Path | None' = None) -> dict:
     path = Path(path) if path else settings_path()
     saved = json.loads(path.read_text(encoding='utf-8')) if path.is_file() else {}
     settings = _merged(defaults(), saved)
+    for block in settings['per_source'].values():
+        if block['replacements']['where'] == 'app':
+            block['replacements']['where'] = 'work'
     check(settings)
     return settings
 
@@ -100,8 +105,15 @@ def game_dir(settings: dict, game: str) -> 'Path | None':
 
 
 def work_dir(settings: dict) -> Path:
-    """Exports and caches: the user's choice, else `work` in config_dir()."""
-    return Path(settings['work_dir']) if settings['work_dir'] else config_dir() / 'work'
+    """Exports, caches, logs: the user's choice, else DEFAULT_WORK beside the app.
+    See: docs/fork/fo4_gui.md#work-folder
+    """
+    return Path(settings['work_dir']) if settings['work_dir'] else APP_DIR.parent / DEFAULT_WORK
+
+
+def export_root(settings: dict) -> Path:
+    """The export folder in work_dir()."""
+    return work_dir(settings) / 'export'
 
 
 def output_dir(settings: dict, source: str) -> Path:
@@ -140,7 +152,7 @@ def replacement_file(settings: dict, source: str) -> Path:
         return Path(block['path'])
     if block['where'] == 'output':
         return output_dir(settings, source) / 'replacements.json'
-    return APP_DIR / 'replacements' / f'{source}.json'
+    return work_dir(settings) / 'replacements' / f'{source}.json'
 
 
 def mod_sources(settings: dict) -> list:

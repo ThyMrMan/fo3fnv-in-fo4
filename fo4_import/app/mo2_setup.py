@@ -16,6 +16,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from asset_convert import paths as data_paths
 from core.mod_sources import mo2_layout, profile_dir
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.app import settings as S
@@ -51,9 +52,9 @@ def instance(settings: dict) -> 'Instance | None':
 
 
 def environment(settings: dict) -> dict:
-    """The stages' environment: the MO2 instance the Creation Kit runs through."""
+    """The stages' environment: the work folder and the Creation Kit's MO2 instance."""
     found = instance(settings)
-    return {'F3NV_MO2': str(found.folder)} if found else {}
+    return {data_paths.DATA_ENV: str(S.work_dir(settings)), **({'F3NV_MO2': str(found.folder)} if found else {})}
 
 
 def plugins(settings: dict, source: str) -> list:

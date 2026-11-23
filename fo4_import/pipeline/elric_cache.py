@@ -35,8 +35,9 @@ from fo4_import.pipeline import mesh_cache, work_cache
 from fo4_import.pipeline.code_tag import ROOT
 from fo4_import.pipeline.ran_code import ran_alone
 from fo4_import.pipeline.work_cache import UNUSED_DAYS, prune, store
+from asset_convert import paths as data_paths
 
-CACHE = ROOT / 'output' / 'fo4_cache' / 'elric'
+CACHE = data_paths.FO4_CACHE / 'elric'
 #: The work-cache site of a finished NIF.
 SITE = 'elric_finish'
 #: Meshes to finish before finished_each spreads them over worker processes, and the memory each worker is given.
@@ -48,7 +49,7 @@ MARKS = {}
 #: {normcased NIF path: its finish() inputs} of each NIF finish() left unwritten this run (a master ships it alike).
 LEFT = {}
 #: Each pre-Elric NIF finish() took, zlib-compressed and named by its SHA-1 (keep_input), for a meshes replay.
-INPUT_STORE = ROOT / 'output' / 'fo4_cache' / 'pre_elric'
+INPUT_STORE = data_paths.FO4_CACHE / 'pre_elric'
 #: {NIF path: SHA-1 of its pre-Elric bytes} of each NIF finish() took this run, in order.
 INPUTS = {}
 

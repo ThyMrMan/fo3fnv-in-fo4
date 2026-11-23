@@ -37,6 +37,7 @@ from fo4_import.pipeline.code_identity import SEP, relative
 from fo4_import.pipeline.code_tag import ROOT
 from fo4_import.spike import build_finish
 from tes5_import.base import text_reader, writer
+from asset_convert import paths as data_paths
 
 #: Environment of a recorded run: the log folder (a worker process records when set), its run id, its watched roots.
 ENV, RUN_ENV, ROOTS_ENV = 'F3NV_READ_LOG', 'F3NV_READ_LOG_RUN', 'F3NV_READ_LOG_ROOTS'
@@ -807,7 +808,7 @@ def main() -> None:
     sys.argv = [arg for arg in sys.argv if arg != '--no-assets']
     plugin = known.out.name if known.out else 'unnamed'
     os.environ[RUN_ENV] = str(time.time_ns())
-    install(os.environ.get(ENV) or ROOT / 'output' / 'fo4_cache' / 'read_log' / plugin,
+    install(os.environ.get(ENV) or data_paths.FO4_CACHE / 'read_log' / plugin,
             [known.export.parent if known.export else None, known.scripts])
     if known.no_assets:
         no_assets()

@@ -25,9 +25,10 @@ from fo4_import.face.bake import face_shape
 from fo4_import.face.memo import frozen
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
+from asset_convert import paths as data_paths
 
 CONTROLS, STEP, BOUND = 7, 0.5, 1.0
-CACHE = Path(__file__).resolve().parents[2] / 'output' / 'fo4_cache'
+CACHE = data_paths.FO4_CACHE
 BASELINE = 'FNVSculpt_Base'
 #: NPC_ face subrecords a fitted copy drops from its body: morphs, region sculpts, face texture set (the body's age).
 FACE_FIELDS = frozenset({b'MSDK', b'MSDV', b'FMRI', b'FMRS', b'FTST'})

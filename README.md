@@ -107,7 +107,10 @@ and it runs only on Windows. Please [report](#problems) how it goes.
    developers' whole repository, and it can't build the menus without
    extra tools.
 2. Unzip it to a folder you can write to, outside `Program Files`, for
-   example `C:\Games\fo3fnv-in-fo4`.
+   example `D:\Games`. That gives `D:\Games\fo3fnv-in-fo4-<release>`. The
+   app keeps its work (the export of your game, caches and logs, about
+   100 GB for New Vegas) in **`F3NV Work`** beside it, here
+   `D:\Games\F3NV Work`, so pick a drive with room.
 
 ### 2. Start the app
 
@@ -135,8 +138,9 @@ screen.
    instance's `mods` folder**, for example
    `...\mods\F3NV FNV - Fallout New Vegas` (`FNV` or `FO3` in the name tells
    the two games' mods apart in MO2). That lets the app enable everything
-   in MO2 for you. Pick a work folder on a drive with plenty of free space.
-   Each game keeps its own output folder.
+   in MO2 for you. The work folder is `F3NV Work` beside the app unless you
+   pick another one on a drive with plenty of free space. Each game keeps
+   its own output folder.
 
 ### 4. Convert the game
 
@@ -235,12 +239,18 @@ until it is built, and each converts into its own folder, such as
 
 ## Updating
 
-1. Download the new release and unzip it over your old folder (or into a
-   new one; your settings come along if you kept them beside the app).
-2. Start the app, pick the game and its plugin (for example
-   **FalloutNV.esm**) and click **Convert**. It rebuilds only what the
-   update touched, then the DLC and mods built on it.
-3. **Install status** names any plugin still built by an older release.
+1. Download the new release and unzip it beside the old one, into the same
+   folder (for example `D:\Games`). Both find the same `F3NV Work`, so your
+   export and caches carry over. Settings come along too, unless you kept
+   them beside the app: then copy `fo4_app.json` into the new folder.
+2. Start the new app with its `Convert to Fallout 4.cmd`. If the old release
+   kept its export and caches in its own folder (f3nv-0.3 and older did),
+   the app moves them into the work folder once and says so.
+3. Pick the game and its plugin (for example **FalloutNV.esm**) and click
+   **Convert**. A plugin an older release built converts in full; after that,
+   rebuilds touch only what changed, then the DLC and mods built on it.
+4. **Install status** names any plugin still built by an older release.
+5. Once the new release works, delete the old release's folder.
 
 The release notes say whether an update needs a new game. Your saves keep
 working across rebuilds unless they say otherwise.
@@ -269,7 +279,7 @@ reach, the weather, glowing signs and neon.
   [the issues](https://github.com/ThyMrMan/fo3fnv-in-fo4/issues). Name the
   release (shown in the app's title bar) and attach the conversion's run log
   or your Papyrus log. Each conversion writes everything it printed to
-  `logs\run-<date>-<time>-<plugin>.log` in the app's folder; the last 20 are
+  `logs\run-<date>-<time>-<plugin>.log` in the work folder; the last 20 are
   kept.
 
 ---

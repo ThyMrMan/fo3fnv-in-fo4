@@ -30,6 +30,8 @@ never mistaken for a converted plugin.
 import zipfile
 from pathlib import Path
 
+from asset_convert import paths as data_paths
+
 FINISHED_DIR_NAME = "Finished Mods"
 
 #: The Skyrim body-slot patch: its plugin, and the zip shipping it with the split skin meshes.
@@ -160,8 +162,8 @@ def master_record_dir(export_dir, master: str) -> Path:
 # ---------------------------------------------------------------------------
 
 REPO_ROOT = Path(__file__).resolve().parent
-DEFAULT_EXPORT = REPO_ROOT / "export"
-DEFAULT_OUTPUT = REPO_ROOT / "output"
+DEFAULT_EXPORT = data_paths.EXPORT
+DEFAULT_OUTPUT = data_paths.OUTPUT
 
 
 def configured_output(saved) -> Path:
