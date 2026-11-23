@@ -111,6 +111,24 @@ def test_main_checkout_from_the_main_checkout_and_a_worktree():
         assert mxmlc.main_checkout(repo) == main
 
 
+def test_a_release_needs_no_cleanroom_checkout(tmp_path, monkeypatch):
+    """With the pinned tree and a BUILT stamped with the pin (what the release zip carries), source() and build()
+    find them with no checkout and run nothing."""
+    tree, built = tmp_path / 'src' / cleanroom.pinned(), tmp_path / 'built'
+    (tree / 'crui').mkdir(parents=True)
+    (tree / 'crui' / '__main__.py').write_text('')
+    built.mkdir()
+    (built / cleanroom.BUILT_PIN).write_text(cleanroom.pinned(), encoding='utf-8')
+    for name, value in (('PINNED_TREES', tree.parent), ('BUILT', built), ('checkout', lambda: None),
+                        ('subprocess', None)):
+        monkeypatch.setattr(cleanroom, name, value)
+    cleanroom.source.cache_clear(), cleanroom.build.cache_clear()
+    try:
+        assert cleanroom.source() == tree and cleanroom.build() == built
+    finally:
+        cleanroom.source.cache_clear(), cleanroom.build.cache_clear()
+
+
 @pytest.mark.skipif(cleanroom.checkout() is None, reason='no Cleanroom UI checkout')
 def test_cleanroom_scripts_come_from_the_pinned_commit_not_the_checkout():
     """scripts() reads the pinned commit's tree, so a checkout that moved past PIN never changes what a build ships

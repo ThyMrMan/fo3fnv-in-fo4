@@ -122,7 +122,7 @@ def disk(folder: Path) -> dict:
         read = time.perf_counter() - started
         small = _small_files(Path(scratch))
     return {'write_mb_s': round(BIG_BYTES / MB / wrote, 1), 'read_mb_s': round(BIG_BYTES / MB / read, 1),
-            'small_files_s': round(SMALL_FILES / small, 1), 'folder': str(folder)}
+            'small_files_s': round(SMALL_FILES / small, 1), 'drive': Path(folder).resolve().anchor}
 
 
 def memory() -> dict:

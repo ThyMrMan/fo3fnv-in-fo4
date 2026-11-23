@@ -13,6 +13,7 @@ from tools.validate import fo4_install_check as IC
 READY_VERSION = (*IC.GAME_VERSION, 0)
 PLAY = 'Play'
 BASE_MOD, DLC_MOD = 'F3NV - Fallout New Vegas', 'F3NV - Dead Money'
+SOURCES = Path('Data', 'Scripts', 'Source')
 
 
 def touch(path: Path, text: str = '') -> Path:
@@ -53,9 +54,9 @@ def fake_mo2(root: Path, fallout4: Path) -> Path:
 def machine(tmp_path: Path) -> IC.Machine:
     """A machine with everything the README lists, converted and in place."""
     fallout4, fnv = tmp_path / 'Fallout 4', tmp_path / 'Fallout New Vegas'
-    for name in ('Fallout4.exe', 'CreationKit.exe', IC.F4SE_LOADER, 'f4se_1_11_240.dll'):
+    for name in ('Fallout4.exe', 'CreationKit.exe', IC.F4SE_LOADER, 'f4se_1_11_240.dll', SOURCES / 'Base' / 'Base.zip',
+                 SOURCES / 'F4SE.psc'):
         touch(fallout4 / name)
-    (fallout4 / 'Data').mkdir()
     touch(fnv / 'Data' / IC.BASE_PLUGIN)
     touch(fnv / 'Data' / 'DeadMoney.esm')
     return IC.Machine(fallout4, fnv, READY_VERSION, fake_mo2(tmp_path, fallout4), '', tmp_path, 32 * IC.GB)
@@ -80,9 +81,11 @@ def test_ready_machine_passes(machine):
 
 
 @pytest.mark.parametrize('name, file, said', [('Creation Kit', 'CreationKit.exe', 'RECOMMENDED'),
-                                              ('F4SE', IC.F4SE_LOADER, 'MISSING')])
+                                              ('F4SE', IC.F4SE_LOADER, 'MISSING'),
+                                              ('Script sources', SOURCES / 'Base' / 'Base.zip', 'MISSING'),
+                                              ('Script sources', SOURCES / 'F4SE.psc', 'MISSING')])
 def test_missing_game_file(machine, name, file, said):
-    """No F4SE loader is MISSING; no Creation Kit only RECOMMENDED."""
+    """No F4SE loader or script sources is MISSING; no Creation Kit only RECOMMENDED."""
     (machine.fallout4 / file).unlink()
     assert status(machine, name) == said
 

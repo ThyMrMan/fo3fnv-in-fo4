@@ -26,7 +26,7 @@
    "write_mb_s": 43.0,
    "read_mb_s": 2215.7,
    "small_files_s": 130.4,
-   "folder": "C:\\Users\\thymr\\AppData\\Local\\Temp"
+   "drive": "C:\\"
   },
   "memory": {
    "total_gb": 31.1,

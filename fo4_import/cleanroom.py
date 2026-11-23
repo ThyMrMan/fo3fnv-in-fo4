@@ -22,6 +22,8 @@ DIST = REPO / 'tes_runtime' / 'dist'
 PIN = DIST / 'cleanroom_ui.txt'
 #: Where `python -m crui` writes the plugin, movies and words a build installs.
 BUILT = REPO / 'temp' / 'cleanroom_ui'
+#: The file in BUILT naming the pin it was built from.
+BUILT_PIN = '.pin'
 #: Where the pinned commit's tree is unpacked from the checkout, one folder per commit.
 PINNED_TREES = REPO / 'temp' / 'cleanroom_ui_src'
 #: Its dialogue release: the DLL (in DIST) and the files of BUILT it installs.
@@ -66,16 +68,18 @@ def commit(root: Path) -> str:
 
 @functools.cache
 def source() -> 'Path | None':
-    """The pinned commit's tree, unpacked from the checkout into PINNED_TREES once; None without a checkout. A build
-    reads Cleanroom UI here, never the checkout itself, so what it ships always matches our DLL copies (PIN).
+    """The pinned commit's tree, unpacked from the checkout into PINNED_TREES once (a release zip carries it); None
+    when neither is there. A build reads Cleanroom UI here, never the checkout itself, so what it ships always
+    matches our DLL copies (PIN).
 
     See: docs/fork/spin_offs.md#move
     """
-    root, pin = checkout(), pinned()
-    if root is None:
-        return None
+    pin = pinned()
     tree = PINNED_TREES / pin
     if not (tree / 'crui' / '__main__.py').is_file():
+        root = checkout()
+        if root is None:
+            return None
         archive = subprocess.run(['git', '-C', str(root), 'archive', '--format=tar', pin], capture_output=True,
                                  check=True, **POPEN_FLAGS).stdout
         part = tree.with_name(f'{pin}.part')
@@ -96,8 +100,12 @@ def scripts() -> dict:
 
 @functools.cache
 def build() -> 'Path | None':
-    """Cleanroom UI's plugin, movies, words and MCM page built into BUILT by the pinned tree's `python -m crui` (once per run);
-    BUILT, None without a checkout. What failed (no Flex SDK) is printed and left out."""
+    """Cleanroom UI's plugin, movies, words and MCM page built into BUILT by the pinned tree's `python -m crui`, once
+    per pin (BUILT_PIN; a release zip carries a finished BUILT); BUILT, None without a tree. What failed (no Flex
+    SDK) is printed and left out, and runs again next time."""
+    stamp = BUILT / BUILT_PIN
+    if stamp.is_file() and stamp.read_text(encoding='utf-8') == pinned():
+        return BUILT
     root = source()
     if root is None:
         print('Cleanroom UI: no checkout (external/cleanroom_ui, CRUI_HOME, or beside this one)')
@@ -108,6 +116,8 @@ def build() -> 'Path | None':
                             capture_output=True, text=True, **POPEN_FLAGS)
     if result.returncode:
         print(f'Cleanroom UI: python -m crui failed\n{result.stdout}{result.stderr}')
+    else:
+        stamp.write_text(pinned(), encoding='utf-8')
     return BUILT
 
 

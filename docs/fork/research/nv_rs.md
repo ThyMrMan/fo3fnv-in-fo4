@@ -30,7 +30,7 @@ The result is `target/play/nv-viewer.exe` (122 MB). It needs both machine
 tables. Without the sound table it stops in frame 0:
 
 > Game's main stopped in frame 0: the sound table
-> (Some("C:\\Users\\thymr\\AppData\\Local\\nv-rs\\dsound.tsv")) is not there:
+> (Some("%LOCALAPPDATA%\\nv-rs\\dsound.tsv")) is not there:
 > run `cargo run --release --target i686-pc-windows-msvc --manifest-path
 > scripts/dsound-capture/Cargo.toml > <file>`...
 

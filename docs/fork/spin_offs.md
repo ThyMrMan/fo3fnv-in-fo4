@@ -244,10 +244,13 @@ wake-up quest failed to link, so a new game stuck on the wake-up fade.
 can't be built on a user's machine (Visual Studio), so the two built from
 the pinned commit are committed to `tes_runtime/dist/` beside F3NV.dll,
 with that commit in `tes_runtime/dist/cleanroom_ui.txt`, and
-`runtime_dll.py` installs all three. Cleanroom UI is private and this repo
-public, so until it is public (its first release) the checkout is a local
-clone, not a submodule, and a clone of this repo without it cannot build
-the menus. Then it becomes a pinned submodule.
+`runtime_dll.py` installs all three. The checkout is a local clone, not a
+submodule, so a clone of this repo without it cannot build the menus (on
+2026-11-23 Cleanroom UI is public, GPL-3.0, with no releases). The
+[release download](fo4_plan_release.md#slim-zip) carries the pinned tree
+and its built files instead: `source()` uses an unpacked pinned tree
+without a checkout, and `build()` skips `crui` when `temp/cleanroom_ui/.pin`
+names the pin.
 
 **Steps, in order** (each built, then played, before the next):
 1. **The dialogue menu** (built 2026-11-13, not played). `CleanroomDialogue.dll` and Cleanroom UI's

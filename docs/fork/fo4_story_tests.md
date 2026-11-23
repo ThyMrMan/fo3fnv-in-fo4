@@ -196,7 +196,7 @@ laptop over SSH with `tools/live/fo4_laptop.py`:
   - a user logged on, with sleep, screen lock and the screen saver off;
   - for `record`: GOG Fallout 3, made 1.7.0.3 by the Anniversary
     patcher, with FOSE 1.3 beta 2's DLLs (see [the answer key](#baseline)).
-- **The laptop is reached by its address** (`192.168.50.204`): its name
+- **The laptop is reached by its address** (its LAN IP, given to `fo4_laptop setup --host`): its name
   resolves only now and then, `.local` included. Reserve the address in
   the router.
 - Watch it with Steam Remote Play, Parsec or VNC, not Remote Desktop:

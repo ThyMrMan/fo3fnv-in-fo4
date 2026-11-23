@@ -46,6 +46,8 @@ echo Checking Python packages ...
 "%VENV_PY%" -m pip install --disable-pip-version-check -q -r requirements.txt >>"%LOG%" 2>&1 || goto fail
 call :get_xwmaencode
 if defined FO4_APP goto fo4_app
+rem The Fallout 4 release zip has no Skyrim converter (gui.py): start its app instead.
+if not exist gui.py goto fo4_app
 "%VENV_PY%" -m core.setup_check %FIRST_RUN%
 start "" ".venv\Scripts\pythonw.exe" gui.py
 exit /b 0

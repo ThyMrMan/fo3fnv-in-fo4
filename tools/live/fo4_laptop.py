@@ -30,7 +30,6 @@ from pathlib import Path
 
 from core.mod_sources import enabled_mods, mo2_layout, profile_dir
 from fo4_import.app import settings as S
-from tools.dialog.tes4_ctda_dump import XEDIT_DEFS
 from tools.live import fo4_test_instance as T
 from tools.validate.fo4_install_check import machine_from
 
@@ -54,8 +53,6 @@ LOG_PATHS = ('Documents/My Games/Fallout4/Logs/Script', 'Documents/My Games/Fall
 RECORD_DIR = REPO / 'temp' / 'fo3_record'
 #: The test DLL folders `push` sends beside the checkout.
 TEST_BINS = ('tes_runtime/fo4_test/bin', 'tes_runtime/fo3_test/bin')
-#: The files under the ignored references/ that the code reads at import time.
-READ_REFERENCES = tuple('references/xEdit/Core/' + name for name in XEDIT_DEFS.values())
 #: The ignored folders of generated case files (fo4_stage_sweep, and with --routes) a run may name.
 GENERATED_CASES = ('temp/stage_sweep', 'temp/route_sweep')
 
@@ -139,13 +136,13 @@ def send(cfg: dict, local_root: Path, remote_root: str, rels: list, prune: tuple
 
 
 def checkout_files() -> list:
-    """This checkout's files as git sees them (tracked and new, ignored left out), the test DLLs, the
-    generated cases and the reference files the code reads."""
+    """This checkout's files as git sees them (tracked and new, ignored left out), the test DLLs and the
+    generated cases."""
     listed = subprocess.run(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'],
                             cwd=REPO, capture_output=True, check=True).stdout.decode('utf-8').split('\0')
     dlls = [p.relative_to(REPO).as_posix() for folder in TEST_BINS for p in (REPO / folder).glob('*.dll')]
     cases = [p.relative_to(REPO).as_posix() for folder in GENERATED_CASES for p in (REPO / folder).rglob('*.f4test')]
-    return [rel for rel in listed if rel] + dlls + cases + list(READ_REFERENCES)
+    return [rel for rel in listed if rel] + dlls + cases
 
 
 def push(cfg: dict) -> int:

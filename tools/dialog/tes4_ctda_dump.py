@@ -93,6 +93,8 @@ _ALWAYS_P1 = (72, 71, 58, 59, 56, 79, 53, 74, 67, 68, 69, 73)
 #: --names value -> xEdit definitions file.
 XEDIT_DEFS = {'fo3': 'wbDefinitionsFO3.pas', 'fnv': 'wbDefinitionsFNV.pas',
                'fo4': 'wbDefinitionsFO4.pas'}
+#: Where the XEDIT_DEFS files are vendored (MPL-2.0).
+XEDIT_DIR = _ROOT / 'external' / 'xedit'
 #: FO3/FNV INFO DATA flag bits (wbDefinitionsFNV.pas: Flags 1, then Flags 2).
 _INFO_FLAGS = ('Goodbye', 'Random', 'SayOnce', 'RunImmediately', 'InfoRefusal',
                'RandomEnd', 'RunForRumors', 'SpeechChallenge')
@@ -138,7 +140,7 @@ class FuncTable:
 
 def xedit_table(game: str) -> FuncTable:
     """FuncTable read from xEdit's definitions for fo3, fnv or fo4."""
-    text = (_ROOT / 'references' / 'xEdit' / 'Core' / XEDIT_DEFS[game]).read_text(
+    text = (XEDIT_DIR / XEDIT_DEFS[game]).read_text(
         encoding='utf-8', errors='replace')
     form_types = formid_types(parse_enum(text))
     funcs = parse_functions(text)

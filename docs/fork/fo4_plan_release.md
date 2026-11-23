@@ -216,9 +216,64 @@ hotfix is meant to apply a newer release's scripts to an older build, so
 for it the rule needs deciding first.
 
 **Making a release** (by hand, until a workflow does it for `main`): tag
-the commit (`git tag -a f3nv-0.1 -m "<notes>"`), push the tag, then
-`gh release create f3nv-0.1 --prerelease --notes-file <notes>`. Checked by
-`tests/test_fo4_release.py` and `tests/test_fo4_install_check.py`.
+the commit (`git tag -a f3nv-0.2 -m "<notes>"`), push the tag, then
+`gh release create f3nv-0.2 --prerelease --notes-file <notes>`, build the
+[slim zip](#slim-zip) from a clean checkout of the tag and attach it with
+`gh release upload f3nv-0.2 output/release/fo3fnv-in-fo4-f3nv-0.2.zip`. A
+tag has exactly two numbers (`release.key`): `f3nv-0.1.1` would read as
+`f3nv-dev`, so the tool refuses it. Checked by `tests/test_fo4_release.py`
+and `tests/test_fo4_install_check.py`.
+
+## <a id="slim-zip"></a>The slim release zip
+
+`tools/release/fo4_slim_zip.py` writes `fo3fnv-in-fo4-<tag>.zip`, the
+download the README points at. It holds only what the Fallout 4 app and the
+stages it launches need. GitHub's own "Source code (zip)" stays on every
+release (it can't be removed); it carries the Skyrim converter, the docs and
+the tests, and can't build without a Cleanroom UI checkout and the Flex SDK
+(below).
+
+**What goes in:**
+- Every repo module the app, `convert.py` and each `-m` stage module import,
+  traced through `code_tag`'s import reader with every edge followed, plus
+  the packages above each (880 modules on 2026-11-23).
+- The tracked data files whose nearest code folder holds a traced module
+  (`fo4_import/data`, the static scripts, `asset_convert/generated`, the
+  `external/` tools), minus `SKIPPED`: Skyrim's Havok, collision, Papyrus
+  and BSA tools, OpenMW's sources, Oblivion's SpeedTree harness and the
+  Skyrim converter's runtime DLLs.
+- `native/dist` (the native extensions and pinned zlib), the three DLLs the
+  output ships, both launchers, the README and the license.
+- What a download can't build, at the paths the code reads it from:
+  - the pinned Cleanroom UI tree (`temp/cleanroom_ui_src/<pin>`);
+  - its built plugin, movies, words and MCM page (`temp/cleanroom_ui`,
+    stamped with the pin, so `cleanroom.build()` doesn't rerun `crui`);
+  - our casino movie (`temp/fo4_casino/<hash>`).
+
+  The release machine needs both the Cleanroom UI checkout and the Flex SDK,
+  or the tool stops.
+- `VERSION` with the tag (GitHub's own zip gets it from `export-subst`).
+
+On 2026-11-23 it was 1,145 files: 28.8 MB unpacked, 11.9 MB zipped, against
+89 MB and 40 MB for the tag's source archive. `--list` prints the files, and
+`--refs` prints any traced line naming the gitignored `references/` folder.
+
+**What a download lacked before this.** The smoke test unpacks the zip into
+an empty folder (no `.git`, no `references/`, no Cleanroom UI checkout, no
+Flex SDK), imports all 880 modules, runs the install check and every stage's
+`--help`, and installs Cleanroom UI's files and the casino movie into a
+scratch folder. Writing it found five things the source download never had:
+
+| Missing | Effect | Fix |
+|---|---|---|
+| `references/fo4_scripts`, the Papyrus headers | No script compiled | `papyrus.unpack_headers` unpacks the Creation Kit's zips and F4SE's sources from the install ([spikes](fo4_spikes.md#spike-3-gate)); the install check flags either missing, so the Creation Kit is required again |
+| `references/xEdit/Core/*.pas` | Every build stage failed at import | The three files vendored in `external/xedit` (MPL-2.0) |
+| `references/Fallout4.esm`, a text dump | Script properties and dialogue's actor values failed | `script.fo4_editor_ids` reads the install's `Fallout4.esm`: the same 4,112 editor IDs, 0.2 s |
+| A Cleanroom UI checkout | The script stage stopped; no dialogue, level-up or HUD movie | Shipped prebuilt, as above |
+| The Flex SDK | No casino movie | Shipped prebuilt, as above |
+
+FO4Edit (`references/FO4Edit 4.1.5f`) is still read from there, but only by
+the optional, unticked FO4Edit check stage.
 
 ## <a id="load-time"></a>Load time: meshes in the Main BA2
 

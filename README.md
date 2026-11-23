@@ -73,12 +73,12 @@ differs from the original games is in [fo4_drift.md](docs/fork/fo4_drift.md).
 
 | | |
 |---|---|
-| **Windows 10 or 11** | The tested setup. Linux and macOS may work now that the conversion no longer relies on the Creation Kit, but nobody has tried them yet ([below](#other-systems)). |
+| **Windows 10 or 11** | The tested setup. Linux and macOS may work, since the conversion no longer runs the Creation Kit for its main work, but nobody has tried them yet ([below](#other-systems)). |
 | **Fallout 4** | The current Steam version, **1.11.240**. |
-| **Fallout 4 Creation Kit** | Recommended, free on [Steam](https://store.steampowered.com/app/1946160/). The conversion does its own work now; it falls back on the Creation Kit only for the few faces our own FaceGen can't make. You don't need to open it. |
+| **Fallout 4 Creation Kit** | Free on [Steam](https://store.steampowered.com/app/1946160/). Install it, but you don't need to open it. Converted scripts compile against the Fallout 4 script sources it installs (`Data\Scripts\Source\Base\Base.zip`). The app also falls back on it for the few faces our own FaceGen can't make. |
 | **Fallout: New Vegas or Fallout 3** | Steam or GOG, with any DLC you want converted. For Fallout 3, the Game of the Year edition has all five DLC. |
 | **[Mod Organizer 2](https://github.com/ModOrganizer2/modorganizer)** | Set up for Fallout 4. The steps below assume it. |
-| **[F4SE](https://f4se.silverlock.org/)** | For 1.11.240, installed into your Fallout 4 folder. |
+| **[F4SE](https://f4se.silverlock.org/)** | For 1.11.240, installed into your Fallout 4 folder, its `Data` folder included (converted scripts compile against its script sources). |
 | **Three mods in MO2** | [Address Library for F4SE Plugins](https://www.nexusmods.com/fallout4/mods/47327), [Mod Configuration Menu](https://www.nexusmods.com/fallout4/mods/21497), [Black Landscape Fix](https://www.nexusmods.com/fallout4/mods/108574) (the F4SE version; without it, some bare ground turns black). |
 | **A strong PC** | 32 GB of RAM and about 100 GB of free disk space. |
 
@@ -95,14 +95,17 @@ differs from the original games is in [fo4_drift.md](docs/fork/fo4_drift.md).
 <a id="other-systems"></a>**On Linux or macOS** (untested): install Python 3.14,
 then run `python3.14 -m pip install -r requirements.txt` and
 `python3.14 fo4_app.py` in the downloaded folder instead of the `.cmd`
-launcher. The few faces our own FaceGen can't make fall back to the
-Creation Kit, which runs only on Windows. Please [report](#problems) how it
-goes.
+launcher. Install the Creation Kit through Steam anyway, for its script
+sources. The few faces our own FaceGen can't make fall back to running it,
+and it runs only on Windows. Please [report](#problems) how it goes.
 
 ### 1. Download
 
 1. Open the [Releases page](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases)
-   and download **Source code (zip)** from the newest release.
+   and download **`fo3fnv-in-fo4-<release>.zip`** from the newest release's
+   assets (about 12 MB), not **Source code (zip)**: that one is the
+   developers' whole repository, and it can't build the menus without
+   extra tools.
 2. Unzip it to a folder you can write to, outside `Program Files`, for
    example `C:\Games\fo3fnv-in-fo4`.
 
@@ -321,16 +324,18 @@ cover them.
 
 | Contributor / Component | Used for | License / Terms |
 |--------------------------|----------|-----------------|
-| [xEdit and all contributors](https://github.com/TES5Edit/TES5Edit) | Record layouts for all three games; `LODGenx64.exe` (distant objects) in `external/lodgen/`; FO4Edit's optional full check | MPL-2.0 / GPL-2.0 (xEdit dual license); LODGen redistributed |
+| [xEdit and all contributors](https://github.com/TES5Edit/TES5Edit) | Record layouts for all three games; the condition functions and actor value names, read from `wbDefinitionsFNV.pas`, `wbDefinitionsFO3.pas` and `wbDefinitionsFO4.pas` in `external/xedit/`; `LODGenx64.exe` (distant objects) in `external/lodgen/`; FO4Edit's optional full check | MPL-2.0 / GPL-2.0 (xEdit dual license); the definitions are unmodified, MPL-2.0 text in `external/xedit/LICENSE.txt`; LODGen redistributed |
 | [F4SE](https://f4se.silverlock.org/) team | `F3NV.dll` is an F4SE plugin built against F4SE 0.7.9's source | F4SE's own terms; F4SE itself is not redistributed (you install it) |
-| [ThyMrMan — Cleanroom UI](https://github.com/ThyMrMan/cleanroom-ui) | The dialogue menu and menu framework, `CleanroomDialogue.dll` and `CleanroomUI.dll` | **GPL-3.0** with the modding exception; redistributed |
+| [ThyMrMan — Cleanroom UI](https://github.com/ThyMrMan/cleanroom-ui) | The dialogue menu and menu framework: `CleanroomDialogue.dll` and `CleanroomUI.dll`, and its plugin, movies, translations, MCM page and scripts (built from the pinned commit, prebuilt in the release download) | **GPL-3.0** with the modding exception; redistributed |
+| [7-Zip](https://www.7-zip.org/) (Igor Pavlov) | `external/7zip/`: the launcher takes `xWMAEncode.exe` out of Microsoft's SDK installer; reading mod archives | **GNU LGPL** with BSD-3-clause and unRAR parts; redistributed, license text in `external/7zip/License.txt` |
+| [zlib](https://zlib.net/) (Jean-loup Gailly, Mark Adler) | `native/dist/f3_zlib.dll`: one pinned zlib, so the same build gives the same bytes on every PC | **zlib License**; redistributed, license text in `native/src/f3_zlib/zlib/LICENSE` |
 | [Orvid — Caprica](https://github.com/Orvid/Caprica) | Fallout 4 Papyrus compiler (v0.3.0), `external/caprica/Caprica.exe` | **MIT** (© 2015 Orvid King); redistributed, license text in `external/caprica/LICENSE` |
 | [Bad Dog — PyNifly](https://github.com/BadDogSkyrim/PyNifly) | Havok packfile reader and animation codec, vendored in `external/pynifly_hkx/`: creature and gun animation conversion | **GPL-3.0** (vendored from PyNifly 27.4.0; local changes marked `# TESConversion:`); see the GPL note below |
 | [FFmpeg](https://ffmpeg.org/) | `external/ffmpeg/ffmpeg.exe`, decoding the games' MP3 and WAV voice and sound files | **LGPL v2.1 or later**; redistributed, license text in `external/ffmpeg/COPYING.LGPLv2.1`. See the LGPL note below |
 | [Microsoft DirectX SDK (June 2010)](https://www.microsoft.com/en-us/download/details.aspx?id=6812) | `xWMAEncode.exe`, compressing voice lines | Microsoft; **not redistributed**: the launcher fetches it from Microsoft |
-| [Apache Flex SDK](https://flex.apache.org/) | Compiling our own menus' ActionScript into Flash movies, at build time | **Apache-2.0**; a build tool, not shipped. Adobe's `playerglobal.swc` is never shipped or committed |
+| [Apache Flex SDK](https://flex.apache.org/) | Compiling our own menus' ActionScript into Flash movies | **Apache-2.0**; a build tool, not shipped (the release download carries the movies it built). Adobe's `playerglobal.swc` is never shipped or committed |
 | [Dear-Modding-FO4 — CommonLibF4](https://github.com/Dear-Modding-FO4/commonlibf4) | `F3NVTest.dll`, the automated test runs' control channel | **GPL-3.0**; test-only, never shipped |
-| Bethesda — Fallout 4 Creation Kit | The fallback for faces our own FaceGen can't make | Bethesda's terms; installed by you from Steam, not redistributed |
+| Bethesda — Fallout 4 Creation Kit | The Fallout 4 script sources converted scripts compile against, unpacked from your install; the fallback for faces our own FaceGen can't make | Bethesda's terms; installed by you from Steam, not redistributed |
 | xNVSE, JIP LN NVSE and FOSE sources; the GECK, Fallout and Fallout 4 Creation Kit wikis; [NifSkope](https://github.com/niftools/nifskope); Neanka's LevelUpMenuEx and HUDFramework | What the old games' functions, records and meshes really do, and how Fallout 4's menus are built | Reference only, not redistributed |
 
 ### Inherited from the Skyrim converter

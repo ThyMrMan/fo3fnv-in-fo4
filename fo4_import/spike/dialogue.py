@@ -193,8 +193,7 @@ class Spike:
                 self.infos.setdefault(int(rec['ParentDIAL'], 16), []).append(rec)
         self.ids, self.report, self.stages, self.avs = Ids(), [], {}, {}
         self.quest, self.main = self.ids.take(), self.ids.take()
-        self.fo4_avs = {r.get('EditorID'): int(r['FormID'], 16)
-                        for r in parse_export_file(str(script_spike.fo4_dump() / 'AVIF.txt'))}
+        self.fo4_avs = script_spike.fo4_editor_ids()['AVIF']
         self.form_map = {**{s[1]: s[2] for s in SPEAKERS if s[1]}, **FACTIONS, **{f: f for f in SAME_IN_FO4}}
         self.scenes, self.topics, self.choice_scenes, self.scene_records = [], [], {}, []
         self.voiced, self.fragments, self.actor_ids, self.trace = [], None, [], ''

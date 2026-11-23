@@ -80,7 +80,7 @@ Freeside, the Strip and Novac are not measured.
 **Tools (phase 0):** `tools/validate/frame_log.py` summarizes Afterburner
 logs and `tools/validate/shot_boxes.py` measures the boxes of reference
 shots ([phase 0](#p0)). The Goodsprings run's log is Afterburner's own
-file, `C:\Users\thymr\OneDrive\Documents\Afterburner\HardwareMonitoring.hml`
+file, `<Documents>\Afterburner\HardwareMonitoring.hml`
 (Afterburner's `LogPath`; logging is now switched off, `EnableLog=0`).
 
 **Not found in the repo:** any precombine or previs code.

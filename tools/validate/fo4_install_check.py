@@ -115,7 +115,19 @@ def game_checks(m: Machine) -> list:
     return [Check('Fallout 4', 'OK', str(m.fallout4)), version_check(m.version),
             Check('Creation Kit', 'OK', str(ck)) if ck.is_file() else
             Check('Creation Kit', 'RECOMMENDED', f'{CK_FALLBACK}; install it from Steam: {CK_URL}'),
-            f4se_check(m.fallout4, m.version)]
+            f4se_check(m.fallout4, m.version), script_sources_check(m.fallout4)]
+
+
+def script_sources_check(game: Path) -> Check:
+    """The script sources converted scripts compile against: the Creation Kit's Base.zip and F4SE's .psc files."""
+    source = game / 'Data' / 'Scripts' / 'Source'
+    if not (source / 'Base' / 'Base.zip').is_file():
+        return Check('Script sources', 'MISSING', f'no Data\\Scripts\\Source\\Base\\Base.zip; the Creation Kit '
+                     f'installs it ({CK_URL})')
+    if not (source / 'F4SE.psc').is_file():
+        return Check('Script sources', 'MISSING', "no Data\\Scripts\\Source\\F4SE.psc; copy F4SE's Data folder "
+                     'into the Fallout 4 folder too')
+    return Check('Script sources', 'OK', str(source))
 
 
 def version_check(version: tuple) -> Check:

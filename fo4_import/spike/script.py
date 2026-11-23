@@ -10,6 +10,7 @@ Fallout 4 helpers with Fallout 4's compiler into <Data>/Scripts.
 See: docs/fork/fo4_spikes.md#spike-3-end-to-end
 """
 
+import functools
 import hashlib
 import os
 import re
@@ -27,7 +28,8 @@ from fo4_import.base.support_records import pack_script_quest
 from fo4_import.base.vmad import info_fragments, object_scripts, quest_fragments
 from fo4_import.helpers_plugin import actor_value_form, helper_forms
 from fo4_import.spike.items import ENGINE_IDS
-from fo4_import.pipeline.export_index import export_records
+from fo4_import.base.install import FALLOUT4_ESM
+from tes5_import.base.tes5_reader import first_sub, walk, zstr
 from fo4_import.pipeline.code_tag import ROOT
 from output_layout import record_dir
 from script_convert.target import AV_PROPERTY_PREFIX
@@ -41,11 +43,12 @@ _PREFIX = {'run': 'FALLOUTNV_'}
 #: FNV quests the spike converts -> their object id, outside the spike's sequential ids so no line moves.
 QUESTS = {'VDoctors': 0x1000}
 _STAGE_FRAGMENT = re.compile(r'^Function (Fragment_Stage_(\d+)_Item_(\d+))\(', re.I | re.M)
-#: Papyrus property type -> the Fallout4.esm dump whose same-named records fill it.
+#: Papyrus property type -> the Fallout4.esm record type whose same-named records fill it.
 FORM_DUMPS = {'MiscObject': 'MISC', 'Potion': 'ALCH', 'GlobalVariable': 'GLOB'}
+#: Fallout4.esm record types fo4_editor_ids reads: FORM_DUMPS's, and actor values for dialogue.
+EDITOR_ID_TYPES = (*FORM_DUMPS.values(), 'AVIF')
 #: Types filled only by engine objects (FormID below ENGINE_IDS): the same form in both games, e.g. GameHour.
 ENGINE_ONLY = frozenset({'GlobalVariable'})
-FO4_DUMP = Path(__file__).resolve().parents[2] / 'references' / 'Fallout4.esm'
 _PROPERTY = re.compile(r'^(\w+)\s+Property\s+(\w+)', re.I | re.M)
 TRACE_SCRIPT = 'FNVSpike_SceneTrace'
 TRACE_LOG = 'FNVSpikeTrace'
@@ -75,20 +78,22 @@ def declared_properties(psc: str) -> list:
     return _PROPERTY.findall(psc)
 
 
-def fo4_dump() -> Path:
-    """FO4_DUMP; FileNotFoundError when missing (a worktree links the main checkout's)."""
-    if not FO4_DUMP.is_dir():
-        raise FileNotFoundError(f'{FO4_DUMP}: the Fallout4.esm export is missing')
-    return FO4_DUMP
+@functools.cache
+def fo4_editor_ids() -> dict:
+    """{record type: {editor ID: FormID}} of the install's Fallout4.esm records of EDITOR_ID_TYPES."""
+    out = {sig: {} for sig in EDITOR_ID_TYPES}
+    for rec, _ in walk(FALLOUT4_ESM.read_bytes(), *(sig.encode() for sig in EDITOR_ID_TYPES)):
+        edid = first_sub(rec.body, b'EDID')
+        if edid:
+            out[rec.sig.decode()][zstr(edid)] = rec.form_id
+    return out
 
 
 def fo4_forms() -> dict:
-    """{Papyrus type: {editor ID: FormID}} of the records FORM_DUMPS names (ENGINE_ONLY types: engine objects)."""
-    out = {}
-    for ptype, sig in FORM_DUMPS.items():
-        ids = ((r['EditorID'], int(r['FormID'], 16)) for r in export_records(fo4_dump(), sig) if r.get('EditorID'))
-        out[ptype] = {edid: fid for edid, fid in ids if ptype not in ENGINE_ONLY or fid < ENGINE_IDS}
-    return out
+    """{Papyrus type: {editor ID: FormID}} of FORM_DUMPS (ENGINE_ONLY: engine objects)."""
+    ids = fo4_editor_ids()
+    return {ptype: {edid: fid for edid, fid in ids[sig].items() if ptype not in ENGINE_ONLY or fid < ENGINE_IDS}
+            for ptype, sig in FORM_DUMPS.items()}
 
 
 def base_forms(helper_index: int) -> dict:

@@ -13,18 +13,17 @@ See: docs/fork/fo4_spikes.md#spike-1
 import re
 import struct
 from itertools import count, takewhile
-from pathlib import Path
 
 from fo4_import.pipeline.export_index import source_game
 from fo4_import.spike.records import RUN_REFERENCE, RUN_SUBJECT, RUN_TARGET, pack_ctda
 from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
-from tools.dialog.tes4_ctda_dump import xedit_table
+from tools.dialog.tes4_ctda_dump import XEDIT_DEFS, XEDIT_DIR, xedit_table
 
 FNV = xedit_table('fnv')
 FO4 = xedit_table('fo4')
-FNV_DEFS = Path(__file__).resolve().parents[2] / 'references' / 'xEdit' / 'Core' / 'wbDefinitionsFNV.pas'
+FNV_DEFS = XEDIT_DIR / XEDIT_DEFS['fnv']
 #: Per source game (export_index.source_game), xEdit's definitions naming its actor values.
-AV_DEFS = {'fnv': FNV_DEFS, 'fo3': FNV_DEFS.with_name('wbDefinitionsFO3.pas')}
+AV_DEFS = {'fnv': FNV_DEFS, 'fo3': XEDIT_DIR / XEDIT_DEFS['fo3']}
 
 
 def av_names(game: str) -> list:
