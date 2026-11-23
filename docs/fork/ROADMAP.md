@@ -6,9 +6,10 @@ what is next. Dates, counts and history are in the
 
 ## <a id="fo4-state"></a><a id="alpha"></a>Where it stands
 
-**Release:** [f3nv-0.2](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases/tag/f3nv-0.2),
-an alpha (prerelease, 2026-11-23). It is the first that converts from a fresh
-download, but on one it can't fit NPC faces; the fix is due in f3nv-0.3.
+**Release:** [f3nv-0.3](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases/tag/f3nv-0.3),
+an alpha (prerelease, 2026-11-23). A fresh download converts, NPC faces
+included: the face calibration is measured on the user's PC, without the
+Creation Kit. f3nv-0.2 converted everything but the faces.
 
 - **New Vegas** is playable from Doc Mitchell's house onward, with its four
   story DLC, five add-on packs and about 20 mods. Nearly every system is
@@ -227,8 +228,8 @@ Please report what you find in
 In rough order. The [issue plan](fo4_issue_plan.md) sizes and orders the fixes.
 
 1. **The app's real-world runs:** New Vegas built from a fresh 0.2 download
-   (faces fixed for 0.3); Fallout 3 and a cold build with faces fitted are
-   next ([app](fo4_gui.md#convert-screen)).
+   (faces fixed in 0.3); a fresh 0.3 download on a second PC, then Fallout 3,
+   are next ([app](fo4_gui.md#convert-screen)).
 2. **Play-testing** everything marked "Built, not played", and fixing what
    turns up.
 3. **Automated play-tests:** stage sweeps, story runs and unattended runs on
