@@ -257,7 +257,7 @@ RETURN_TYPES = dict(
 
     #: Reference-valued names; the `ak*` event parameters need a downcast.
     + [(n, 'ObjectReference') for n in (
-        'getlinkedref', 'placeatme', 'getparentref', 'placeactoratme',
+        'getlinkedref', 'placeatme', 'getparentref', 'placeactoratme', 'getcontainer',
         'geteditorlocation', 'getiteminslot', 'akactionref', 'aknewcontainer',
         'akoldcontainer', 'akcastref', 'akaggressor', 'akcaster')]
     + [(n, 'Actor') for n in (

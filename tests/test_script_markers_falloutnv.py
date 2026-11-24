@@ -46,6 +46,40 @@ def test_command_is_a_native_call(converter, source, papyrus):
     assert papyrus in out and ';NE:' not in out
 
 
+@pytest.mark.parametrize('source, extends, papyrus', [
+    ('LilyRef.SetCombatStyle FollowersCombatStyleMelee', 'Quest', 'LilyRef.SetCombatStyle(FollowersCombatStyleMelee)'),
+    ('setCS DefaultCombatstyle', 'Actor', 'Self.SetCombatStyle(DefaultCombatstyle)'),
+    ('SetCellPublicFlag ULKitchen 1', 'Quest', 'ULKitchen.SetPublic(true)'),
+    ('setpublic CottonwoodCoveHQ 0', 'Quest', 'CottonwoodCoveHQ.SetPublic(false)'),
+    ('setRumble left right 2', 'Quest', 'Game.ShakeController(left as Float, right as Float, 2 as Float)'),
+    ('SetCriticalStage GooStart', 'ActiveMagicEffect',
+     'GetTargetActor().SetCriticalStage(GetTargetActor().CritStage_GooStart)'),
+    ('Turret01REF.FireWeapon WeapGrenadeFrag', 'Quest', 'WeapGrenadeFrag.Fire(Turret01REF)'),
+    ('SystemSave', 'Quest', 'Game.RequestSave()'),
+    ('ForceSave', 'Quest', 'Game.RequestSave()'),
+    ('AttachAshPile 2', 'ActiveMagicEffect', 'GetTargetActor().AttachAshPile()'),
+    ('BarrelREF.ClearDestruction', 'Quest', 'BarrelREF.ClearDestruction()'),
+    ('SetItemValue 10', 'ObjectReference', 'Self.GetBaseObject().SetGoldValue(10)'),
+    ('ShowBarberMenu', 'TopicInfo', 'TES4PlayerControls.ShowBarberMenu()'),
+    ('Trap.CreateDetectionEvent player 100 3', 'Quest', 'Trap.CreateDetectionEvent(Game.GetPlayer() as Actor, 100)'),
+    ('ExitGame', 'Quest', 'Game.QuitToMainMenu()'),
+    ('ShowAllMapMarkers 1 0 0', 'Quest', 'Game.ShowAllMapMarkers()'),
+    ('KochREF.SetActorFullName KochNameMsg', 'Quest', 'KochREF.GetBaseObject().SetName(KochNameMsg.GetName())'),
+    ('SetSecExp MessengerREF Police Neutral', 'TopicInfo', 'TES4Screen_Police_Neutral'),
+    ('set n to GetPCMiscStat "Locks Picked"', 'Quest', 'Game.QueryStat("Locks Picked")'),
+    ('set n to GetXPForNextLevel', 'Quest', 'Game.GetXPForLevel(Game.GetPlayer().GetLevel() + 1)'),
+    ('if GetContainerInventoryCount > 0\nendif', 'ObjectReference', 'Self.GetItemCount(None) > 0'),
+    ('if obj.IsInList TrapList\nendif', 'ObjectReference', 'TrapList.HasForm(obj.GetBaseObject())'),
+    ('set holder to GetContainer', 'ObjectReference', 'holder = GetContainer()'),
+])
+def test_fallout4_native_rows(converter, source, extends, papyrus):
+    """Each route-1 command converts to its Fallout 4 native, with no `;NE:` marker.
+    See: docs/fork/fo4_plan_script_functions.md#decision-table
+    """
+    out = _lines(converter, source, extends)
+    assert papyrus in out and ';NE:' not in out
+
+
 def test_open_teammate_container_opens_the_speakers_inventory(converter):
     """A companion's 'let's trade' line opens that companion's inventory."""
     out = _lines(converter, 'OpenTeammateContainer 1', 'TopicInfo')

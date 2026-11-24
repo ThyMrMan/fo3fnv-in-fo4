@@ -196,70 +196,82 @@ def _fixed_reading(conv, low: str, extends: str):
         return BARE_READINGS[low]
     if low in BARE_INERT:
         return '0'
-
     if low in FAME_GLOBALS:
         prop, text = FAME_GLOBALS[low]
         conv.sc.property_refs[prop] = 'GlobalVariable'
         return text
-    if low in _MURDERER_NAMES:
-        conv.sc.property_refs[CRIME_REALMS[0]] = CRIME_REALMS[1]
-        return (f'({CRIME_FACTION}.GetCrimeGoldViolent() '
-                f'>= {TES4_MURDER_BOUNTY})')
-    if low == 'getcrimegold':
-        conv.sc.property_refs[CRIME_REALMS[0]] = CRIME_REALMS[1]
-        return f'{CRIME_FACTION}.GetCrimeGold()'
+    reader = _READERS.get(low)
+    return None if reader is None else reader(conv, extends)
 
-    if low in ('getactionref', 'isactionref'):
-        return conv._get_action_ref_param()
-    if low in ('getcurrenttime', 'gamehour'):
-        # NOT `as Int`.  GameHour is the engine's own global in both games and
-        # Skyrim declares it float, so GetValue() returns fractional hours.
-        # The bell/chime idiom brackets the top of each hour with a +-0.02
-        # window, and truncating collapses every such window into an
-        # always-true whole-hour test -- which made the Erodans-Kapelle bell
-        # (and Oblivion's BellTowerScript) ring on a continuous loop.
-        conv.sc.property_refs['GameHour'] = 'GlobalVariable'
-        return 'GameHour.GetValue()'
-    if low in ('getpcissleeping', 'ispcsleeping', 'isplayersleeping'):
-        # Inside a sleep-idiom MenuMode body the read means "is this a sleep
-        # frame" -- the script-managed flag.  Elsewhere Oblivion never ran
-        # while sleeping, so a raw GetSleepState() read keeps the same truth.
-        return ('TES4_PCSleeping' if conv.sc.in_sleep_menumode
-                else 'Game.GetPlayer().GetSleepState()')
-    if low == 'isininterior':
-        return f'{conv._self_reference(extends)}.GetParentCell().IsInterior()'
-    if low in ('getdisabled', 'isdisabled'):
-        return (f'TES4Polyfill.GetDisabled({conv._self_reference(extends)}, '
-                f'{conv._destroyed_formlist()})')
-    if low == 'getdestroyed':
-        return (f'TES4Polyfill.GetDestroyed({conv._self_reference(extends)}, '
-                f'{conv._destroyed_formlist()})')
-    if low == 'reset':
-        return f'{conv._self_reference(extends)}.Reset()'
-    if low == 'getbuttonpressed':
-        # A script that shows a button MessageBox of its own reads the clicked
-        # index back through the consume-on-read helper (TES4 returns it once,
-        # then -1).  A script that never shows one is polling a box some OTHER
-        # script displayed -- cross-script GetButtonPressed was global in TES4
-        # -- and keeps the dead -1 rather than being miswired to its own
-        # (nonexistent) state.
-        if conv.message_menus.get((conv.sc.edid or '').lower()):
-            conv.sc.uses_msg_buttons = True
-            return 'TES4_TakeMsgButton()'
-        return '-1'
-    if low == 'getcontainer':
-        # Bare GetContainer means "the container I am in".  Inside an
-        # equip/unequip event the container IS the actor the event hands us.
-        # A COMPARISON against it is answered on the BinOp before this operand
-        # is emitted, so reaching here is a bare read.  Papyrus cannot walk
-        # from an item to its container at all, so the honest value is None;
-        # a placeholder only moved the failure to the compiler.
-        actor = conv._current_event_actor_param()
-        if actor:
-            return actor
-        return conv.note('GetContainer has no Papyrus equivalent',
-                         value='None')
-    return None
+
+def _murderer(conv, _extends) -> str:
+    """Is the player a murderer: a violent bounty at or above the murder price."""
+    conv.sc.property_refs[CRIME_REALMS[0]] = CRIME_REALMS[1]
+    return f'({CRIME_FACTION}.GetCrimeGoldViolent() >= {TES4_MURDER_BOUNTY})'
+
+
+def _crime_gold(conv, _extends) -> str:
+    """The bounty in the player's current crime realm."""
+    conv.sc.property_refs[CRIME_REALMS[0]] = CRIME_REALMS[1]
+    return f'{CRIME_FACTION}.GetCrimeGold()'
+
+
+def _game_hour(conv, _extends) -> str:
+    """GameHour in fractional hours, never truncated (bell windows)."""
+    conv.sc.property_refs['GameHour'] = 'GlobalVariable'
+    return 'GameHour.GetValue()'
+
+
+def _sleeping(conv, _extends) -> str:
+    """The sleep-idiom MenuMode flag, else the player's sleep state."""
+    return 'TES4_PCSleeping' if conv.sc.in_sleep_menumode else 'Game.GetPlayer().GetSleepState()'
+
+
+def _self_call(template: str):
+    """A reader rendering `template` with {me} = the script's own reference, {lst} = its destroyed list."""
+    def read(conv, extends) -> str:
+        """`template` filled in."""
+        me = conv._self_reference(extends)
+        return template.format(me=me, lst=conv._destroyed_formlist() if '{lst}' in template else '')
+    return read
+
+
+def _button_pressed(conv, _extends) -> str:
+    """The clicked button, consumed once, for a script showing its own button box; else -1 (another's box)."""
+    if conv.message_menus.get((conv.sc.edid or '').lower()):
+        conv.sc.uses_msg_buttons = True
+        return 'TES4_TakeMsgButton()'
+    return '-1'
+
+
+def _container(conv, extends) -> str:
+    """Bare GetContainer (a comparison is answered on its BinOp): an equip event's actor, Fallout 4's native on a
+    reference script, else None with a note."""
+    actor = conv._current_event_actor_param()
+    if actor:
+        return actor
+    if is_fallout4() and extends == 'ObjectReference':
+        return 'GetContainer()'
+    return conv.note('GetContainer has no Papyrus equivalent', value='None')
+
+
+#: Bare names whose reading needs the converter's state: name -> reader(conv, extends).
+_READERS = {
+    **dict.fromkeys(_MURDERER_NAMES, _murderer),
+    'getcrimegold': _crime_gold,
+    'getactionref': lambda conv, _extends: conv._get_action_ref_param(),
+    'isactionref': lambda conv, _extends: conv._get_action_ref_param(),
+    'getcurrenttime': _game_hour,
+    'gamehour': _game_hour,
+    **dict.fromkeys(('getpcissleeping', 'ispcsleeping', 'isplayersleeping'), _sleeping),
+    'isininterior': _self_call('{me}.GetParentCell().IsInterior()'),
+    'getdisabled': _self_call('TES4Polyfill.GetDisabled({me}, {lst})'),
+    'isdisabled': _self_call('TES4Polyfill.GetDisabled({me}, {lst})'),
+    'getdestroyed': _self_call('TES4Polyfill.GetDestroyed({me}, {lst})'),
+    'reset': _self_call('{me}.Reset()'),
+    'getbuttonpressed': _button_pressed,
+    'getcontainer': _container,
+}
 
 
 def _is_bare_command(low: str) -> bool:

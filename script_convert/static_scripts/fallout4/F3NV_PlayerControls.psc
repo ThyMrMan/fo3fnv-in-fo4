@@ -39,6 +39,16 @@ Function ShowRaceMenu()
     StartTimer(SkipSeconds, SkipTimer)
     Return
   EndIf
+  OpenLooksMenu(1)
+EndFunction
+
+Function ShowBarberMenu()
+  {FO3/FNV ShowBarberMenu: the looks menu as Fallout 4's barbers open it (mode 2, hair only), set up as ShowRaceMenu's.}
+  OpenLooksMenu(2)
+EndFunction
+
+Function OpenLooksMenu(int aiMode)
+  {Fallout 4's looks menu in mode aiMode, with ShowRaceMenu's camera, seat and face setup and teardown.}
   CamSwitchLifted = Layer && !Layer.IsCamSwitchEnabled()
   If CamSwitchLifted
     Layer.EnableCamSwitch(true)
@@ -57,7 +67,7 @@ Function ShowRaceMenu()
   player.PlayIdle(Game.GetFormFromFile(0x1A9EE, "Fallout4.esm") as Idle)
   Utility.Wait(1.0)
   RegisterForMenuOpenCloseEvent("LooksMenu")
-  Game.ShowRaceMenu(uiMode = 1)
+  Game.ShowRaceMenu(uiMode = aiMode)
 EndFunction
 
 Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)

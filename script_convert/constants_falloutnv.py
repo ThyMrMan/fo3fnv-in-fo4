@@ -63,7 +63,8 @@ FALLOUT_UNMAPPED_ACTOR_VALUES = frozenset({
 #: FO3/FNV spellings of shared handlers: alias -> the handler's TES4 name.
 FALLOUT_COMMAND_ALIASES = {'cios': 'cast', 'castimmediateonself': 'cast',
                            #: The fade is the player's screen; the move is MoveTo. See: docs/fork/script_markers.md#moves
-                           'movetomarkerwithfade': 'moveto', 'movetofade': 'moveto'}
+                           'movetomarkerwithfade': 'moveto', 'movetofade': 'moveto',
+                           'setsecexp': 'setsecuritronexpression'}
 
 #: FO3/FNV form type code (xNVSE kFormType) of each inventory record type -> its export type, for RemoveAllTypedItems.
 ITEM_TYPE_CODES = {24: 'ARMO', 25: 'BOOK', 26: 'CLOT', 29: 'INGR', 30: 'LIGH', 31: 'MISC', 40: 'WEAP', 41: 'AMMO',
@@ -276,4 +277,18 @@ FALLOUT_COMMAND_ROWS = {
     'addcardtoplayer': dict(note='{f} - Skyrim has no Caravan'),
     #: MoveToMarkerWithFade converts to MoveTo, so the fade it waited on never plays. See: docs/fork/script_markers.md#moves
     'isimagespaceactive': dict(emit='0'),
+    #: The calling reference's base object is in the list.
+    'isinlist': dict(emit='({p0}.HasForm({ref}.GetBaseObject()) as Int)', subj='OBJREF', types={0: 'FormList'}),
+    #: Fallout 4 natives only (command_rows_fallout4). See: docs/fork/fo4_plan_script_functions.md#decision-table
+    'setcs': dict(note='SetCombatStyle'),
+    'setrumble': dict(note='{f} {a}'),
+    'setcriticalstage': dict(note='{f} {a}', subj='ACTOR'),
+    'fireweapon': dict(note='{f} {a}'),
+    'systemsave': dict(note='{f}'),
+    'forcesave': dict(note='{f}'),
+    'cleardestruction': dict(note='{f}'),
+    'showbarbermenu': dict(note='{f}'),
+    'createdetectionevent': dict(note='{f} {a}'),
+    'exitgame': dict(note='{f}'),
+    'showallmapmarkers': dict(note='{f}'),
 }

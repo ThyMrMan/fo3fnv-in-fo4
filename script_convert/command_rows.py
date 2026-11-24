@@ -1206,7 +1206,7 @@ ACTOR_ARG_FUNCTIONS = _flagged('actor_arg') | frozenset({
 
 #: Actor-only, so a caller's property type is inferred from them.
 ACTOR_ONLY_FUNCTIONS = _flagged('actor_only') | frozenset({
-    'drawweapon', 'getalpha', 'getclass', 'getdeadcount',
+    'drawweapon', 'getalpha', 'getclass', 'getdeadcount', 'getiscreaturetype',
     'getgoldamount', 'getincombat', 'getsitstate', 'getsleepstate',
     'getweapondrawn', 'haslos', 'isequipped', 'isinfaction',
     'pathtoref', 'setalpha', 'setcell', 'setessential',

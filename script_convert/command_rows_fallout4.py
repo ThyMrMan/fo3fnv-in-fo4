@@ -46,6 +46,29 @@ def _menu(kind: str, value: str = '{f0}', **row) -> Cmd:
     return Cmd(f'{_CHARACTER[0]}.Menu("{kind}", {value})', self_type=_CHARACTER, **row)
 
 
+#: FO3/FNV commands with a Fallout 4 native of the same meaning (docs/fork/fo4_plan_script_functions.md#decision-table).
+_NATIVES = {
+    'setcombatstyle': Cmd('{ref}.SetCombatStyle({p0})', ACTOR, types={0: 'CombatStyle'}, flags='actor_only'),
+    'setcs': Cmd('{ref}.SetCombatStyle({p0})', ACTOR, types={0: 'CombatStyle'}, flags='actor_only'),
+    'setcellpublicflag': Cmd('{p0}.SetPublic({b1})', types={0: 'Cell'}, defaults={1: '1'}),
+    'setpublic': Cmd('{p0}.SetPublic({b1})', types={0: 'Cell'}, defaults={1: '1'}),
+    'setrumble': Cmd('Game.ShakeController({f0}, {f1}, {f2})'),
+    'setcriticalstage': Cmd('{ref}.SetCriticalStage({ref}.CritStage_{s0})', ACTOR, flags='actor_only'),
+    'fireweapon': Cmd('{p0}.Fire({ref})', OBJREF, types={0: 'Weapon'}),
+    'systemsave': Cmd('Game.RequestSave()', max_args=0),
+    'forcesave': Cmd('Game.RequestSave()', max_args=0),
+    'attachashpile': Cmd('{ref}.AttachAshPile()', ACTOR, flags='actor_only', max_args=0),
+    'getcontainerinventorycount': Cmd('{ref}.GetItemCount(None)', OBJREF, flags='zero_arg'),
+    'cleardestruction': Cmd('{ref}.ClearDestruction()', OBJREF, max_args=0),
+    'setitemvalue': Cmd('{ref}.GetBaseObject().SetGoldValue({i0})', OBJREF),
+    'showbarbermenu': Cmd(f'{CONTROLS_PROPERTY}.ShowBarberMenu()', self_type=_CONTROLS, max_args=0),
+    'createdetectionevent': Cmd('{ref}.CreateDetectionEvent({a0} as Actor, {i1})', OBJREF, defaults={1: '0'}),
+    'exitgame': Cmd('Game.QuitToMainMenu()', max_args=0),
+    'getxpfornextlevel': Cmd('Game.GetXPForLevel(Game.GetPlayer().GetLevel() + 1)', flags='zero_arg'),
+    'showallmapmarkers': Cmd('Game.ShowAllMapMarkers()', max_args=0),
+    'setactorfullname': Cmd('{ref}.GetBaseObject().SetName({p0}.GetName())', OBJREF, types={0: 'Message'}),
+}
+
 #: TES4 command -> its Fallout 4 row, then keyed by the Skyrim row it replaces.
 FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
     'menumode': Cmd('TES4Polyfill.MenuMode({i0})', defaults={0: '0'}),
@@ -127,6 +150,7 @@ FALLOUT4_ROWS = {COMMAND_ROWS[name]: row for name, row in {
                          self_type=_av('TalkedToPC'), flags='actor_only zero_arg cmp_bool'),
     'gettalkedtopcp': Cmd(f'({{ref}}.GetValue({av_property("TalkedToPC")}) != 0.0)', ACTOR,
                           self_type=_av('TalkedToPC'), flags='actor_only zero_arg cmp_bool'),
+    **_NATIVES,
 }.items()}
 
 

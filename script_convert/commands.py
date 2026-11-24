@@ -251,11 +251,14 @@ def get_first_ref(ctx, call) -> str:
 
 @command('getpcmiscstat', 'modpcmiscstat')
 def pc_misc_stat(ctx, call) -> str:
-    """Get/ModPCMiscStat <index> [amount] -- Skyrim names the stat instead of numbering it.
+    """Get/ModPCMiscStat <index> [amount] -- Skyrim names the stat instead of numbering it. FO3/FNV name it
+    already ("Locks Picked"), as Fallout 4's QueryStat does.
 
     See: docs/commentary/script_convert.md#pc-misc-stat-names
     """
     src = call.source(0).strip()
+    if is_fallout4() and call.name == 'getpcmiscstat' and src.startswith('"'):
+        return f'Game.QueryStat({src})'
     idx = int(src) if src.isdigit() else -1
     name = TES4_MISC_STAT_NAMES[idx] if 0 <= idx < len(TES4_MISC_STAT_NAMES) else ''
     if not name:

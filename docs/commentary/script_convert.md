@@ -552,6 +552,16 @@ Without it, Nehrim's nightmare cave-in (`TrigZoneACTOR01SCRIPT`,
 moment the cell loaded, set off by loose clutter settling at the zones' edges,
 before Celebro walked into them.
 
+`OnAdd` and `OnDrop` both become `OnContainerChanged`, which fires for every
+move. `OnAdd` runs only when `akNewContainer` is set (the item went into a
+container), `OnDrop` only when `akOldContainer` is (it left one: the GECK's
+OnDrop runs on any removal, not only onto the ground); a filter on the same
+parameter (`OnAdd player`) already implies it, so no second test is added.
+Without the guards a script with both blocks ran both bodies on each move: FNV's
+`MantisLegScript` ran its OnDrop kill when the player picked the leg up off the
+ground. In FalloutNV.esm 35 scripts change (2026-11-24),
+each an `OnAdd` body that no longer runs on a drop.
+
 <a id="onhitwith-ammo"></a>
 **`OnHitWith <ammo>` is read off the shooter, not `akSource`.** For an arrow,
 Skyrim's `OnHit` passes the BOW as `akSource` (CK wiki: "the Weapon, Spell,

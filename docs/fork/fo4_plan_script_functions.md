@@ -176,36 +176,36 @@ behavior match is not yet read against the GECK wiki. Markers are from the
 
 | Function | Markers | Route | How |
 |---|---:|---|---|
-| SetCombatStyle, setCS | 54, 4 | 1 | `Actor.SetCombatStyle` (setCS is its short name) |
-| SetRumble | 10 | 1 | `Game.ShakeController` |
-| SetCellPublicFlag, SetPublic | 10, 2 | 1 | `Cell.SetPublic` |
+| SetCombatStyle, setCS | 54, 4 | 1 | **Built:** `Actor.SetCombatStyle` (setCS is its short name) |
+| SetRumble | 10 | 1 | **Built:** `Game.ShakeController`; FNV's motor strengths are 0–1, as FO4's |
+| SetCellPublicFlag, SetPublic | 10, 2 | 1 | **Built:** `Cell.SetPublic` |
 | PlayMusic | 9 | 1 | `MusicType.Add`, once the MUSC records exist ([open](#open)) |
 | GetFurnitureMarkerID | 8 | 1 | `Actor.GetFurnitureReference` against the furniture the index stood for; to confirm |
-| TriggerScreenSplatter | 8 | 1 | `Game.TriggerScreenBlood` |
-| UseWeapon | 8 | 1 | `Weapon.Fire` from the actor; drift: no aim target |
-| SetCriticalStage | 6 | 1 | `Actor.SetCriticalStage` |
+| TriggerScreenSplatter | 8 | 1 | `Game.TriggerScreenBlood` takes one droplet count; which of FNV's four arguments (`100 12 3.0 2.0`) is a count is documented nowhere offline, so not built |
+| UseWeapon | 8 | 1 | Not built: `Weapon.Fire` shoots along the source's facing, so Duke's and Archimedes's aimed shots at a target would miss it |
+| SetCriticalStage | 6 | 1 | **Built:** `Actor.SetCriticalStage(CritStage_<name>)`; FO4's constants use FNV's names |
 | EnterTrigger | 5 | 1 | The converter calls the trigger script's converted `OnTrigger` body once (the 5 boxes with no `OnTriggerEnter`) |
-| FireWeapon | 5 | 1 | `Weapon.Fire` |
-| GetContainer | 5 | 1 | `ObjectReference.GetContainer`; Fallout 4 declares it, the marker is Skyrim's note |
-| PlaceLeveledActorAtMe | 5 | 1 | `ObjectReference.PlaceActorAtMe` |
-| SetSecExp | 5 | 1 | SetSecuritronExpression's short name; give it that row |
-| SystemSave, ForceSave | 5, 2 | 1 | `Game.RequestSave` |
-| GetPCMiscStat | 4 | 1 | `Game.QueryStat` |
-| IsInList | 4 | 1 | `FormList.HasForm` |
-| AttachAshPile | 3 | 1 | `Actor.AttachAshPile` |
-| GetContainerInventoryCount | 3 | 1 | `GetItemCount(None)` counts every item |
-| GetCurrentAIPackage | 3 | 1 | `Actor.GetCurrentPackage` |
+| FireWeapon | 5 | 1 | **Built:** `Weapon.Fire(<ref>)` |
+| GetContainer | 5 | 1 | **Built:** `GetContainer()` on a reference script (cast for an Actor variable) |
+| PlaceLeveledActorAtMe | 5 | 1 | **Built:** `ObjectReference.PlaceActorAtMe` |
+| SetSecExp | 5 | 1 | **Built:** SetSecuritronExpression's handler, under its short name |
+| SystemSave, ForceSave | 5, 2 | 1 | **Built:** `Game.RequestSave` |
+| GetPCMiscStat | 4 | 1 | **Built:** `Game.QueryStat("<name>")`; FNV names the stat, and FO4 keeps "Locations Discovered" and "Times Addicted" under the same names |
+| IsInList | 4 | 1 | **Built:** `FormList.HasForm` of the reference's base object (both targets) |
+| AttachAshPile | 3 | 1 | **Built:** `Actor.AttachAshPile()`; FNV's plasma goo pile (type 2) is FO4's default ash pile |
+| GetContainerInventoryCount | 3 | 1 | **Built:** `GetItemCount(None)` counts every item |
+| GetCurrentAIPackage | 3 | 4 | FNV returns the package TYPE (4 sleep, 1 follow, 6 dialogue) and every use compares one; `Actor.GetCurrentPackage` returns the package form, so it cannot answer |
 | PlayBink | 3 | 1 | `Game.PlayBink` ([Bink](bink_movies.md)) |
-| ClearDestruction | 2 | 1 | `ObjectReference.ClearDestruction` |
-| SetItemValue | 2 | 1 | `Form.SetGoldValue` |
-| ShowBarberMenu | 2 | 1 | `Game.ShowRaceMenu`; to confirm the mode |
-| CreateDetectionEvent | 1 | 1 | `ObjectReference.CreateDetectionEvent` |
-| ExitGame | 1 | 1 | `Game.QuitToMainMenu` |
-| GetXPForNextLevel | 1 | 1 | `Game.GetXPForLevel(level + 1)` |
+| ClearDestruction | 2 | 1 | **Built:** `ObjectReference.ClearDestruction` |
+| SetItemValue | 2 | 1 | **Built:** `Form.SetGoldValue` (F4SE) on the reference's base, as FNV changes the base |
+| ShowBarberMenu | 2 | 1 | **Built:** `F3NV_PlayerControls.ShowBarberMenu`: the looks menu in mode 2, as FO4's barbers open it |
+| CreateDetectionEvent | 1 | 1 | **Built:** `ObjectReference.CreateDetectionEvent` |
+| ExitGame | 1 | 1 | **Built:** `Game.QuitToMainMenu` |
+| GetXPForNextLevel | 1 | 1 | **Built:** `Game.GetXPForLevel(level + 1)` |
 | IsSpellTarget | 1 | 1 | `Actor.HasMagicEffect` of the spell's effect |
 | `ne` (GetFactionRelation) | 1 | 1 | `Actor.GetFactionReaction`; to confirm. The census reads `;NE: NE:` as a function named `ne` |
 | SetInChargen, GetInCharGen | 1 | 2 | **Built:** the flag in `F3NV_State`; `Game.SetInChargen` kept off ([below](#ignore-crime)) |
-| ShowAllMapMarkers | 1 | 1 | `Game.ShowAllMapMarkers` |
+| ShowAllMapMarkers | 1 | 1 | **Built:** `Game.ShowAllMapMarkers` |
 | IgnoreCrime, GetIgnoreCrime | 185, 3 | 2 | **Built:** the actor's crime faction cleared and remembered in `F3NV_State`, read back by GetIgnoreCrime ([below](#ignore-crime)) |
 | SetPackDuration | 12 | 2 | An end time in `F3NV_State`; the poll calls `EvaluatePackage` once it passes |
 | HasBeenEaten | 5 | 2 | The Cannibal feed writes `F3NV_State` |
@@ -215,7 +215,7 @@ behavior match is not yet read against the GECK wiki. Markers are from the
 | GetFriendHit | 2 | 2 | An `OnHit` counter in the script's own variables |
 | IsIdlePlaying | 1 | 2 | Phase 5's PlayGroup record, as IsAnimPlaying |
 | ResetInventory | 17 | 3 | `RemoveAllItems`, then a build-written list of the base's inventory |
-| SetActorFullName | 17 | 1 | F4SE's `Form.SetName` on the actor's base (FNV renames the base too); F4SE is already required |
+| SetActorFullName | 17 | 1 | **Built:** F4SE's `Form.SetName` on the reference's base with the message's title (`GetName`); FNV renames the base too |
 | SetQuestObject | 7 | 3 | The holding alias's Quest Object flag, written at build |
 | ShowRecipeMenu | 5 | 3 | A build-placed hidden workbench of the recipe list's kind, activated for the player |
 | sgtm, SetGlobalTimeMultiplier | 5, 2 | 3 | A build-made slow-time spell cast on the player (sgtm is the short name) |
@@ -274,7 +274,7 @@ Each needs the user's approval; none is in the phases unless approved.
 | # | Size | Delivers | Checked by | Depends on |
 |---|---|---|---|---|
 | 1 | S | **Done.** The [decision table](#decision-table): all 93 functions routed. The census is `tools/audit/script_marker_census.py` (not `tools/script/`, which the build imports); test `tests/test_script_marker_census.py`. Cost item 4 found already gone (recorded here, not in the inherited [performance](performance.md#papyrus) doc) | Reran: 806 markers, 420 scripts, 93 functions plus 3 notes (37 markers), 79 on a condition line | The play test only |
-| 2 | S | The native rows (route 1 of the [decision table](#decision-table)) | `tests/test_script_markers_falloutnv.py` per row; census markers fall by the rows' count (184 today); `compile_papyrus.py --game fallout4` shows no new failure over `fo4_compile_baseline.json` | 1 |
+| 2 | S | **Built 2026-11-24.** The native rows (route 1 of the [decision table](#decision-table)): FalloutNV.esm's markers 659 → 510 (99 scripts), each changed line read; those 99 compile with FO4's compiler, and the whole corpus as a build compiles it (18,614 of 18,621, the 7 failures not among them). Left: PlayMusic, GetFurnitureMarkerID, TriggerScreenSplatter, UseWeapon, EnterTrigger, PlayBink, IsSpellTarget (42 markers), and GetCurrentAIPackage moved to route 4 | `tests/test_script_markers_falloutnv.py` per row; census markers fall by the rows' count (184 today); `compile_papyrus.py --game fallout4` shows no new failure over `fo4_compile_baseline.json` | 1 |
 | 3 | S | Cost item 2: a load flag set in `OnCellAttach`, cleared in `OnCellDetach`, in place of `SafeGameModeGate` in both arms; the carried holder check stays | `SafeGameModeGate` calls in the scratch run fall from 5,236; a script that disables itself still reaches its next state (the reason the gate is cell-scoped, not 3D-scoped); Papyrus log load in Freeside | 1 |
 | 4 | M | `F3NV_State` and cost item 3: dialogue speaker and line timing held in quest variables, written as Fallout 4 overrides of `LineBegan`, `LineEnded` and `PlayerIsInDialogue` | Helper-plugin test for id 0x903; in game, Doc Mitchell's intro and a Say-timer scene keep their pacing; the trace shows no actor-value writes from `LineBegan` | 1 |
 | 5 | M | `IsAnimPlaying` (route 3 plus 2): the PlayGroup handler records the reference, group and end time; the end time comes from the mesh's sequence length, which the build writes as a table the script stage reads | All 71 source matches convert to the read; in game, the Vault 11 gear door, the Lucky 38 lights and a Hoover Dam vertibird | 4 |

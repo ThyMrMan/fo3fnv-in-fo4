@@ -94,7 +94,8 @@ BLOCK_FILTER_PARAM = {
 }
 
 #: TES4 block type -> the test narrowing its wider event. See: docs/commentary/script_convert.md#block-type-guards
-BLOCK_TYPE_GUARDS = {'onalarm': 'aeCombatState != 0',
+BLOCK_TYPE_GUARDS = {'onadd': 'akNewContainer', 'ondrop': 'akOldContainer',
+                     'onalarm': 'aeCombatState != 0',
                      'onstartcombat': 'aeCombatState == 1',
                      'ontriggeractor': 'akActionRef as Actor',
                      **FALLOUT_COMBAT_STATE_GUARDS}

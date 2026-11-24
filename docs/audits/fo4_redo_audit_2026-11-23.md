@@ -32,6 +32,10 @@ Scratch scripts are one-offs, not kept.
 
 ## <a id="natives"></a>1. Script calls with a Fallout 4 native
 
+**Built 2026-11-24:** 659 → 510 markers; what is left and why is in the
+[decision table](../fork/fo4_plan_script_functions.md#decision-table)
+(phase 2).
+
 **Census.** `python -m tools.audit.script_marker_census
 temp/fo4_scripts/FalloutNV.esm export/FalloutNV.esm`: **659 markers in 386
 scripts, 89 functions** (80 on a condition line). The

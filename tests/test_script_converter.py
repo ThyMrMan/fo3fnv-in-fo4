@@ -2182,6 +2182,17 @@ class TestOnAlarmBlock:
         assert 'If aeCombatState == 1' in text
 
 
+def test_onadd_and_ondrop_each_run_on_their_own_side(converter):
+    """OnAdd and OnDrop share OnContainerChanged: each body runs only when its container is set, and a filter
+    on the same parameter needs no extra test."""
+    source = ('scn TestLeg\nref holder\nbegin OnAdd\n  set holder to 1\nend\n'
+              'begin OnDrop\n  holder.kill\nend\nbegin OnAdd player\n  set holder to 2\nend\n')
+    result = converter.convert_standalone('TestLeg', source, 'ObjectReference', 'TestLeg')
+    text = result if isinstance(result, str) else '\n'.join(result)
+    assert 'If akNewContainer\n' in text and 'If akOldContainer\n' in text
+    assert 'If akNewContainer == Game.GetPlayer()' in text
+
+
 class TestSetAlert:
     """SetAlert maps to Skyrim's native Actor.SetAlert, NOT DrawWeapon.
 
