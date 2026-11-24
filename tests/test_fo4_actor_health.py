@@ -1,10 +1,11 @@
-"""FO3/FNV hit points and bites on converted FO4 actors: NPC health (with_health), creature stats (with_stats)."""
+"""FO3/FNV hit points, fists and bites on converted FO4 actors: with_health, with_fists, with_stats."""
 
 import struct
 
-from fo4_import.spike.actor_data import AUTO_CALC, HEALTH, PC_LEVEL_MULT, StatTables, added_health
-from fo4_import.spike.creatures import BASE_DAMAGE_AT, UNARMED_DAMAGE, _base_damage, with_stats
-from fo4_import.spike.npcs import with_health
+from fo4_import.spike.actor_data import (AUTO_CALC, HEALTH, PC_LEVEL_MULT, UNARMED_DAMAGE, StatTables, added_health,
+                                         fist_damage)
+from fo4_import.spike.creatures import BASE_DAMAGE_AT, _base_damage, with_stats
+from fo4_import.spike.npcs import with_fists, with_health
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
@@ -17,6 +18,9 @@ TABLES = StatTables({HUMAN_RACE: 40.0, CITIZEN: 60.0, ROACH_RACE: 3.0}, {ROACH_R
 KENDALL = {'DATA.BaseHealth': '10', 'DATA.Endurance': '6', 'ACBS.Level': '2', 'ACBS.Flags': '0'}
 #: FO3's radroach: Health 10, AttackDamage 3, Endurance 1.
 ROACH = {'DATA.Health': '10', 'DATA.AttackDamage': '3', 'DATA.Endurance': '1'}
+#: Fallout3.esm's unarmed GMSTs over FalloutNV.exe's fUnarmedDamageMult.
+FISTS = {'fAVDUnarmedDamageBase': 0.5, 'fAVDUnarmedDamageMult': 0.05, 'fUnarmedDamageMult': 0.5,
+         'fDamageSkillMult': 0.5}
 
 
 def npc(race: int, level: int = 1, prps: dict = None, flags: int = 0, cls: int = 0) -> bytes:
@@ -84,3 +88,15 @@ def test_weapon_base_damage_offset():
     struct.pack_into('<H', dnam, BASE_DAMAGE_AT, 2)
     assert _base_damage(pack_subrecord('DNAM', bytes(dnam))) == 2
     assert _base_damage(b'') == 0
+
+
+def test_fo3_fist_damage():
+    """0.25 + 0.03 x Unarmed: 0.73 for the Vault 101 officers (16), 3.25 at 100."""
+    assert round(fist_damage(16, FISTS), 4) == 0.73
+    assert round(fist_damage(100, FISTS), 4) == 3.25
+
+
+def test_npc_fists_hit_as_fo3():
+    """Own UnarmedDamage: the FO3 hit less UnarmedHuman's base 8; Health kept."""
+    out = with_fists(16, FISTS, StatTables({}, {HUMAN_RACE: 8}))(npc(HUMAN_RACE, 2, {HEALTH: -60.0}))
+    assert {av: round(v, 4) for av, v in prps(out).items()} == {HEALTH: -60.0, UNARMED_DAMAGE: -7.27}

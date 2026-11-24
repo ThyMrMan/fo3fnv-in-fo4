@@ -93,6 +93,11 @@ def says_to_player(rec: dict) -> bool:
             and (rec.get('PTDT.Target') or '').upper() in _PLAYER_FIDS)
 
 
+def talks_to_npc(rec: dict) -> bool:
+    """Whether a PACK is a Dialogue package aimed at a reference other than the player."""
+    return rec.get('PKDT.Type') == DIALOGUE_TYPE and (rec.get('PTDT.Target') or '').upper() not in _PLAYER_FIDS
+
+
 def package_source(rec: dict, formid_to_edid: dict) -> str:
     """The sections' sources and a Dialogue package's topic, for the call-site scans."""
     parts = [section_source(rec, name, formid_to_edid) for name, _flag in package_sections(rec)]

@@ -11,6 +11,8 @@ from PIL import Image
 
 from fo4_import.nif import convert_static as C
 from fo4_import.nif import file as F
+from fo4_import.nif import shader_anim as A
+from fo4_import.nif.blocks import SHADER_GLOW
 from fo4_import.nif.glow_scale import fo4_glow
 
 SALOON_LIGHTS = Path('export/FalloutNV.esm/meshes/architecture/goodsprings/nv_prospectorsaloon-neon_lights.nif')
@@ -32,6 +34,19 @@ def test_the_sal_tubes_are_additive_ranked_as_unlit_tubes():
         shape = shapes[name]
         assert nif.blocks[shape['alpha_property']][1]['alpha_flags'] == C.NEON_ALPHA[0]
         assert nif.blocks[shape['shader']][1]['base_color_scale'] == pytest.approx(fo4_glow('tube', 7.5))
+
+
+def test_an_animated_emissive_lights_only_a_glow_shader():
+    """Megaton's Church of Atom ring flickers its emissive colour on a lit shape with no glow map, which FNV's
+    shader never reads: no controller is written there; a glow-mapped lit shape still gets one."""
+    def written(shader_type):
+        """Controllers add_running writes for an emissive channel on a lit shape of `shader_type`."""
+        nif = F.NifFile()
+        nif.blocks.append(('BSLightingShaderProperty', {'shader_type': shader_type, 'controller': -1}))
+        at = {'shapes': {'ring': (1, 0, 'Lighting', -1)}, 'peaks': {}}
+        how = ('NiMaterialColorController', {'flags': 76, 'frequency': 1.0, 'phase': 0.0, 'start': 0, 'stop': 3}, 1.0)
+        return A.add_running(nif, at, ('ring', A.CHANNELS[('NiMaterialColorController', 'SELF_ILLUM')], None), how)
+    assert written(0) == 0 and written(SHADER_GLOW) == 1
 
 
 def test_the_neon_bake_is_raised_to_white_and_linear():

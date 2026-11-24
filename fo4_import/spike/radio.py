@@ -70,6 +70,25 @@ START_CALL = re.compile(r'^[^;\n]*?\b(\w+)\.startradioconversation\b', re.I | re
 NPC_RADIO_CALL = re.compile(r'^[^;\n]*?\bsetnpcradio\s+\S+\s+(\w+)', re.I | re.M)
 #: The receiver SetNPCRadio places at an actor: DN070_JamaicaPlainDummyRadio's invisible marker model and bounds.
 NPC_RECEIVER_MODEL, NPC_RECEIVER_BOUNDS = 'markers\\MarkerDummy01.nif', (-66, -66, -66, 66, 66, 66)
+#: derive_formid site of a receiver's switched-on copy (key: the FNV ACTI FormID); RADR Starts Active's offset.
+ON_SITE, STARTS_ACTIVE_AT = 'FNV radio on', 12
+#: Size of a record header before its subrecords.
+HEADER = 24
+
+
+def switched_on(record: bytes, fid: int) -> bytes:
+    """Packed receiver `record` on `fid`: EditorID suffixed On, RADR Starts Active, as vanilla's HamRadio beside
+    HamRadioOFF.
+    See: docs/fork/fo4_radio.md#placed-on
+    """
+    subs = b''
+    for tag, data in subrecords(record[HEADER:]):
+        if tag == b'EDID':
+            data = data.rstrip(b'\0') + b'On\0'
+        elif tag == b'RADR':
+            data = data[:STARTS_ACTIVE_AT] + b'\x01' + data[STARTS_ACTIVE_AT + 1:]
+        subs += pack_subrecord(tag.decode('latin1'), data)
+    return pack_fo4_record('ACTI', fid, 0, subs)
 
 
 def radio_stations(export_dir: Path) -> dict:
@@ -181,7 +200,7 @@ class Radio:
         self.builder, self.stations, self.made = builder, radio_stations(export_dir), set()
         self.template = next(subrecords(r.body) for r, _ in walk(builder.fo4, b'ACTI')
                              if (first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode() == TRANSMITTER)
-        self.refs, self.receivers, named = {}, {}, {}
+        self.refs, self.receivers, named, self.placed_on, self.on = {}, {}, {}, {}, {}
         self.export_dir, self.stations_of = export_dir, fnv_links(None, b'ACTI', b'RNAM')
         for ref in export_records(export_dir, 'REFR'):
             base = int(ref.get('NAME', '0'), 16)
@@ -190,6 +209,8 @@ class Radio:
                 named[(ref.get('EditorID') or '').lower()] = base
             elif base in self.stations_of:
                 self.receivers.setdefault(self.stations_of[base], []).append(ref['FormID'])
+                if ref.get('ONAM.OpenByDefault') == '1':
+                    self.placed_on[ref['FormID']] = base
         texts = [r.get('SCTX', '') for r in export_records(export_dir, 'SCPT')]
         self.started, self.npc_radios = ({named[m.lower()] for text in texts for m in call.findall(text)
                                           if m.lower() in named} for call in (START_CALL, NPC_RADIO_CALL))
@@ -218,8 +239,22 @@ class Radio:
         return self._radr(station)
 
     def _radr(self, station: int) -> bytes:
-        """RADR on `station`'s frequency (one it has), off until switched on, jukebox sound."""
+        """RADR on `station`'s frequency (one it has), off until on, jukebox sound."""
         return struct.pack('<IffBB', RECEIVER_OUTPUT, self.frequency(station), RECEIVER_VOLUME, 0, 0)
+
+    def add_on(self, fnv: int, record: bytes) -> None:
+        """Writes receiver `record` (FNV activator `fnv`)'s switched_on copy, once, when a reference places it open
+        by default (FNV's radio on); nothing for a plain activator."""
+        if fnv in self.on or fnv not in self.placed_on.values() or not first_sub(record[HEADER:], b'RADR'):
+            return
+        self.on[fnv] = self.builder.writer.derive_formid(ON_SITE, f'{fnv:08X}')
+        self.builder.writer.add_record('ACTI', switched_on(record, self.on[fnv]))
+
+    def base_of(self, ref: dict, base: int) -> int:
+        """`ref`'s base: its receiver's switched_on copy when placed on, else `base`."""
+        copy = self.on.get(self.placed_on.get(ref['FormID']))
+        self.builder.counts['radios placed on'] += copy is not None
+        return copy or base
 
     def npc_receiver(self, station: int) -> int:
         """The receiver activator a script's SetNPCRadio places at an actor to play placed `station` (an invisible

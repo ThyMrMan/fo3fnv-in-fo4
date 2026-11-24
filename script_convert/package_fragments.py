@@ -10,7 +10,7 @@ See: docs/commentary/script_convert.md#package-fragments
 
 from script_convert.constants import script_prefix
 from script_convert.converter import ScriptConverter
-from script_convert.package_events import day_done, walk_up
+from script_convert.package_events import chat_arrival, day_done, walk_up
 from script_convert.say_to_done import fragment_calls, held_says
 from script_convert.scro_refs import add_scro_ref, resolve_scro_aliases, scro_list
 from script_convert.symbols import property_declarations
@@ -34,6 +34,14 @@ def _walk_up(rec: dict, section: str, conv, sections: list) -> list:
     return lines + day_lines
 
 
+def _chat(rec: dict, section: str, conv, xref) -> list:
+    """An NPC chat's chat_arrival lines opening `section`, their properties declared."""
+    topic = xref.formid_to_edid.get((rec.get('PKDD.Topic') or '').upper(), '') if xref else ''
+    props, lines = chat_arrival(rec, section, topic)
+    conv.sc.property_refs.update(props)
+    return lines
+
+
 def _convert_package(rec: dict, xref, hooks: dict) -> tuple:
     """(converter, fragment function lines) for one package's sections; `hooks` {section: [(script, function)]}.
 
@@ -52,6 +60,7 @@ def _convert_package(rec: dict, xref, hooks: dict) -> tuple:
         conv.set_scro_aliases(resolve_scro_aliases(source, refs, xref))
         guard = _end_guard(section, i)
         bodies += [f'Function Fragment_{i}(Actor akActor)', *guard[:-1], '  ObjectReference akSpeakerRef = akActor']
+        bodies += _chat(rec, section, conv, xref)
         bodies += conv.convert_fragment(source, 'TopicInfo') + fragment_calls(hooks.get(section, ()), 'akActor')
         bodies += _walk_up(rec, section, conv, sections) + guard[-1:] + ['EndFunction', '']
     return conv, bodies

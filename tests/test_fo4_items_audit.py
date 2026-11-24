@@ -265,7 +265,7 @@ def test_an_armor_fnv_gives_no_world_model_wears_its_own_mesh_on_the_templates_w
     eq.builder = SimpleNamespace(counts=collections.Counter(), writer=SimpleNamespace(
         derive_formid=lambda site, key: 0x0300F00D, add_record=lambda sig, rec: written.append(rec)),
         type_keywords=SimpleNamespace(slots=lambda flags: []))
-    eq.fnv, eq.strings, eq.vanilla = {1: {'value': 5, 'weight': 1.0, 'rating': 2.0}}, {}, {'ClothesMobsterhat': template}
+    eq.fnv, eq.strings, eq.vanilla = {1: {'value': 5, 'weight': 1.0, 'dt': 2.0}}, {}, {'ClothesMobsterhat': template}
     eq.enchantments = {}
     eq.table = {'HatX': RP.Replacement(RP.BASE, 'ClothesMobsterhat', 'fnv')}
     eq._headgear = lambda fnv, rec, tpl: {b'BOD2': b'\1\0\0\0', **E.Equipment._world(eq, fnv, rec, 0x0300ABCD)}

@@ -120,8 +120,8 @@ def test_weapon_dress_adds_parent_bone_bsx_and_hidden_blood_copy():
     back = F.read(F.write(nif))
     extra = {back.blocks[i][0]: back.blocks[i][1] for i in back.blocks[0][1]['extra']}
     assert extra['BSXFlags']['value'] == W.BSX
-    name, value = struct.unpack('<ii', extra['NiStringExtraData'])
-    assert (back.strings[name], back.strings[value]) == ('Prn', 'WEAPON')
+    prn = extra['NiStringExtraData']
+    assert (back.strings[prn['name']], back.strings[prn['text']]) == ('Prn', 'WEAPON')
     blood, shape = (back.blocks[i][1] for i in back.blocks[0][1]['children'])
     assert back.strings[blood['name']] == 'Mask_Blood:0' and blood['flags'] == shape['flags'] | W.HIDDEN
     assert back.strings[back.blocks[blood['shader']][1]['name']] == W.BLOOD_MATERIAL
@@ -514,6 +514,22 @@ def test_a_flight_whose_first_steps_are_elsewhere_ramps_down_to_the_floor_but_on
         (corners, _), = S.stairs(tris, [0] * len(tris), 1.0, lambda m: m + 1)[2]
         feet.append(round(float(corners[::2, 2].min())))
     assert feet == [0, 48]
+
+
+def test_a_sloped_slabs_own_faces_are_no_step():
+    """MegatonRampStraightSml's deck: a V-shaped top over its underside, 11 below. Two triangles of one sloped top
+    differ 3.6 in mean height; the pass took the underside beyond their shared edge for a 10.7-unit step and hung
+    a riser through the slab, out of the underside the flipped references walk on."""
+    top = [((158.6, -131.0, 4.9), (156.2, 0.0, -6.0), (-171.5, -124.3, 6.2)),
+           ((156.2, 0.0, -6.0), (-171.5, -124.3, 6.2), (-171.5, 0.0, -5.9)),
+           ((156.2, 128.0, 5.0), (-171.5, 127.5, 5.5), (156.2, 0.0, -6.0)),
+           ((-171.5, 127.5, 5.5), (156.2, 0.0, -6.0), (-171.5, 0.0, -5.9))]
+    under = [((156.2, 128.0, -1.0), (156.2, 0.0, -15.2), (-171.5, 127.5, -0.6)),
+             ((156.2, 0.0, -15.2), (-171.5, 127.5, -0.6), (-171.5, 0.0, -16.5)),
+             ((-171.5, -124.3, -1.3), (-171.5, 0.0, -16.5), (158.6, -131.0, -6.1)),
+             ((-171.5, 0.0, -16.5), (158.6, -131.0, -6.1), (156.2, 0.0, -15.2))]
+    out, mats, ramps = S.stairs(top + under, [0] * 8, 1.0, lambda m: m + 1)
+    assert len(out) == 8 and mats == [0] * 8 and ramps == []
 
 
 def _ramp_to_landing(lip: float, tilt: float = 0.0) -> list:

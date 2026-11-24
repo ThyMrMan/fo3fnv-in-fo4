@@ -1249,12 +1249,8 @@ def _declared(tree, name_low: str):
 
 
 def door_relock(conv, tree, extends: str) -> list:
-    """Restore the authored lock lifted for an AI door passage.
-
-    Companion to the door preamble in `events`: TES4 has no OnClose event, so
-    this can never collide with an authored block.
-    """
-    if extends != 'ObjectReference' or not _consumes_activation(conv, tree):
+    """OnClose restoring the lock `door_preamble` lifted for an AI door passage; TES4 has no OnClose to collide."""
+    if not ai_skips_door_script(conv, extends) or not _consumes_activation(conv, tree):
         return []
     if not any(b.btype.lower() == 'onactivate'
                for b in (tree.blocks if tree else ())):
@@ -1313,13 +1309,16 @@ def _is_gate_entry(tree) -> bool:
     return False
 
 
-def door_preamble(conv, extends: str) -> list:
-    """TES4 parity: AI door-use ignores this script AND the lock.
+def ai_skips_door_script(conv, extends: str) -> bool:
+    """Whether an NPC opening the door bypasses its script: Oblivion, not FO3/FNV.
+    See: docs/commentary/script_convert.md#ai-door-use"""
+    return extends == 'ObjectReference' and not (conv.xref and conv.xref.is_fallout())
 
-    An NPC opening a door does not run the door's script in Oblivion, and the
-    authored lock is restored when the door next closes (see `door_relock`).
-    """
-    if extends != 'ObjectReference':
+
+def door_preamble(conv, extends: str) -> list:
+    """OnActivate lines letting an NPC through the door past the script and the lock (`ai_skips_door_script`); the
+    lock comes back on close (`door_relock`)."""
+    if not ai_skips_door_script(conv, extends):
         return []
     return ['  If (GetBaseObject() as Door) && (akActionRef as Actor) && '
             'akActionRef != Game.GetPlayer()',

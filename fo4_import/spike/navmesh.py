@@ -40,8 +40,10 @@ NO_CEILING = struct.unpack('<f', b'\xff\xff\x7f\x7f')[0]
 NEXT_FLOOR = 128.0
 #: What a Height leaves under the floor above: vanilla's Height falls short of it by 65 to 75 at the median.
 FLOOR_GAP = 64.0
-#: Triangles whose centers are tested against every triangle of their cell at once.
+#: Triangles tested against every triangle of their cell at once.
 CHUNK = 128
+#: Overlap in x, y (units) below which two triangles only touch, as floors meeting at an edge.
+TOUCH = 1.0
 #: Triangle flag bits marking an edge that holds an edge-link index (edges 0-1, 1-2, 2-0).
 EDGE_LINK_BITS = (0x1, 0x2, 0x4)
 #: FNV door link (NVDP): door reference, triangle.
@@ -135,26 +137,38 @@ def _grid(verts: list, tris: list) -> bytes:
 
 def heights(meshes: list) -> list:
     """Each triangle's Height for navmeshes `meshes` [(vertices, triangles)] of one cell: the rise to the
-    lowest other floor over its center less FLOOR_GAP, NO_CEILING with none.
+    lowest other floor over any part of it less FLOOR_GAP, NO_CEILING with none.
     See: docs/fork/fo4_pipeline.md#navmesh-height
     """
     corners = np.concatenate([np.asarray(v, float)[np.asarray([t[:3] for t in tris])] for v, tris in meshes])
     centers, out = corners.mean(1), np.full(len(corners), NO_CEILING)
+    low, high = corners[:, :, :2].min(1), corners[:, :, :2].max(1)
     for start in range(0, len(corners), CHUNK):
-        center = centers[start:start + CHUNK]
-        rise = centers[None, :, 2] - center[:, None, 2]
-        over = _covers(center, corners) & (rise > NEXT_FLOOR)
+        end = start + CHUNK
+        rise = centers[None, :, 2] - centers[start:end, None, 2]
+        boxed = (low[start:end, None] < high[None] - TOUCH) & (low[None] < high[start:end, None] - TOUCH)
+        mine, other = np.nonzero(boxed.all(-1) & (rise > NEXT_FLOOR))
+        hit = _overlaps(corners[start + mine], corners[other])
+        over = np.zeros(rise.shape, bool)
+        over[mine[hit], other[hit]] = True
         rise = np.where(over, rise, np.inf).min(1)
-        out[start:start + CHUNK] = np.where(np.isfinite(rise), rise - FLOOR_GAP, NO_CEILING)
+        out[start:end] = np.where(np.isfinite(rise), rise - FLOOR_GAP, NO_CEILING)
     return np.split(out, np.cumsum([len(tris) for _, tris in meshes])[:-1])
 
 
-def _covers(points: np.ndarray, corners: np.ndarray) -> np.ndarray:
-    """[point, triangle] True where triangle `corners` covers the point in x, y."""
-    sides = [(points[:, None, 0] - b[None, :, 0]) * (a[None, :, 1] - b[None, :, 1])
-             - (a[None, :, 0] - b[None, :, 0]) * (points[:, None, 1] - b[None, :, 1])
-             for a, b in ((corners[:, i], corners[:, (i + 1) % 3]) for i in range(3))]
-    return np.logical_and.reduce([s >= 0 for s in sides]) | np.logical_and.reduce([s <= 0 for s in sides])
+def _overlaps(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """[pair] True where triangle corners `a[pair]` and `b[pair]` overlap in x, y by more than TOUCH: no edge
+    normal of either separates them."""
+    a, b = a[:, :, :2], b[:, :, :2]
+    apart = np.zeros(len(a), bool)
+    for tri in (a, b):
+        for i in range(3):
+            edge = tri[:, (i + 1) % 3] - tri[:, i]
+            axis = np.stack([-edge[:, 1], edge[:, 0]], -1)[:, None]
+            on_a, on_b = (a * axis).sum(-1), (b * axis).sum(-1)
+            gap = TOUCH * np.linalg.norm(axis[:, 0], axis=-1)
+            apart |= (on_a.max(1) <= on_b.min(1) + gap) | (on_b.max(1) <= on_a.min(1) + gap)
+    return ~apart
 
 
 def pack_nvnm(pathing: tuple, verts: list, tris: list, links: list, doors: list, height: list) -> bytes:

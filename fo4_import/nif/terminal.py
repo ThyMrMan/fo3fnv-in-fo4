@@ -4,9 +4,10 @@ Fallout 4 draws a terminal's menu onto its shape named `Screen:0` (the name
 the exe's terminal menu code looks up), lit by a lighting shader naming
 Materials\\Interface\\PipScreenTerminals.BGSM, as vanilla TerminalOn.nif's
 screen. FNV draws its terminal menu over the whole view, so its meshes mark no
-screen: the screen is the largest unlit shape FNV textures (the glass it
+screen: the screen is the largest unlit island FNV textures (the glass it
 textures with its screen texture); an untextured glare pane, which the
-conversion draws through WHITE, is not one. The menu fills UV 0 to 1, laid out as
+conversion draws through WHITE, is not one. Of a shape holding several screens,
+only that one island becomes Screen:0; the rest keep their shape. The menu fills UV 0 to 1, laid out as
 vanilla's: u left to right and v top to bottom for a viewer facing it.
 
 See: docs/fork/fo4_pipeline.md#terminals
@@ -18,8 +19,10 @@ import struct
 from types import SimpleNamespace
 
 import numpy as np
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
 
-from fo4_import.nif.blocks import NONE
+from fo4_import.nif.blocks import NONE, sphere_bound
 from fo4_import.nif.convert_static import DESC_PLAIN, IDENTITY, WHITE, lighting_shader, vertices
 from fo4_import.pipeline.mesh_cache import mesh_bounds
 
@@ -87,18 +90,60 @@ def _area(points: np.ndarray, triangles: list) -> float:
                                          points[tris[:, 2]] - points[tris[:, 0]]), axis=1).sum() / 2)
 
 
+def islands(points: np.ndarray, tris: np.ndarray) -> list:
+    """A mask of (n, 3) `tris` per island: triangles joined through corners at one position of `points`."""
+    _, welded = np.unique(np.round(points, 3), axis=0, return_inverse=True)
+    corners = welded.ravel()[tris]
+    edges = np.concatenate([corners[:, :2], corners[:, 1:]])
+    graph = coo_matrix((np.ones(len(edges)), (edges[:, 0], edges[:, 1])), shape=(len(points),) * 2)
+    owner = connected_components(graph, directed=False)[1][corners[:, 0]]
+    return [owner == label for label in np.unique(owner)]
+
+
 def _screen(nif) -> 'tuple | None':
-    """(shape index, its root-space points, its root-space normals) of the largest unlit textured shape."""
+    """(shape index, mask of its triangles) of the largest island of an unlit textured shape; the lowest of equals.
+    See: docs/fork/fo4_pipeline.md#terminal-one-screen
+    """
     placed, best = _placements(nif), None
     for index, (kind, block) in enumerate(nif.blocks):
         if kind != 'BSTriShape' or index not in placed or not block['vertices'] or not _unlit(nif, block):
             continue
         points = _placed_points(block, placed[index])
-        normals = np.array([v['normal'] for v in block['vertices']], dtype=float) / 127.5 - 1.0
-        area = _area(points, block['triangles'])
-        if best is None or area > best[0]:
-            best = (area, index, points, normals @ placed[index][:3, :3].T)
+        tris = np.array(block['triangles'], dtype=np.int64).reshape(-1, 3)
+        for mask in islands(points, tris):
+            key = (round(_area(points, tris[mask]), 1), -points[tris[mask]][..., 2].mean())
+            if best is None or key > best[0]:
+                best = (key, index, mask)
     return best[1:] if best else None
+
+
+def _subset(shape: dict, mask: np.ndarray) -> dict:
+    """A copy of BSTriShape fields `shape` holding only its `mask` triangles and the vertices they use."""
+    tris = np.array(shape['triangles'], dtype=np.int64).reshape(-1, 3)[mask]
+    used, local = np.unique(tris, return_inverse=True)
+    verts = [shape['vertices'][i] for i in used]
+    return dict(shape, vertices=verts, triangles=[tuple(map(int, t)) for t in local.reshape(-1, 3)],
+                extra=list(shape.get('extra', [])), bound=sphere_bound([v['position'] for v in verts]))
+
+
+def _split(nif, index: int, mask: np.ndarray) -> int:
+    """The index of a shape holding shape `index`'s `mask` triangles: that shape when they are all of it, else a new
+    one beside it (same parent, no controller), `index` keeping the rest."""
+    if mask.all():
+        return index
+    shape = nif.blocks[index][1]
+    parent = next(i for i, (_, b) in enumerate(nif.blocks) if isinstance(b, dict) and index in b.get('children', ()))
+    nif.blocks[index] = ('BSTriShape', _subset(shape, ~mask))
+    nif.blocks.append(('BSTriShape', dict(_subset(shape, mask), controller=NONE)))
+    nif.blocks[parent][1]['children'].append(len(nif.blocks) - 1)
+    return len(nif.blocks) - 1
+
+
+def _placed_frame(nif, index: int) -> tuple:
+    """(root-space points, root-space normals) of shape `index`."""
+    placement, block = _placements(nif)[index], nif.blocks[index][1]
+    normals = np.array([v['normal'] for v in block['vertices']], dtype=float) / 127.5 - 1.0
+    return _placed_points(block, placement), normals @ placement[:3, :3].T
 
 
 def screen_uv(points: np.ndarray, facing: np.ndarray) -> np.ndarray:
@@ -151,7 +196,8 @@ def with_screen(converted) -> 'tuple | None':
     found = _screen(nif)
     if found is None:
         return None
-    index, points, normals = found
+    index = _split(nif, *found)
+    points, normals = _placed_frame(nif, index)
     facing = normals.mean(axis=0)
     facing /= np.linalg.norm(facing) or 1.0
     centre = (points.min(axis=0) + points.max(axis=0)) / 2

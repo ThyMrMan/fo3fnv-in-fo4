@@ -3419,6 +3419,95 @@ first-person clips already sit in a folder of its EditorID. Measured on the
 - Every other gun's file is renamed only (same bytes); guns sharing a file
   on one receiver now write identical copies.
 
+### <a id="gun-sounds"></a>A converted gun's own sounds (built 2026-11-24, not built or played)
+
+The FO3 birthday BB gun fired, cocked and reloaded with the Hunting Rifle's
+sounds (played 2026-11-23). Two sources, both the template's:
+- **The shot.** No vanilla gun names a shot in WEAP DNAM (Sound - Attack is
+  0 on the Hunting Rifle, 10mm, Pipe Bolt-Action, Laser Gun, Assault Rifle
+  and Flamer), and no vanilla OMOD sets a sound property (0 of Fallout4.esm's
+  and the DLCs'). FO4 picks the shot by keyword: a KSSM (Sound Keyword
+  Mapping) names a descriptor and the sound keywords (KYWD type 6) that
+  select it. `RifleHuntingANPC` is `{s_40_RifleHuntingA}`, `...Player` adds
+  `s_10_Player`, `...Silenced*` add `s_20_Silenced`. The copy kept the
+  template's `s_40_RifleHuntingA`.
+- **The rest.** Vanilla's clips play the bolt, magazine and equip sounds as
+  `SoundPlay.<SNDR>` annotations (WPNBoltChargeReady: BoltOpen, BoltClose);
+  `annotations` moved them onto FNV's `Sound:` keys but kept vanilla's
+  sounds.
+
+Now (`guns.sounded`, `gun_clips.annotations`), for a gun on its FNV mesh
+whose FNV record names a shot (SNAM):
+- its template's sound keywords give way to one of its own
+  (`s_40_FNV_<EditorID>`), and KSSMs `FNV_<EditorID>NPC` (SNAM) and
+  `...Player` (XNAM, the 2D shot, else SNAM; plus `s_10_Player`) play its
+  shot, as vanilla's pairs do. A gun whose FNV mod silences it adds
+  `...SilencedNPC/Player` on `s_20_Silenced` with its WMS1/WMS2 (read from
+  the plugin: the export drops them);
+- dry fire, idle, equip and unequip go into DNAM from TNAM, UNAM, NAM9, NAM8;
+- its clips drop vanilla's `SoundPlay` events and play each FNV `Sound:
+  <EditorID>` key as `SoundPlay.FNV_<EditorID>`, the descriptor
+  `Sounds.named` writes (`Converted.sounds`). A clip with no `Sound:` key is
+  silent, as FNV's is.
+
+Not covered: the copied fall-through clips (sprint, bash) keep vanilla's
+foley; a DLC gun naming a master's SOUN gets no descriptor (counted as `gun
+clip sound with no FNV SOUN`). `GUN_CLIPS_VERSION` 5: every gun's clips
+rebuild.
+
+### <a id="centered-sights"></a>Sighted clips on the camera's axis (built 2026-11-24, not built or played)
+
+No FO3 gun mesh has a `##SightingNode` (0 of Fallout3.esm's 68 guns with a model;
+FNV added them), so a FO3 gun took no camera lift, and FO3's own sighted
+clips hold the gun off the view's axis. In FO3's `2hraimis` the BB gun's
+sights (FNV's node on the same mesh) sit 6.1 units right of and 4.5 below
+Camera1st, the muzzle 5.7 right: the gun lies parallel to the view, shifted
+right. FNV re-authored the clip: 0.12 right, 3.6 below. Played: "held off
+near the side, and you can't properly aim down the sights".
+- **Eye point** (`Gun.add_eye`): a mesh naming none takes its top, on its
+  middle. Over the 97 FNV gun meshes that name one, the node sits a median
+  0.28 units below the mesh's top (the BB gun 0.00, the Hunting Rifle 0.21,
+  the 10mm SMG 0.73); scopes and tall parts (the Railway Rifle's gauge, the
+  grenade launchers) sit higher, by up to 6 units. Such an eye lifts the
+  camera only from a real iron-sight clip (`2hraimis`), so heavy guns that
+  aim from the hip keep no lift.
+- **Across** (`centered`): each first-person clip played from an FNV
+  `*is` clip moves the gun across the camera so the eye point is on its axis
+  at the first frame (a `Gun.anchor`: the left hand follows). FNV's own
+  sighted clips move by their 0.1-unit miss.
+
+### <a id="spare-part-bones"></a>Gun parts no bone name takes (built 2026-11-24, not built or played)
+
+A `##` part whose name ends in no PART_BONES word stayed fixed on the gun:
+FO3's BB carton (`##BBCarton`) never left the stock in the reload. FO3's
+`2hrreloade` moves it from the gun to the left hand and back, and shows it
+only while out (a NiVisController). Now (`gun.spare_bones`, `part_bone`)
+such parts, in name order, ride the receiver's free WeaponExtra1-3 bones
+(FO4's skeletons move all three under Weapon; the Hunting Rifle receiver has
+WeaponExtra1), and the clip's visibility curve becomes the bone's scale
+(`gun_clips.shown`), so it hides as FNV hides it. A part beyond the spare
+bones stays fixed.
+
+### <a id="lever-cut"></a>Lever guns cycle their own lever (written 2026-11-24, not built or played)
+
+The bolt clip starts where the gun's bolt part first moves after the shot
+(`gun_clips.bolt_start`). It counted only translation, so a lever that only
+turns (FO3's BB gun `##BBLever`, Lincoln's `##LRLever`) never "moved": no bolt
+clip was written and FO4's template bolt cycle played after each shot (the
+playtest's "acts like a single shot rifle"). It now counts a turn over
+`TURNED` (0.01 rad) too, and only frames after the `Hit` key (`SAME_TIME`
+absorbs the key's float rounding against the frame times). Over every FO3
+and FNV gun whose attack clip has a bolt part (26 gun/clip pairs):
+
+- New cuts: FO3 BB gun and FNV `CG02WeapBBGun` (0.6 s), Lincoln's (0.6),
+  FNV BB unique and Lever Action Shotgun (0.3).
+- Earlier, now at the first turn: Ol' Painless and the Varmint unique
+  (0.667 → 0.6), Boone's rifle (0.4 → 0.3), Oliver's anti-materiel rifle
+  (1.13 → 0.9).
+- Was before the shot, now at it: Butch's 10mm, Veronica's, the debug
+  mega pistol and the Dart Gun (0.0 or none → 0.033, the `Hit` frame).
+- Unchanged: the 13 others (no turn after the shot, or no `Hit` key).
+
 ### <a id="spike-4-gun-clips"></a>FNV's own gun clips on a vanilla graph (built; played 2026-10-28/29; good enough, tweaks parked)
 
 **Code:** `fo4_import/havok/gun_clips.py` (clips), `fo4_import/nif/gun.py`

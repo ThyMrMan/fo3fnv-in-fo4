@@ -2,6 +2,8 @@
 
 import struct
 
+import pytest
+
 from fo4_import.base import bink, source
 from fo4_import.base.bink import retrack, track_ids
 from script_convert.converter import ScriptConverter
@@ -87,6 +89,19 @@ def test_dependent_plugin_ships_no_movies(tmp_path, monkeypatch):
     """The shared Video folder belongs to the masterless plugin."""
     export = _source(tmp_path, monkeypatch, 'Master[0]=Game.esm\n')
     assert bink.write_movies(export, tmp_path / 'out') == 0
+
+
+@pytest.mark.parametrize('setting, masters, expected', [
+    ('sIntroMovie=Intro.bik', '', 'Intro.bik'),
+    ('[General]\nSINTROMOVIE = intro.BIK ', '', 'intro.BIK'),
+    ('sIntroMovie=Fallout INTRO Vsk.bik', '', ''),
+    ('sIntroMovie=Intro.bik', 'Master[0]=Game.esm\n', ''),
+    ('sMainMenuMovieIntro=Intro.bik', '', '')])
+def test_intro_movie_is_the_default_ini_movie_the_build_ships(tmp_path, monkeypatch, setting, masters, expected):
+    """sIntroMovie names the New Game movie only when the build ships it."""
+    export = _source(tmp_path, monkeypatch, masters)
+    (tmp_path / bink.DEFAULT_INI).write_text(setting, encoding='latin-1')
+    assert bink.intro_movie(export) == expected
 
 
 def _converted(source, movies, target='fallout4', monkeypatch=None):

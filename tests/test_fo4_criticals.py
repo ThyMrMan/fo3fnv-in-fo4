@@ -208,13 +208,14 @@ def _armor_record(fid: int, dnam: bytes) -> SimpleNamespace:
     return SimpleNamespace(sig=b'ARMO', form_id=fid, body=body)
 
 
-def test_fnv_armor_dr_is_read_only_beside_a_dt_field(monkeypatch):
-    """FNV's DNAM (DR x100, then DT): its DR is `resist` and its DT the rating; FO3's (DR only) keeps DR as rating."""
-    recs = [_armor_record(1, struct.pack('<hhfI', 300, 0, 0.0, 0)), _armor_record(2, struct.pack('<hh', 300, 0))]
+def test_armor_dr_is_resist_and_only_fnvs_dt_field_is_the_fo4_rating(monkeypatch):
+    """FNV's DNAM (DR x100, then DT): DR is `resist`, DT `dt` and `rating`; FO3's (DR only): DR is `resist` and
+    `rating`, `dt` 0, as FO3 has no DT."""
+    recs = [_armor_record(1, struct.pack('<hhfI', 300, 0, 2.0, 0)), _armor_record(2, struct.pack('<hh', 300, 0))]
     monkeypatch.setattr(EQ, 'source_walk', lambda *sigs: [(r, None) for r in recs if r.sig in sigs])
     fields = EQ._fnv_fields()
-    assert (fields[1]['resist'], fields[1]['rating']) == (3.0, 0.0)
-    assert (fields[2]['resist'], fields[2]['rating']) == (0.0, 3.0)
+    assert (fields[1]['resist'], fields[1]['dt'], fields[1]['rating']) == (3.0, 2.0, 2.0)
+    assert (fields[2]['resist'], fields[2]['dt'], fields[2]['rating']) == (3.0, 0.0, 3.0)
 
 
 _ARMOR_SUBS = [(b'EDID', b'A\0'), (b'OBND', bytes(12)), (b'FULL', b'A\0'), (b'MOD2', b'm\0')]

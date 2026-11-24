@@ -126,9 +126,12 @@ EditorID, under its category (since phase 2 of the [app](fo4_gui.md#replacement-
 - <a id="fo3-guns"></a>**FO3's guns** (2026-11-19): all 67 have an entry
   (20 had one before; the other 47 fell to `gun_choice`'s layout match).
   A gun Fallout 4 also has is `stats` on it, its uniques and followers'
-  copies too (10mm, .44, assault rifle, combat and sawed-off shotguns,
-  laser, plasma, Gatling laser, minigun, missile launcher, Fat Man, alien
-  blaster, railway rifle; the Rock-It Launcher on the Junk Jet). One it
+  copies too (10mm, .44, sawed-off shotgun, laser, plasma, Gatling laser,
+  minigun, missile launcher, Fat Man, alien blaster, railway rifle; the
+  Rock-It Launcher on the Junk Jet). The assault rifle (FO3's R91, a G3) and
+  combat shotgun (a drum-fed semi-auto) share only a name with FO4's, so
+  since 2026-11-24 they and their uniques and followers' copies keep their
+  own mesh on that gun (it fires as they do: full auto, semi-auto). One FO4
   lacks keeps its own mesh (`fnv`) on the template its FNV counterpart plays
   well on: Chinese assault rifle on the assault rifle as FNV's assault
   carbine, 10mm SMG on the submachine gun as FNV's 9mm SMG, Chinese pistol

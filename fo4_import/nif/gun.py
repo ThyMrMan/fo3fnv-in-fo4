@@ -46,6 +46,8 @@ PART_BONES = (('trigger', 'WeaponTrigger'), ('clip', 'WeaponMagazine'), ('magazi
               ('bolt', 'WeaponBolt'), ('slide', 'WeaponBolt'), ('lever', 'WeaponBolt'), ('bar', 'WeaponBolt'),
               ('hammer', 'WeaponExtra2'))
 TRIGGER_BONE, MUZZLE, MAGAZINE_BONE = 'WeaponTrigger', 'ProjectileNode', 'WeaponMagazine'
+#: Receiver bones FO4's skeletons move under Weapon that other FNV parts ride, when no PART_BONES word took them.
+SPARE = ('WeaponExtra1', 'WeaponExtra2', 'WeaponExtra3')
 #: The FNV gun node a Hide Backpack gun wears on the character's back.
 BACKPACK = 'Backpack'
 #: Parent connect points (BSConnectPoint::Parents) a magazine and sights attach at.
@@ -114,6 +116,22 @@ def bone_for(part: str, bones: 'dict | None' = None) -> 'str | None':
     stem = part.split(':')[0].strip('#').lower()
     return next((bone for word, bone in PART_BONES if stem.endswith(word) and (bones is None or bone in bones)),
                 None)
+
+
+def spare_bones(nodes, bones) -> dict:
+    """{part stem: receiver bone} for the FNV gun's `##` nodes (names `nodes`) no PART_BONES word maps, each on the
+    next SPARE bone receiver `bones` has that no mapped part took, in name order, while one is left.
+    See: docs/fork/fo4_spikes.md#spare-part-bones
+    """
+    stems = sorted({n.split(':')[0].strip('#').lower() for n in nodes if n.startswith('##') and n != SIGHTING})
+    taken = {bone_for(s, bones) for s in stems}
+    free = iter([b for b in SPARE if b in bones and b not in taken])
+    return {s: bone for s, bone in zip([s for s in stems if not bone_for(s, bones)], free)}
+
+
+def part_bone(part: str, bones, spares: dict) -> 'str | None':
+    """`part`'s receiver bone: bone_for's, else its `spares` one."""
+    return bone_for(part, bones) or spares.get(part.split(':')[0].strip('#').lower())
 
 
 def fnv_nodes(path: Path) -> dict:
@@ -424,10 +442,10 @@ def gun(static_bytes: bytes, nodes: dict, receiver_bytes: bytes, matrix: np.ndar
                  if isinstance(b, dict) and muzzle in b.get('children', [])), 0)
     bones = {nif.strings[b['name']]: i for i, (kind, b) in enumerate(nif.blocks) if kind == 'NiNode'}
     _emptied(nif)
-    named, frames = _fnv_parts(src, axes), _shape_parents(src)
+    named, frames, spares = _fnv_parts(src, axes), _shape_parents(src), spare_bones(nodes, bones)
     parts, names = {i: p for i, (_, p) in named.items()}, {i: n for i, (n, _) in named.items()}
     for i, points in parts.items():
-        bone = bone_for(names[i], bones)
+        bone = part_bone(names[i], bones, spares)
         parent = bones[bone] if bone else body
         inverse = np.linalg.inv(worlds[parent])
         raw = np.array([v['normal'] for v in src.blocks[i][1]['vertices']], float) / 127.5 - 1.0

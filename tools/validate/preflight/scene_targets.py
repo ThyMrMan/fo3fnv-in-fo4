@@ -44,6 +44,8 @@ PLACED, TALKERS = ('ACHR', 'REFR'), ('ACTI', 'TACT')
 #: TES4Polyfill calls filling the Speaker alias (and the Listener with StartConversation's third argument).
 CALL = re.compile(r'TES4Polyfill\.(StartConversation|TalkerActivate)\s*\(\s*(\w+)\s*,\s*(\w+)(?:\s+as\s+\w+)?'
                   r'(?:\s*,\s*(\w+))?', re.I)
+#: TES4Polyfill.ChatArrived(speaker, package, scene, listener, ...): an NPC chat's StartConversation.
+CHAT_CALL = re.compile(r'TES4Polyfill\.ChatArrived\s*\(\s*(\w+)\s*,\s*\w+\s*,\s*(\w+)\s*,\s*(\w+)', re.I)
 
 #: Papyrus block comments (`;/ ... /;`) and documentation comments (`{...}`).
 BLOCK_COMMENT, DOC_COMMENT = re.compile(r';/.*?/;', re.S), re.compile(r'\{[^}]*\}')
@@ -264,10 +266,17 @@ def argument(world: World, rec, props: dict, name: str):
     return None
 
 
-def call_fill(world: World, rec, props: dict, match) -> dict:
-    """{alias: references} one TES4Polyfill call fills; an alias it leaves alone or that cannot be told is absent."""
-    speaker = argument(world, rec, props, match.group(3))
-    listener = argument(world, rec, props, match.group(4)) if match.group(1).lower() == 'startconversation' else None
+def scene_calls(code: str) -> list:
+    """[(scene, speaker, listener or None)] of `code`'s scene-starting calls."""
+    out = [(m.group(2), m.group(3), m.group(4) if m.group(1).lower() == 'startconversation' else None)
+           for m in CALL.finditer(code)]
+    return out + [(m.group(2), m.group(1), m.group(3)) for m in CHAT_CALL.finditer(code)]
+
+
+def call_fill(world: World, rec, props: dict, call: tuple) -> dict:
+    """{alias: references} one scene_calls call fills; an alias it leaves alone or that cannot be told is absent."""
+    speaker = argument(world, rec, props, call[1])
+    listener = argument(world, rec, props, call[2]) if call[2] else None
     fill = {SPEAKER: speaker} if speaker else {}
     if listener and listener != speaker:
         fill[LISTENER] = listener
@@ -281,8 +290,8 @@ def script_fills(world: World, sources: Sources, rec, script: str, props: dict, 
     out = [(v, None) for value in props.values() if isinstance(value, list) for v in value if v in scenes]
     code = sources.code(script) if named else None
     for prop, scene in named.items():
-        calls = [m for m in CALL.finditer(code or '') if m.group(2).lower() == prop]
-        out += [(scene, call_fill(world, rec, props, m)) for m in calls]
+        calls = [call for call in scene_calls(code or '') if call[0].lower() == prop]
+        out += [(scene, call_fill(world, rec, props, call)) for call in calls]
         uses = len(re.findall(rf'\b{re.escape(prop)}\b', code or '', re.I)) - 1
         out += [(scene, None)] if code is None or uses > len(calls) else []
     return out

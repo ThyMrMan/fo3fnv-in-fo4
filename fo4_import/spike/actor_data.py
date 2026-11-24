@@ -39,6 +39,8 @@ AUTO_CALC, PC_LEVEL_MULT = 0x10, 0x80
 NPC_FLAGS, CREATURE_FLAGS = 0x1 | 0x2 | 0x8 | AUTO_CALC | PC_LEVEL_MULT, 0x2 | 0x8 | 0x80 | IS_GHOST | INVULNERABLE
 #: Fallout4.esm's Health actor value; the Health FO4 adds to an Auto-calc NPC per level past 1 (fNPCHealthLevelBonus).
 HEALTH, LEVEL_HEALTH = 0x2D4, 5.0
+#: Fallout4.esm's UnarmedDamage actor value, which an unarmed hit adds to its race's unarmed weapon's base damage.
+UNARMED_DAMAGE = 0x2DF
 #: A creature's flags FNV keeps under Base Data, not Stats: Essential, Respawn, Is Ghost, Invulnerable.
 BASE_DATA_FLAGS = 0x2 | 0x8 | IS_GHOST | INVULNERABLE
 #: The body's ACBS flags a copy drops besides those: Protected, and Unique, which FNV has no flag for.
@@ -74,6 +76,20 @@ def added_health(subs: bytes, tables: StatTables) -> float:
     else:
         extra = tables.health.get(cls, 0.0)
     return tables.health.get(race, 0.0) + extra
+
+
+def race_unarmed(subs: bytes, tables: StatTables) -> float:
+    """Base damage of actor `subs`' race's unarmed weapon (0: none)."""
+    race = dict(subrecords(subs)).get(b'RNAM')
+    return float(tables.race_unarmed.get(struct.unpack('<I', race)[0] if race else None, 0))
+
+
+def fist_damage(unarmed: float, settings: dict) -> float:
+    """An FNV NPC's unarmed hit at Unarmed skill `unarmed`.
+    See: docs/fork/fo4_pipeline.md#npc-fists
+    """
+    derived = settings['fAVDUnarmedDamageBase'] + settings['fAVDUnarmedDamageMult'] * unarmed
+    return settings['fUnarmedDamageMult'] * derived + settings['fDamageSkillMult'] * unarmed / 100
 
 
 @functools.cache

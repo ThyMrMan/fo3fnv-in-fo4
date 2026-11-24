@@ -448,6 +448,22 @@ station becomes an FO4 receiver (`Radio.receiver`, `pack_acti`).
   - Radios naming a Non-Pipboy station (the casino and Tops lounges) stay
     plain activators.
 
+<a id="placed-on"></a>**Placed on (built 2026-11-24, not yet played).** A
+FO3/FNV radio reference flagged Open by Default (`ONAM.OpenByDefault=1`)
+is playing as the cell loads, and scripts read that as `GetOpenState == 1`:
+Gob and Nova's radio talk in Moriarty's Saloon waits on
+`MoriartysRadioREF.GetOpenState == 1`. Fallout 4 ignores a reference's
+ONAM on a receiver: no vanilla receiver reference carries one, and on/off is
+the base's RADR Starts Active, so vanilla keeps pairs (`HamRadio` 1 and
+`HamRadioOFF` 0, `RadioInstituteReceiverPreWar` and
+`RadioInstituteReceiverOff`). A receiver that some reference places on gets
+a copy, its EditorID suffixed `On`, with Starts Active set
+(`radio.switched_on`, FormID hashed from the source activator's), and those
+references place it (`Radio.base_of`). Fallout3.esm: 16 of its 136
+receiver references: Moriarty's and Bailey's GNR radios, an Enclave radio,
+10 of the 19 Vault 101 loudspeakers, the Raven Rock PA, and the two
+Underworld radios (whose scripts already count them on).
+
 <a id="broadcast-state"></a>**Broadcast state (built 2026-11-04, not yet
 played).** FNV's `GetBroadcastState` and `SetBroadcastState` read and
 switch a station reference's broadcast. Dead Money's three radio scripts

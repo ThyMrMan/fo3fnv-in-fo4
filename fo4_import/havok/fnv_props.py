@@ -23,11 +23,15 @@ from fo4_import.havok.anim_props import Prop
 #: FNV hand -> (FO4 prop bone resting on it, FO4 hand); a prop on any other FNV bone hangs from ROOT_BONE.
 HANDS = {'Bip01 R Hand': ('AnimObjectR1', 'RArm_Hand'), 'Bip01 L Hand': ('AnimObjectL1', 'LArm_Hand')}
 ROOT_BONE = 'AnimObjectA'
+#: Every FO4 prop bone on each FNV hand (all three on FO4's hand), and on the root, first choice first.
+PROP_BONES = {'Bip01 R Hand': ('AnimObjectR1', 'AnimObjectR2', 'AnimObjectR3'),
+              'Bip01 L Hand': ('AnimObjectL1', 'AnimObjectL2', 'AnimObjectL3')}
+ROOT_BONES = (ROOT_BONE, 'AnimObjectB')
 
 
-def prop_bone(parent: str) -> str:
-    """The FO4 prop bone of a prop FNV hangs from `parent`."""
-    return HANDS.get(parent, (ROOT_BONE,))[0]
+def prop_bone(parent: str, taken=()) -> 'str | None':
+    """`parent`'s first FO4 prop bone not in `taken`; None if all are."""
+    return next((b for b in PROP_BONES.get(parent, ROOT_BONES) if b not in taken), None)
 
 
 def hand_turns(clips) -> dict:

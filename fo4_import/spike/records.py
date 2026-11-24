@@ -23,6 +23,8 @@ SILENT_LINE = ''
 INITIALLY_DISABLED = 0x800
 #: REFR record flag Is Full LOD: drawn at any distance (Fallout4.esm's GSCraterClouds01 glow).
 FULL_LOD = 0x10000
+#: Door REFR record flag Inaccessible, the same bit in FO3/FNV and FO4; FO4's XLOC lock level Inaccessible.
+INACCESSIBLE, LOCK_INACCESSIBLE = 0x100, 254
 #: QUST flag Allow Repeated Stages (a done stage runs again when set), the same bit in FO3/FNV and FO4.
 REPEATED_STAGES = 0x0008
 #: Quest alias flag Uses Stored Text: the alias's display name (ALDN) names it, as a radio station's Host.
@@ -299,13 +301,13 @@ def pack_achr(fid: int, base: int, pos: tuple, rot: tuple, vmad: bytes = b'', ex
 def pack_refr(fid: int, base: int, pos: tuple, rot: tuple, scale: float = 1.0, radius: float = None,
               teleport: tuple = None, persistent: bool = True, placement: bytes = b'', disabled: bool = False,
               linked: int = 0, edid: str = '', door_link: tuple = None, sig: str = 'REFR', vmad: bytes = b'',
-              full_lod: bool = False) -> bytes:
+              full_lod: bool = False, shut: bool = False) -> bytes:
     """A placed object: base, `placement` (packed XMBO/XPRM/XPOD/XRGD, spike.placement), light radius (XRDS),
     teleport (door, position, rotation), scale.
 
-    `disabled` sets Initially Disabled (0x800), as FO3/FNV's flag; `linked` is its linked reference (XLKR, no keyword);
-    `edid` names the reference; `door_link` is a teleport door's (navmesh, triangle) (XNDP); `sig` is the record
-    type (PGRE for a placed projectile); `vmad` its scripts; `full_lod` sets Is Full LOD (0x10000).
+    `disabled`: Initially Disabled; `linked`: its linked reference (XLKR, no keyword); `edid` names it; `door_link`:
+    a teleport door's (navmesh, triangle) (XNDP); `sig`: the record type; `vmad`: its scripts; `full_lod`: Is Full
+    LOD; `shut`: a door's Inaccessible.
     """
     subs = (_zstr('EDID', edid) if edid else b'') + (pack_subrecord('VMAD', vmad) if vmad else b'') + pack_u32('NAME', base) + placement
     if radius is not None:
@@ -321,7 +323,7 @@ def pack_refr(fid: int, base: int, pos: tuple, rot: tuple, scale: float = 1.0, r
         subs += pack_subrecord('XSCL', struct.pack('<f', scale))
     subs += pack_subrecord('DATA', struct.pack('<6f', *pos, *rot))
     flags = (0x400 if persistent else 0) | (INITIALLY_DISABLED if disabled else 0) | (FULL_LOD if full_lod else 0)
-    return pack_fo4_record(sig, fid, flags, subs)
+    return pack_fo4_record(sig, fid, flags | (INACCESSIBLE if shut else 0), subs)
 
 
 def _bounded(edid: str, bounds: tuple, vmad: bytes = b'') -> bytes:

@@ -276,10 +276,23 @@ above it, and an actor placed on the floor above was set down on the
 floor below on load (the Tops cashier, placed on the 2nd floor, stood on
 the 1st).
 
-`navmesh.heights` takes each triangle's center and finds the lowest other
-navmesh triangle in its cell that covers that center and sits more than
-128 units higher. Height is that rise less 64 (`FLOOR_GAP`). A triangle
-with nothing above it keeps FLT_MAX.
+`navmesh.heights` finds, for each triangle, the lowest other navmesh
+triangle in its cell that overlaps it in x, y (by more than `TOUCH`, so
+floors meeting at an edge don't count) and whose center sits more than 128
+units higher. Height is that rise less 64 (`FLOOR_GAP`). A triangle with
+nothing above it keeps FLT_MAX.
+
+**Over any part, not just the center (2026-11-24, not yet played).** The
+first version tested only floors over a triangle's center. FO3's Stockholm
+stands on a 7-triangle navmesh island on Megaton's gate (`0005A7B0`, Z
+13654–13664). The ground triangle under him (`0005A7AF` triangle 44, Z
+12960–13000, 269 × 733 units) has its center outside the perch, so it
+kept FLT_MAX, and he loaded on the ground at the gate. It is now 520. The
+overlap test runs only on pairs whose bounding boxes overlap and that rise
+a floor (`_overlaps`, a separating-axis test). On 400 Fallout3.esm cells
+(183,033 triangles): 14,535 Heights change, 6,469 of them from FLT_MAX;
+762 drop under 150 (all at least 64), where 520 were under 150 before.
+The step took 5.0 s against 3.2 s.
 
 ## <a id="interiors"></a>Interiors reached by doors (built 2026-10-10)
 
@@ -2094,6 +2107,34 @@ counts each left-out package by reason. In the first region build 45 of
 110 converted; 49 waited on quests not built (VFreeformGoodsprings, VMS16,
 nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
 [quest scope](#quest-scope) now builds.
+- <a id="npc-chat-wait"></a>**An NPC chat goes to its Wait Location first
+  (built 2026-11-24, not played).** The GECK's Dialogue Package page: the
+  actor moves to the Wait Location (PLDT); with a Trigger Location (PLD2)
+  it waits there until the *target* is inside it; then it moves toward the
+  target and talks at the Activate Distance (PTDT count, 0: 150). The chat
+  was a Travel toward the target within that distance, so Amata's
+  `CG03AmataTurnInTest` (wait at the turn-in marker by Mr. Brotch's desk,
+  trigger Brotch's chair, distance 500) talked from her desk, before she
+  reached his. Now a chat with a Wait Location is a Travel to it
+  (`Packages._talk_to`), and its arrival runs
+  `TES4Polyfill.ChatArrived`: wait, while the package stays current, for
+  the target in the Trigger Location (`InWalkArea` with the target as
+  subject; radius 0 on a reference means within its length, FO3's chairs
+  `CG02ButchTalkTo*`/`CG03*TurnInTest`), walk up with `PathToReference`
+  beyond the Activate Distance (Always Run: run), play the chat, return
+  once it ends. A chat with no Wait Location still travels to its target.
+  FO3: 139 of 204 NPC chats have a Wait Location, 75 a Trigger; 36 wait
+  farther from their target than the Activate Distance (bar servers,
+  `CG04GuardsRichardsToKendall`). FNV: 9 of 39 (7 near the editor
+  location).
+- **An NPC chat with package scripts of its own now talks (built
+  2026-11-24, not played).** Its fragments are its own `PF_` script, not
+  `F3NV_DialoguePackage`, and nothing started the chat: FO3 21 such chats
+  (`CG02ButchTalkToWally`, `MS08ArgueWithAnna`, `MQ06ElderTalktoLi`, ...),
+  FNV 1 (`VStripSS1FemDialPack06`). `package_events.package_hooks` gives
+  it an OnEnd, whose first lines run the same `ChatArrived`
+  (`chat_arrival`); the OnEnd's own body runs after the chat, as FO3 ends
+  the package once it has talked.
 - **A Travel to a linked seat sits (built 2026-11-09, not played).**
   Nipton's crucified stood under their crosses: `vNiptonSurvivorCrucifixTravel*`
   travel to the actor's linked reference (PLDT 6), an `NVCrucifixFurniture`
@@ -2393,6 +2434,15 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
     gets the day faction too: `F3NV_DialoguePackage`'s OnEnd starts the
     chat and then calls `PackageDone`. SayTo packages to the player keep
     their GreetOnce number instead.
+  - <a id="flee-runs"></a>*A flee always runs (2026-11-24, after play: FO3's
+    Holdens walked into Vault101d).* FNV's `FleeProcedure` (0x918600) moves
+    a flee-to-place actor with run hard-coded (`Run350(actor, 0x201, 1)`),
+    whatever Always Run says, and only 4 of FO3's 8 and 7 of FNV's 15 flee
+    packages set Always Run. `_pkdt` writes FNV's flags over the vanilla
+    FleeTo/FleeFrom copy, which dropped FO4's Preferred Speed (0x2000), so
+    the speed byte was ignored and the actor walked. Vanilla FO4 sets it on
+    13 of 14 FleeTo and 6 of 8 FleeFrom packages. Every FNV flee (type 10)
+    now gets Preferred Speed Run.
   - *In the region build.* 91 of 197 packages take FNV's behavior flags
     (42 Travel, 18 ForceGreet, 10 Sandbox, 8 HoldPosition ...); 4 Guards
     get combat copies, listed on Trudy and three settlers for the
@@ -3451,6 +3501,17 @@ the texture's presence is what turns it on.
   emissive color but no glow map. It was dropped: FNV's lit shaders
   without a glow map have no emittance input (`SLS2000` takes no
   `EmittanceColor`).
+- <a id="lit-emission-without-glow"></a>*The controller stayed (fixed
+  2026-11-24, not yet played).* The emissive-color controller itself was
+  still written onto such a shape's FO4 lighting shader (variable 1), and
+  FO4 adds that color on top of the lit texture. Megaton's Church of Atom
+  (FO3 `MegatonChurchofAtom`) flickers its ring shapes `:26` (emissive
+  0 to 1) and `:15` (0 to 0.29) for 3 seconds and clamps at the last key,
+  so in FO4 the ring's inner faces stayed plain white. FO3 shows the
+  texture alone. `shader_anim._target` now writes no emissive channel
+  (`NiMaterialColorController`, `BSMaterialEmittanceMultController`) onto
+  a lighting shader that is not a glow shader; glow-mapped and unlit
+  shapes keep theirs.
 
 <a id="particles"></a>**Particle systems (played 2026-10-11: Goodsprings loads).** The region places 12 FNV meshes with particle
 systems (69 references). Some are particles only, such as the wide light
@@ -3829,6 +3890,14 @@ could not be taken).
   FNV does: 0, 25, 50, 75, 100, and 255 for "requires key". Vanilla uses
   level 0 on 490 of its 1,358 locks, so 0 is a lock tier, not "none".
   The level and flags are copied, and the key is made as an FO4 key.
+- **Inaccessible doors** (built 2026-11-24, not played): FO3/FNV mark a
+  door that never opens with REFR flag 0x100, Inaccessible (Fallout3.esm: 48
+  door references, 6 of them also locked (5 at level 100, 1 at 50); 20 in
+  Vault 101, mostly `VDoorSlidingOFF01`). The flag was dropped, so those
+  Vault 101 doors opened (played 2026-11-23). FO4 has the same door flag
+  (xEdit's REFR flags for DOOR) and a lock level 254 Inaccessible (42 vanilla
+  references). Such a door now gets both (`cell.inaccessible`), over any lock
+  it had, which a lockpick could open.
 - **Keys:** KEYM was placed as a static stand-in. It is now an item:
   `pack_keym`, laid out as 134 of vanilla's 177 keys (preview
   KeyChainsAlt, the most common), made by `Items` like a misc item.
@@ -4157,6 +4226,28 @@ against FNV's TERM:
   set, and lays its UVs 0 to 1 as vanilla's (u left to right, v top to
   bottom). The mesh is written as `<name>terminal.nif`; the plain mesh
   stays for statics.
+  - <a id="terminal-one-screen"></a>**One island, not one shape (fixed
+    2026-11-24, not yet played).** FO4 zooms its camera onto and draws the
+    menu across all of `Screen:0`. FO3's Overseer terminal
+    (`VOverseerTerminal01.nif`, CG04OverseersTerminal) keeps its 2x2 wall
+    monitor bank in one shape (`VMonitorBank:2`, four separate 35-vertex
+    quads textured `VControlPanelsScreen01`), so the whole bank became the
+    screen: the camera sat on the cross between the monitors, and the text
+    spread over all four. The screen is now the largest connected island
+    (triangles joined through corners at one position) of an unlit
+    textured shape, split into its own `Screen:0` beside the shape; the
+    other islands keep the shape and its shader. Equal islands go to the
+    lowest (FO4's user spot stands 79.3 below the screen centre), then the
+    first by position: the Overseer's lower left monitor, centre 91.5
+    above the floor (the whole bank's was 111).
+    - FO3 itself names no screen (its menu covers the view); its desk
+      CRTs (`TerminalScreen01`) are smaller than one wall monitor.
+    - Blast radius, the 15 FO3/FNV screen meshes: 10 unchanged; the
+      Overseer (FO3, FNV) keeps 1 of 4 monitors; `terminal01`,
+      `terminal02`, `mq05openterminal` drop a 2-triangle side light, and
+      `planetariumcontroldeskcontrols` its 6 button-light triangles, which
+      had been drawn as screen and pulled the screen centre (and the user's
+      spot) off the glass (planetarium by about 27 units).
 - **Locks.** FNV locks the base (difficulty, Leveled, Unlocked); FO4 locks
   each reference (XLOC, vanilla's 623 terminal references: levels 0, 25,
   50, 75, 100, 255). A placed terminal takes XLOC level difficulty × 25
@@ -6523,7 +6614,7 @@ still shares DT as FNV's 0x9B5A30 does.
 The data:
 
 - FO4's DamageResist carries FNV's DT: armor's rating is its DT (FNV
-  armor: 203 with DT; FO3 armor, which has no DT field, keeps its DR), and
+  armor: 203 with DT; FO3 armor has no DT field, so 0: [below](#fo3-armor-dr)), and
   FNV's DamageThreshold actor value is renamed to it, so DT abilities (20
   spells, creatures' among them) and consumables (Whiskey and the other
   `IncreaseDamageThreshold` items) convert onto it; they were dropped.
@@ -6538,7 +6629,45 @@ The data:
   enchantment (built 2026-11-08, not yet played):
   Constant Effect on Self, as all 28 Fallout4.esm armor enchantments, raising
   FalloutDamageResist by the DR. The 3
-  with FO3's 4-byte DNAM keep the Fallout 3 rule, DR as rating.
+  with FO3's 4-byte DNAM take it the same way (below).
+- <a id="fo3-armor-dr"></a>**FO3 armor's DR is DR, not DT (2026-11-24,
+  after play: the Vault 101 officers were very hard to kill; not yet
+  built).** Fallout 3 has no Damage Threshold: its ARMO DNAM is the DR
+  alone (int16, x100), and FO3's hit is damage x (1 - DR). We wrote that
+  DR as the FO4 armor rating, which the damage plugin reads as DT, so a
+  percentage was taken off as flat points. The officers wear
+  `ArmorVault101Security` (DR 12) and `ArmorVault101SecurityHelmet` (DR 3):
+  FO3's BB gun (4) does 3.4 a hit, ours did max(4 - 15, 0.2 x 4) = 0.8;
+  the 10mm pistol (9) 7.65 against 1.8; the hunting rifle (25) 21.25
+  against 10. Leather armor (DR 24) and combat armor (DR 32) were worse,
+  for the player as for NPCs. Now `_fnv_fields` gives FO3 armor `dt` 0 (the
+  FO4 rating and the condition tiers' rating) and its DR as `resist`, the
+  enchantment raising FalloutDamageResist that FNV's DR already takes.
+  `rating` stays each game's own armor rating (FNV DT, FO3 DR), which
+  `NPCs._dressed` ranks an outfit's pieces by. Still open: FO3 armor
+  condition lowered its DR; ours lowers only the FO4 rating, now 0. The
+  officers' health was already FO3's (Kendall 40, Hannon 35:
+  [NPC health](#npc-health)).
+- <a id="npc-fists"></a>**NPC fists hit as FO3/FNV's (2026-11-24, after
+  play: the Vault 101 officers put their batons away and fought with
+  fists; not yet built).** FO4 rates an NPC's weapons by damage, and a
+  converted NPC's fists were FO4's: HumanRace's unarmed weapon
+  (`UnarmedHuman`, WEAP DNAM base damage at offset 67) does 8, plus the
+  UnarmedDamage actor value (0x2DF). The officers' baton is FO3's 4,
+  2.12 after the weapon skills perk at Melee 6, so fists won. FalloutNV.exe
+  0x645380 (CalculateWeaponDamage, settings by JIP's addresses) hits an
+  unarmed NPC for `fUnarmedDamageMult` (0x11CF810, 0.5) x UnarmedDamage +
+  `fDamageSkillMult` x Unarmed / 100, where UnarmedDamage (0x643ED0) is
+  `fAVDUnarmedDamageBase` + `fAVDUnarmedDamageMult` x Unarmed. Both plugins
+  set those to 0.5, 0.05 and `fDamageSkillMult` 0.5 (the exe's own are 2,
+  0.15, 1.8), so a hit is 0.25 + 0.03 x Unarmed: 0.73 for the officers
+  (Unarmed 16), 3.25 at 100. `actor_data.fist_damage` computes it from the
+  build's settings, and `npcs.with_fists` sets the NPC's own UnarmedDamage
+  to it less its race's unarmed base damage (`race_unarmed`), as
+  `creatures.with_stats` already did for a creature's Attack Damage. The
+  rating FNV gives fists (hit / `fUnarmedNPCDPSMult` 1.57, EvaluateWeaponScores
+  0x9993C0) is not carried over: with fists on FO3's scale the baton already
+  outranks them. The player's fists are still FO4's 8.
 - <a id="armor-enchantments"></a>**Stand-in clothing bonuses (fixed
   2026-11-09, not built).** A copy never keeps its Fallout4.esm template's
   object effect. On the 16:25 2026-11-08 build 308 of 408 converted armors
@@ -8231,6 +8360,28 @@ the Lucky 38 stairs 01/01a/03/04, Novac's motel riser (15.8, the stuck
 spot above), vault hall stairs (`vhallsmstairs01`, 24-unit lips onto
 landings). The rest are rocks, curbs, roads, walls and vehicle beds with
 a 16–24 lip at a ramp's edge; they take only the stairs material.
+
+<a id="sloped-treads"></a>**Steps measured at the probe, not by a tread's mean (fixed 2026-11-24, not yet played).**
+FO3 Megaton's ramps "are hard to climb". `MegatonRampStraightSml`'s collision
+is a thin slab whose top is a V, 11 deep over 330: two triangles of that one
+sloped top differ 3.6 in mean height, so at their shared diagonal edge the
+pass found no tread "at the same level" beyond it and took the slab's own
+underside, 10.7 lower by mean, for a step. It hung a 330-unit riser
+diagonally through the slab, sticking 11.3 out of the underside. Megaton places
+many of these ramps upside down (RotX near π, as 00014DC3 below the deck at
+X −5061, Y −24209), where the underside is the walking face: an invisible
+wedge across the ramp. `_edge_steps` now judges each probe point by every
+walkable face's plane height there against the edge's own height: a
+walkable face at the edge's height continues the floor (a tread or a ramp up
+to `WALKABLE`, as `MegatonRampTurn90Reg`'s 0.978 faces just under `FLAT`),
+and only a tread below it is a step. Old vs new over FO3 `architecture/megaton`
+and `dungeons/vault`, FNV `architecture/novac`, `architecture/strip` and
+`dungeons/utility/catwalks` (403 meshes with mesh collision): 78 change, no
+flight added or lost. The Megaton ramp pieces lose every riser; Megaton's
+houses lose most (the church 352 to 174 riser faces: sloped scrap roofs and
+decks); `ShackStairsRegLeft01` gains its real 24-unit top step and drops a
+7.5 one; Lucky 38's plaza swaps risers 37 to 72 tall (sloped wedges read by
+mean) for its 13–20 ribs and 15-unit curb.
 
 <a id="glass-texture"></a>**Textured glass at full strength (built 2026-10-25; Madrid played).** FNV glass
 converts to vanilla's beaker BGEM, whose base colour is a dark grey (0.18,

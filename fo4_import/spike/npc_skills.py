@@ -13,7 +13,7 @@ from functools import lru_cache
 
 from fo4_import.base.install import source_walk
 from fo4_import.helpers_plugin import actor_value_form
-from fo4_import.spike.conditions import fnv_av_name
+from fo4_import.spike.conditions import FNV_AV_NAMES, fnv_av_name
 from fo4_import.spike.readables import FIRST_SKILL
 from tes5_import.base.tes5_reader import first_sub, subrecords
 from tes5_import.base.writer import pack_subrecord
@@ -33,6 +33,12 @@ def npc_skills() -> dict:
         if len(dnam) >= 2 * SKILLS:
             out[rec.form_id] = [min(MAX_SKILL, dnam[i] + dnam[SKILLS + i]) for i in range(SKILLS)]
     return out
+
+
+def fnv_skill(fnv: int, name: str) -> 'float | None':
+    """FNV NPC `fnv`'s skill `name` (npc_skills); None without skills."""
+    skills = npc_skills().get(fnv)
+    return float(skills[FNV_AV_NAMES.index(name) - FIRST_SKILL]) if skills else None
 
 
 def merged_prps(subs: bytes, values: dict) -> bytes:

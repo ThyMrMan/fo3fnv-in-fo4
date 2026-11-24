@@ -111,9 +111,18 @@ Built 2026-10-12; status in the [roadmap](ROADMAP.md#parked).
    dropped with a `;NE:` note, because a missing file hangs the game on a
    black screen ([play test](#play-test)). For FNV that drops `FNVLogo1.bik`,
    `FNVLogo2.bik` and `VB01.bik`. Skyrim keeps its note-only row.
-3. **Not built: FO3's intro.** The engine plays it from `sIntroMovie` on New
-   Game, with no script call. It needs a `Game.PlayBink` at the converted
-   new-game start, and the Fallout 4 build has no Fallout 3 path yet.
+3. <a id="new-game-movie"></a>**FO3's intro (built 2026-11-24, not played).**
+   The engine plays it from `sIntroMovie` on New Game, with no script call.
+   `bink.intro_movie` reads `sIntroMovie` from the game's own
+   `Fallout_default.ini` (beside its Data folder) and keeps it only when the
+   build ships that movie. Fallout 3 gives `Fallout INTRO Vsk.bik`. New Vegas's
+   INI names the same file, a leftover, but its Data has only
+   `FNVIntro.bik`, so it gets none (its `VCG00` stage 0 plays its own), and
+   neither does a plugin with masters. `new_game.build` hands the name to
+   `F3NV_NewGame` as `IntroMovie`, and `Begin` plays it (interruptible,
+   game audio and music muted, letterboxed) just before the first stage,
+   `CG00` stage 0. That is after Fallout 4's character creation, the same
+   point where FNV's intro plays.
 
 ## <a id="play-test"></a>Play test
 

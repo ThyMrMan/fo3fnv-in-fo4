@@ -42,6 +42,7 @@ def _tree() -> 'ID.Idles':
     idles.records = {int(r['FormID'], 16): r for r in recs}
     idles.names = {r['EditorID'].lower(): fid for fid, r in idles.records.items()}
     idles.used, idles.counted, idles.form_map, idles.tree, idles.groups = {}, set(), {}, {}, set()
+    idles.bridged = set()
     idles.checked = {SMOKE: '', ARMORED: '', SCRATCH: ''}
     idles.kids = defaultdict(list)
     for fid, rec in idles.records.items():

@@ -619,7 +619,7 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
         if base is None:
             builder.counts[f'skipped {_base_type(builder, int(ref["NAME"], 16))}'] += 1
             continue
-        base = builder.shadows.base_of(ref, builder.crafting.base_of(ref, base), shadowed)
+        base = builder.radio.base_of(ref, builder.shadows.base_of(ref, builder.crafting.base_of(ref, base), shadowed))
         if int(ref['FormID'], 16) in open_rooms():
             builder.counts['rooms and portals left out (a portal to no room)'] += 1
             continue
@@ -636,7 +636,7 @@ def _placed(builder: CellBuilder, refs: list, ids: dict, teleports: dict) -> tup
                              starts_disabled(ref, builder.ref_ids) or gated,
                              builder.ref_ids.get(ref.get('XLKR.LinkedRef'), 0),
                              door_link=builder.door_links.get(ids[ref['FormID']]), sig=ref['Signature'], vmad=lock_vmad(builder, ref),
-                             full_lod=card)
+                             full_lod=card, shut=inaccessible(builder, ref))
         persistent, temporary = (persistent + record, temporary) if keep else (persistent, temporary + record)
         if gated:
             builder.imposter_gate.add(fnv_ref, ids[ref['FormID']])
@@ -667,13 +667,21 @@ def _placed_at(builder: CellBuilder, ref: dict) -> tuple:
     return (pos, rot) if move is None else turned(pos, rot, float(ref.get('XSCL.Scale', 1.0)), move)
 
 
+def inaccessible(builder: CellBuilder, ref: dict) -> bool:
+    """Whether FNV reference `ref` is a door flagged Inaccessible (REFR 0x100)."""
+    return bool(int(ref.get('RecordFlags', 0)) & R.INACCESSIBLE) and builder.fnv_types.get(int(ref['NAME'], 16)) == 'DOOR'
+
+
 def _lock(builder: CellBuilder, ref: dict) -> bytes:
     """The XLOC of a locked FNV reference (level, its key as a FO4 KEYM, flags), or of a terminal its base locks
-    (spike.readables); b'' when it has no lock.
+    (spike.readables); b'' when it has no lock. An inaccessible door takes FO4's Inaccessible lock, unpickable.
 
     FO4 numbers lock levels as FNV does (0, 25, 50, 75, 100; 255 requires the key).
     See: docs/fork/fo4_pipeline.md#locks
     """
+    if inaccessible(builder, ref):
+        builder.counts['inaccessible doors'] += 1
+        return pack_subrecord('XLOC', struct.pack('<B3xIB3xI', R.LOCK_INACCESSIBLE, 0, 0, 0))
     if 'XLOC.Level' not in ref:
         readables = getattr(builder, 'readables', None)
         return readables.lock(ref) if readables else b''

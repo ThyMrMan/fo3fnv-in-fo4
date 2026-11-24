@@ -1309,6 +1309,39 @@ Bool Function WalkUp(Actor akActor, Package akPackage, Scene akWalk, Int aiScene
 EndFunction
 
 ; fallout4: new
+Bool Function ChatArrived(Actor akActor, Package akPackage, Scene akChat, ObjectReference akTarget, Int aiPlace, Form akTrigger, Float afTriggerReach, Float afReach, Float afSpeed) Global
+  {An FO3/FNV Dialogue package aimed at an NPC, once its actor reached its Wait Location (its Travel ended there; with none, near akTarget): while it stays akActor's package, waits for akTarget in its Trigger Location (InWalkArea), walks up to akTarget when farther than its Activate Distance afReach (afSpeed 0 walk, 1 run), then plays akChat with akTarget and returns once it has ended, True when it played. See docs/fork/fo4_pipeline.md#npc-chat-wait}
+  If !akActor || !akTarget || !akChat || akChat.IsPlaying()
+    Return False
+  EndIf
+  While !InWalkArea(akActor, aiPlace, akTrigger, afTriggerReach, akTarget)
+    If akActor.GetCurrentPackage() != akPackage || akActor.IsDead()
+      Return False
+    EndIf
+    Utility.Wait(1.0)
+  EndWhile
+  If akActor.GetDistance(akTarget) > afReach
+    akActor.PathToReference(akTarget, afSpeed)
+  EndIf
+  StartConversation(akChat, akActor, akTarget)
+  Float waited = 0.0
+  While !akChat.IsPlaying() && waited < 1.0
+    Utility.Wait(0.1)
+    waited += 0.1
+  EndWhile
+  Bool played = akChat.IsPlaying()
+  waited = 0.0
+  While akChat.IsPlaying() && waited < 600.0
+    Utility.Wait(0.5)
+    waited += 0.5
+  EndWhile
+  If Tracing()
+    TraceWrite("chat", TraceName(akActor) + "|" + akChat + "|" + TraceName(akTarget) + "|played " + played + "|ended after " + waited + " s")
+  EndIf
+  Return played
+EndFunction
+
+; fallout4: new
 Function ReleaseLoopIdle(Actor akActor) Global
   {An FO3/FNV speaker idle that outlasts its line, looping forever or counted (F3NV_LoopIdle, as its line begins): once akActor's AI package changes (within an hour), its idle stops (Fallout4.esm ActionIdleStop 0x18BA8), as FO3/FNV end a forever-looping idle when the package moves the actor on; not while it sits. See docs/fork/fo4_idles.md#loop-release}
   If !akActor
@@ -1329,28 +1362,55 @@ Function ReleaseLoopIdle(Actor akActor) Global
 EndFunction
 
 ; fallout4: new
-Function SwitchIdle(Actor akActor, Idle akIdle) Global
-  {An FO3/FNV line's speaker idle played over the idle an earlier line left running (F3NV_SwitchIdle, as its line begins): akActor's idle stops (Fallout4.esm ActionIdleStop 0x18BA8) and akIdle plays, retried every 0.1 s for up to 2 s while the stop settles; not while it sits. See docs/fork/fo4_idles.md#idle-switch}
+Function SwitchIdle(Actor akActor, Idle akIdle, Idle akBridge = None) Global
+  {An FO3/FNV line's speaker idle played over the idle an earlier line left running (F3NV_SwitchIdle, as its line begins). akBridge, akIdle on FO4's looping event, may start over a running one-shot (the graph's dyn_ActivationLoop wildcard), and akIdle then starts from it, so akActor goes straight from one pose to the next as in FO3/FNV. Without a bridge, or if it does not start, akActor's idle stops first (Fallout4.esm ActionIdleStop 0x18BA8), which stands it up. akIdle is retried every 0.1 s for up to 2 s; a bridge left looping is stopped. Not while it sits. See docs/fork/fo4_idles.md#idle-switch}
   If !akActor || !akIdle || akActor.GetSitState() != 0 || akActor.IsDead()
     Return
   EndIf
-  akActor.PlayIdleAction(Game.GetFormFromFile(0x18BA8, "Fallout4.esm") as Action)
+  Action stop = Game.GetFormFromFile(0x18BA8, "Fallout4.esm") as Action
+  Bool bridged = akBridge && akActor.PlayIdle(akBridge)
+  If !bridged
+    akActor.PlayIdleAction(stop)
+  EndIf
   Int tries = 0
-  While !akActor.PlayIdle(akIdle) && tries < 20
+  Bool played = akActor.PlayIdle(akIdle)
+  While !played && tries < 20
     Utility.Wait(0.1)
     tries += 1
+    played = akActor.PlayIdle(akIdle)
   EndWhile
+  If bridged && !played
+    akActor.PlayIdleAction(stop)
+  EndIf
   If Tracing()
-    TraceWrite("switchidle", TraceName(akActor) + "|" + akIdle + "|" + tries + " retries")
+    TraceWrite("switchidle", TraceName(akActor) + "|" + akIdle + "|bridged " + bridged + "|played " + played + "|" + tries + " retries")
   EndIf
 EndFunction
 
 ; fallout4: new
-Bool Function InWalkArea(Actor akActor, Int aiPlace, Form akTrigger, Float afReach) Global
-  {Whether the player is in an FO3/FNV Dialogue package's Trigger Location (PLD2 type aiPlace): 0 within afReach of reference akTrigger, 1 in cell akTrigger, 2 or 3 (near its current or editor location, where it waits) within afReach of the actor, 6 within afReach of its linked reference; -1 (none) always. See docs/fork/fo4_pipeline.md#say-to-packages}
-  Actor player = Game.GetPlayer()
+Function EndGesture(Actor akActor) Global
+  {As an FO3/FNV line ends whose speaker idle loops a count on the Special Idle group (F3NV_GestureIdle): akActor's idle stops (Fallout4.esm ActionIdleStop 0x18BA8), as FO3/FNV's line gestures end with their line; not while it sits. See docs/fork/fo4_idles.md#line-gestures}
+  If !akActor || akActor.GetSitState() != 0 || akActor.IsDead()
+    Return
+  EndIf
+  akActor.PlayIdleAction(Game.GetFormFromFile(0x18BA8, "Fallout4.esm") as Action)
+  If Tracing()
+    TraceWrite("gesture", TraceName(akActor) + "|ended with its line")
+  EndIf
+EndFunction
+
+; fallout4: new
+Bool Function InWalkArea(Actor akActor, Int aiPlace, Form akTrigger, Float afReach, ObjectReference akSubject = None) Global
+  {Whether akSubject (None: the player) is in an FO3/FNV Dialogue package's Trigger Location (PLD2 type aiPlace): 0 within afReach of reference akTrigger (0: on it, within its length), 1 in cell akTrigger, 2 or 3 (near its current or editor location, where it waits) within afReach of the actor, 6 within afReach of its linked reference; -1 (none) always. See docs/fork/fo4_pipeline.md#say-to-packages}
+  ObjectReference player = akSubject
+  If !player
+    player = Game.GetPlayer()
+  EndIf
   If aiPlace == 0
     ObjectReference center = akTrigger as ObjectReference
+    If center && afReach <= 0.0
+      Return player.GetDistance(center) <= center.GetLength()
+    EndIf
     Return center && player.GetDistance(center) <= afReach
   ElseIf aiPlace == 1
     Return player.GetParentCell() == akTrigger as Cell

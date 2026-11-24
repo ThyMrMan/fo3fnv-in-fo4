@@ -40,15 +40,16 @@ from fo4_import.spike.packages import listed
 from fo4_import.spike.entry_condition import condition_of
 from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.head_parts import choose, head_parts_edit
-from fo4_import.spike.npc_skills import merged_prps, with_skills
+from fo4_import.spike.npc_skills import fnv_skill, merged_prps, with_skills
 from fo4_import.spike.own_heads import OwnHeads
 from fo4_import.spike.placement import place, placement, starts_disabled
 from fo4_import.spike.race_skins import RaceSkins
 from fo4_import.spike.stand_in_fields import checked
 from fo4_import.spike.voice_types import with_voice
 from fo4_import.spike.void_actors import VOID_FOLDER, VoidActors
-from fo4_import.spike.actor_data import (ACBS_TEMPLATE, AUTO_CALC, HEALTH, NPC_FLAGS, STARTS_DEAD, UNIQUE, StatTables,
-                                         added_health, hit_proof, starts_dead, with_actor_data)
+from fo4_import.spike.actor_data import (ACBS_TEMPLATE, AUTO_CALC, HEALTH, NPC_FLAGS, STARTS_DEAD, UNARMED_DAMAGE,
+                                         UNIQUE, StatTables, added_health, fist_damage, hit_proof, race_unarmed,
+                                         starts_dead, with_actor_data)
 from fo4_import.spike.ragdoll_pose import Poses, ragdolls
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_subrecord
@@ -268,6 +269,14 @@ def with_health(stats: dict, settings: dict, tables: StatTables):
     """
     health = npc_health(stats, settings.__getitem__)
     return lambda subs: merged_prps(subs, {HEALTH: health - added_health(subs, tables)})
+
+
+def with_fists(unarmed: float, settings: dict, tables: StatTables):
+    """NPC edit: own UnarmedDamage = fist_damage less race_unarmed.
+    See: docs/fork/fo4_pipeline.md#npc-fists
+    """
+    hit = fist_damage(unarmed, settings)
+    return lambda subs: merged_prps(subs, {UNARMED_DAMAGE: hit - race_unarmed(subs, tables)})
 
 
 def old_races(races) -> set:
@@ -598,9 +607,15 @@ class Npcs:
                         with_health(stats, self.builder.combat_styles.settings, self.creatures.stat_tables))
 
     def _skills(self, fnv: int):
-        """FNV NPC `fnv`'s (or stats template's) skills edit; None from a list."""
+        """FNV NPC `fnv`'s (or stats template's) skills and fists edit; None from a list."""
         stats = self.source(fnv, USE_STATS)
-        return with_skills(int(stats['FormID'], 16), self.builder.scripts.helper_index) if stats else None
+        if not stats:
+            return None
+        fid = int(stats['FormID'], 16)
+        unarmed = fnv_skill(fid, 'Unarmed')
+        fists = None if unarmed is None else with_fists(unarmed, self.builder.combat_styles.settings,
+                                                        self.creatures.stat_tables)
+        return composed(with_skills(fid, self.builder.scripts.helper_index), fists)
 
     def _factions(self, fnv: int) -> bytes:
         """FO4 SNAMs of FNV NPC `fnv`'s (or template's) factions and vendor one."""

@@ -20,9 +20,9 @@ onto FO4's body (nif.outfit), through its own addon with the template
 addon's slots and races and FNV's sleeves in first person; FNV's alternate
 textures, which tell variants apart on one mesh, become material swaps
 (MSWP) on its models. A piece FNV gives no world model keeps the template's;
-one no FNV-mesh path takes keeps all its models, both counted. Armor takes the protection FNV
-gives it as its armor rating, unscaled: DT (all FNV armor), else DR (FO3's),
-and drops the template's resistances. Condition and the template's scripts
+one no FNV-mesh path takes keeps all its models, both counted. Armor's FO4
+armor rating is its DT, unscaled (FO3 armor has none: 0), its DR an enchantment
+raising FNV_DR, and it drops the template's resistances. Condition and the template's scripts
 are dropped; the piece carries FNV's own script instead (a faction outfit's
 equip events). An FNV piece the table does not name is skipped and counted.
 FormIDs are hashed from FNV's (SITES), so no other record's id moves.
@@ -163,8 +163,11 @@ def _alternates(body: bytes, sets: dict) -> list:
 
 def _fnv_fields() -> dict:
     """{FNV FormID: fields the export drops}, read from FalloutNV.esm: a weapon's ammo (NAM0) and min/max range; an armor's
-    value, health, weight (DATA), rating (DNAM: FNV's DT, FO3's DR), FNV's DR beside its DT (resist), object effect
-    (ench: EITM, 0 without) and alternate textures. An ammo form list (FLST) gives its first entry."""
+    value, health, weight (DATA), its DNAM's DT (dt; FO3's DNAM has none: 0) and DR (resist), its game's armor rating
+    (rating: FNV's DT, FO3's DR), object effect (ench: EITM, 0 without) and alternate textures. An ammo form list
+    (FLST) gives its first entry.
+    See: docs/fork/fo4_pipeline.md#fo3-armor-dr
+    """
     lists = {rec.form_id: first_sub(rec.body, b'LNAM') for rec, _ in source_walk(b'FLST')}
     sets = {rec.form_id: tuple((first_sub(rec.body, t) or b'').rstrip(b'\0').decode('cp1252')
                                for t in (b'TX00', b'TX01')) for rec, _ in source_walk(b'TXST')}
@@ -180,10 +183,10 @@ def _fnv_fields() -> dict:
         elif rec.sig == b'ARMO' and data and dnam:
             value, health, weight = struct.unpack_from('<iif', data)
             fnv, dr = len(dnam) >= DT_AT + 4, struct.unpack_from('<h', dnam)[0] / DR_SCALE
-            rating = struct.unpack_from('<f', dnam, DT_AT)[0] if fnv else dr
+            dt = struct.unpack_from('<f', dnam, DT_AT)[0] if fnv else 0.0
             eitm = first_sub(rec.body, b'EITM')
-            out[rec.form_id] = {'value': value, 'weight': weight, 'rating': rating, 'health': health,
-                                'resist': dr if fnv else 0.0, 'ench': struct.unpack('<I', eitm)[0] if eitm else 0,
+            out[rec.form_id] = {'value': value, 'weight': weight, 'dt': dt, 'rating': dt if fnv else dr,
+                                'health': health, 'resist': dr, 'ench': struct.unpack('<I', eitm)[0] if eitm else 0,
                                 'alternates': {sig: _alternates(first_sub(rec.body, sig), sets)
                                                for sig in (FNV_MALE_SWAP, FNV_WORLD_SWAP, FNV_FEMALE_SWAP)
                                                if first_sub(rec.body, sig)}}
@@ -353,6 +356,7 @@ class Equipment:
         if chosen:
             flags = struct.unpack_from('<I', dnam, DNAM_FLAGS)[0] & ~FO4_AUTOMATIC
             struct.pack_into('<I', dnam, DNAM_FLAGS, flags | (FO4_AUTOMATIC if fnv_wants(rec)[1] else 0))
+            self.guns.sounded(fnv, rec, dnam, self.weapon_mods.silenced(fnv))
         is_gun = dnam[DNAM_ANIM] == ANIM_GUN
         data, own = self._gun(fnv, rec, template, dnam) if is_gun else (self._thrown(rec, template, dnam), None)
         data[b'DNAM'], data[b'CRDT'], marks = bytes(dnam), crdt, self.builder.type_keywords.of(fnv)
@@ -425,7 +429,7 @@ class Equipment:
             return None
         data = struct.pack('<ifI', fields['value'], fields['weight'], max(fields.get('health', 0), 0))
         fnam = bytearray(template[b'FNAM'])
-        struct.pack_into('<H', fnam, 0, round(fields['rating']))
+        struct.pack_into('<H', fnam, 0, round(fields['dt']))
         subs = {b'DATA': data, b'FNAM': bytes(fnam)}
         own = self._own_models(fnv, rec, template) if self._entry(rec).mode == 'fnv' else None
         subs.update(own or {})

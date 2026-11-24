@@ -16,6 +16,7 @@ See: docs/fork/fo4_pipeline.md#new-game
 
 from pathlib import Path
 
+from fo4_import.base.bink import intro_movie
 from fo4_import.base.source import plugin_name
 from fo4_import.base.vmad import quest_fragments
 from fo4_import.pipeline.export_index import export_records
@@ -56,7 +57,9 @@ def build(builder, export_dir: Path, quests: dict) -> None:
              'CarryWeight': FALLOUT4_ACTOR_VALUE_IDS['CarryWeight']}
     rules = PlayerRules(builder, export_dir, builder.combat.settings).write()
     props.update({'PlayerRules': rules} if rules else {})
+    movie = intro_movie(export_dir)
     values = {'OpeningQuests': ('objects', list(OPENING_QUESTS)), 'StartStage': ('int', stage),
+              **({'IntroMovie': ('string', movie)} if movie else {}),
               'Special': ('objects', [FALLOUT4_ACTOR_VALUE_IDS[s] for s in SPECIAL]),
               'SpecialStart': ('floats', start_special(export_dir)), **builder.combat.damage_rules[1]}
     stages = [OPEN_BY_HAND, START_BY_HAND]

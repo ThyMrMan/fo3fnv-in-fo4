@@ -245,6 +245,28 @@ that already merges `onalarm` and `onstartcombat` into the one event.
 
 `onfire` has no Skyrim equivalent, and its 3 blocks are still dropped.
 
+### <a id="ai-door-use"></a>An NPC opening a scripted door runs its OnActivate (FO3/FNV)
+
+**Code:** `script_convert/assemble.py` (`ai_skips_door_script`, `door_preamble`, `door_relock`)
+
+For Oblivion sources the converter lets an NPC through a door whose
+OnActivate consumes activation, past the script and the lock, and relocks it
+on close. FO3/FNV do not: the GECK wiki's OnActivate page says a block that
+tests only the player still "prevents normal activation" when an NPC
+activates the object, and Fallout 3's door scripts are written for NPC
+action refs. Of FO3's 83 scripted door bases, examples:
+`CG02DinerDoorSCRIPT` lets only the Overseer through the atrium door before
+CG02 stage 10, `DoorCloseLockAvgOnActivate` locks against any non-player,
+`LamplightFrontGateScript` admits residents only, `PurityGrateSCRIPT`
+refuses super mutants, `DoorRemoteOpenSCRIPT` refuses every actor.
+
+So on a FO3/FNV source the door preamble and its OnClose relock are not
+written, and the authored OnActivate decides. With the bypass, any NPC
+pathing through the Vault 101 atrium door opened it, and nothing closed it
+(the Overseer's walk-up end script closes it once, at CG02 stage 6).
+Written 2026-11-24 from the user's first-hour Fallout 3 playtest; not yet
+played.
+
 ## FO3/FNV package scripts become package fragments
 <a id="package-fragments"></a>
 

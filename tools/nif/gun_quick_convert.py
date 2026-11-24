@@ -1,7 +1,7 @@
 """Convert FNV guns' first-person clips and meshes the way the build does, without a build, and measure each hold.
 
     py -3.14 -m tools.nif.gun_quick_convert WeapFlamer WeapTeslaCannon --out <dir>
-    py -3.14 -m tools.nif.gun_quick_convert --all --out <dir> [--report report.tsv]
+    py -3.14 -m tools.nif.gun_quick_convert --all --out <dir> [--report report.tsv] [--export export/Fallout3.esm]
 
 Guns the default chart keeps on an FO4 gun of their own (not "as": "fnv") are skipped unless --template is given.
 Each gun goes on the FO4 gun its default chart entry names (replacements.json, a Fallout4.esm target), else on
@@ -43,17 +43,17 @@ WIDE = (16 / 9) / (4 / 3)
 NON_PLAYABLE = 0x80
 
 
-def builder() -> SimpleNamespace:
-    """What Guns reads of the build: Fallout4.esm, its keywords, the export."""
+def builder(export: Path) -> SimpleNamespace:
+    """What Guns reads of the build: Fallout4.esm, its keywords, `export`."""
     fo4 = FALLOUT4_ESM.read_bytes()
     keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id for r, _ in walk(fo4, b'KYWD')}
-    return SimpleNamespace(fo4=fo4, keywords=keywords, export_dir=EXPORT)
+    return SimpleNamespace(fo4=fo4, keywords=keywords, export_dir=export)
 
 
-def gun_records(names: list) -> list:
-    """The export's playable FNV guns of a clip class with a model; those in `names` when it is given."""
+def gun_records(export: Path, names: list) -> list:
+    """`export`'s playable guns of a clip class with a model; those in `names` when it is given."""
     out = []
-    for rec in parse_export_file(str(EXPORT / 'WEAP.txt')):
+    for rec in parse_export_file(str(export / 'WEAP.txt')):
         if names and rec.get('EditorID') not in names:
             continue
         playable = not int(rec.get('DNAM.Flags1', 0)) & NON_PLAYABLE
@@ -145,15 +145,16 @@ def main() -> None:
     parser.add_argument('--template', help='FO4 WEAP EditorID to build on, for every gun named')
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--report', type=Path)
+    parser.add_argument('--export', type=Path, default=EXPORT, help='the FNV or FO3 export folder')
     args = parser.parse_args()
     if not args.guns and not args.all:
         parser.error('name guns or pass --all')
-    table, base, data = replacements.load(), builder(), Archives(FALLOUT4_DIR / 'Data')
-    guns, clips = Guns(base, {}), GunClips(base.fo4, EXPORT / 'meshes', args.out)
+    table, base, data = replacements.load(), builder(args.export), Archives(FALLOUT4_DIR / 'Data')
+    guns, clips = Guns(base, {}), GunClips(base.fo4, args.export / 'meshes', args.out)
     rig = (fo4_skeleton(data.read(VIEWS[0].skeleton))[0], data.read(VIEWS[0].skeleton[:-len('.hkx')] + '.nif'),
            [data.read('meshes' + B + p.replace('/', B)) for p in FO4_ARMS])
     rows = ['\t'.join(('gun', 'class', 'template', 'moved', 'on_screen', 'left_gap', 'aim_hand'))]
-    for rec in gun_records(args.guns):
+    for rec in gun_records(args.export, args.guns):
         entry = table.get(rec['EditorID'])
         if entry and entry.mode != 'fnv' and not args.template:
             continue

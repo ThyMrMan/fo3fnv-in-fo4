@@ -71,6 +71,10 @@ HELD = R.pack_ctda(0, 0.0, C.FO4.index('IsIdlePlaying'))
 FNV_IDLE_WAIT = 1.0
 #: FNV's random test and its "less than" comparison (CTDA op bits).
 RANDOM, LESS = 'GetRandomPercent', 0x80
+#: FNV IDLE AnimGroupSection (low 6 bits) of the Special Idle group, where FO3/FNV's own line gestures play.
+SPECIAL_IDLE, GROUP_BITS = 7, 0x3F
+#: derive_formid site of a switch idle's copy on the looping event (key: the FNV idle).
+BRIDGE_SITE = 'FNV idle bridge'
 
 
 class Idles:
@@ -83,6 +87,7 @@ class Idles:
         self.records = {int(r['FormID'], 16): r for r in export_records(export_dir, 'IDLE')}
         self.names = {r['EditorID'].lower(): fid for fid, r in self.records.items() if r.get('EditorID')}
         self.used, self.checked, self.counted, self.form_map, self.clips = {}, {}, set(), {}, None
+        self.bridged = set()
         self.kids, self.tree, self.groups, self.root = defaultdict(list), {}, set(), None
         for fid, rec in self.records.items():
             self.kids[int(rec.get('ANAM.Parent', '0'), 16)].append(fid)
@@ -134,17 +139,26 @@ class Idles:
         rec = self.records.get(fnv, {})
         return bool((loops_of(rec) == FOREVER or counted_loops(rec)) and self.idle(fnv))
 
-    def switch(self, rec: dict, topic: list) -> int:
-        """The FO4 idle FNV line `rec`'s speaker opens with, which FNV plays over a held idle (_holds) another
-        line of `topic` starts and FO4 will not start over one; 0 when none.
+    def gestures(self, rec: dict) -> bool:
+        """Whether FNV line `rec`'s speaker plays a counted Special Idle gesture.
+        See: docs/fork/fo4_idles.md#line-gestures
+        """
+        return any(gesture(self.records.get(fid, {})) and self.idle(fid) for fid in speaker_idles(rec))
+
+    def switch(self, rec: dict, topic: list) -> tuple:
+        """(FO4 idle, its bridge) FNV line `rec`'s speaker opens with, which FNV plays over a held idle (_holds)
+        another line of `topic` starts and FO4 will not start over one; (0, 0) when none. The bridge, the idle on
+        FO4's looping event (written by write), leaves the held idle without the stand an idle stop makes.
         See: docs/fork/fo4_idles.md#idle-switch
         """
         opening = rec.get(f'Response[0].{LINE_IDLE_KEYS[0]}')
         fnv = int(opening, 16) if opening else 0
-        if not fnv or self._holds(fnv):
-            return 0
-        held = any(other != fnv and self._holds(other) for line in topic for other in speaker_idles(line))
-        return (self.idle(fnv) or 0) if held else 0
+        if not fnv or self._holds(fnv) or not self.idle(fnv):
+            return 0, 0
+        if not any(other != fnv and self._holds(other) for line in topic for other in speaker_idles(line)):
+            return 0, 0
+        self.bridged.add(fnv)
+        return self.idle(fnv), self.builder.writer.derive_formid(BRIDGE_SITE, fnv)
 
     def ambient_records(self) -> list:
         """FNV's ambient idle tree's records, root first, if this plugin owns it."""
@@ -229,9 +243,18 @@ class Idles:
             held = HELD if counted_loops(rec) and not links[0] and played[2] == HUMAN_EVENTS else b''
             self.builder.counts['idle held through its FNV loops'] += bool(held)
             self.builder.writer.add_record('IDLE', pack_idle(fid, rec, held + conditions, played, links))
+            if fnv in self.bridged:
+                self._bridge(fnv, rec, conditions, played)
             kind = ' (ambient tree)' if fnv in self.tree else ' (seated flavor)' if played[0] == FURNITURE_GRAPH \
                 else ' (own rig)' if played[2] == RIG_EVENTS else ''
             self.builder.counts['IDLE' + kind] += 1
+
+    def _bridge(self, fnv: int, rec: dict, conditions: bytes, played: tuple) -> None:
+        """Write switch idle `fnv`'s bridge (switch): FNV idle `rec` playing `played`, loose, on the looping event."""
+        looped = {**rec, 'EditorID': rec['EditorID'] + 'Bridge', 'DATA.LoopMin': '255', 'DATA.LoopMax': '255'}
+        fid = self.builder.writer.derive_formid(BRIDGE_SITE, fnv)
+        self.builder.writer.add_record('IDLE', pack_idle(fid, looped, conditions, played, (0, 0)))
+        self.builder.counts['IDLE (switch bridge)'] += 1
 
     def _played(self, fnv: int, rec: dict, group: bool, data_dir: Path) -> tuple:
         """(behavior graph, clip under Meshes, (once, looped) events) of handed-out idle `fnv`: a group node plays
@@ -318,6 +341,11 @@ def speaker_idles(rec: dict) -> list:
     """FNV idles (FormIDs) the speaker of FNV line `rec` plays, in response order."""
     return [int(rec[k], 16) for i in range(int(rec.get('ResponseCount', 0) or 0))
             if rec.get(k := f'Response[{i}].{LINE_IDLE_KEYS[0]}')]
+
+
+def gesture(rec: dict) -> bool:
+    """Whether FNV idle `rec` loops a count on the Special Idle group."""
+    return bool(counted_loops(rec)) and int(rec.get('DATA.AnimGroupSection', 0) or 0) & GROUP_BITS == SPECIAL_IDLE
 
 
 def counted_loops(rec: dict) -> int:

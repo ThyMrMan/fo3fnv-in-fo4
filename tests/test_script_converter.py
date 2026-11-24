@@ -961,6 +961,16 @@ End
         assert 'BlockActivation' not in result
         assert 'DefaultActivate(Self' in result.split('Event OnActivate', 1)[0]
 
+    @pytest.mark.parametrize('fallout', [False, True])
+    def test_npc_door_use_runs_the_script_only_from_fallout(self, converter, fallout):
+        """Oblivion lets an NPC through a scripted door past its script; FO3/FNV run its OnActivate (GECK)."""
+        source = ('ScriptName GateScript\nBegin OnActivate\n  if IsActionRef player == 1\n'
+                  '    ShowMessage GateMsg\n  else\n    Activate\n  endif\nEnd\n')
+        converter.xref._is_fallout = fallout
+        result = converter.convert_standalone('GateScript', source, 'ObjectReference', 'GateScript')
+        assert ('GetBaseObject() as Door' in result) is not fallout
+        assert ('Event OnClose' in result) is not fallout
+
     def test_a_talkers_activation_opens_its_greeting_on_fallout4(self, converter, monkeypatch):
         """An intercom's bare Activate and a trigger's `<intercom>.activate player` open the GREETING talk scene."""
         monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')

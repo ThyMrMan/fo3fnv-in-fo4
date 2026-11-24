@@ -17,9 +17,10 @@ from asset_convert.havok.kf_decode import BoneTrack, DecodedClip
 from external.pynifly_hkx.anim_fo4 import TrackData
 from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.havok.gun_clips import (CLIP_SITE, FNV_GRIP_FINGER, GUN_CLIPS_VERSION, IK_LEFT, ROLE_WEAPON, VIEWS,
-                                        Converted, Gun, GunClips, annotations, bolt_start, carried_target, crc,
+                                        Converted, Gun, GunClips, annotations, bolt_start, carried_target, centered, crc,
                                         file_id, fnv_stem, handle_frame, is_kept, keep, left_reach, left_targets,
-                                        neutral_clip, on_screen, owned, placed, placeholder, with_folder)
+                                        neutral_clip, on_screen, owned, placed, placeholder, shown, with_folder)
+from fo4_import.nif.gun import part_bone, spare_bones
 from fo4_import.havok import kf_cache as KC
 from fo4_import.havok.gun_clip_pool import warm
 from fo4_import.pipeline import mesh_cache as MC
@@ -100,13 +101,50 @@ def test_gun_folder_goes_after_paired_folders():
 
 
 def test_annotations_follow_fnv_keys_else_scale():
-    """Vanilla events take FNV's matching keys (sounds in order), the rest scale with the clip."""
+    """Vanilla's sounds give way to FNV's own `Sound:` keys (their SOUNs' descriptors); other vanilla events take
+    FNV's matching keys, the rest scale with the clip."""
     vanilla = [(0.033, 'SoundPlay.MagOut'), (1.067, 'SoundPlay.MagIn'), (2.0, 'reloadComplete'),
                (2.6, 'EjectShellCasing'), (3.933, 'initiateStart')]
-    keys = [(0.0, 'start'), (0.25, 'Sound: Pt1'), (0.55, 'Sound: Pt2'), (0.8, 'Eject'), (1.2, 'a:8')]
+    keys = [(0.0, 'start'), (0.25, 'Sound: Pt1'), (0.55, 'Sound:  Pt2 '), (0.8, 'Eject'), (1.2, 'a:8')]
     assert annotations(vanilla, 4.0, keys, 2.0) == [
-        (0.25, 'SoundPlay.MagOut'), (0.55, 'SoundPlay.MagIn'), (0.8, 'EjectShellCasing'),
+        (0.25, 'SoundPlay.FNV_Pt1'), (0.55, 'SoundPlay.FNV_Pt2'), (0.8, 'EjectShellCasing'),
         (1.0, 'reloadComplete'), (3.933 / 2, 'initiateStart')]
+    assert annotations(vanilla, 4.0, [(0.8, 'Eject')], 2.0)[0] == (0.8, 'EjectShellCasing'), 'no FNV sound, no sound'
+
+
+def test_a_part_no_word_maps_rides_a_spare_receiver_bone():
+    """FO3's BB carton takes the first spare bone the receiver has; mapped parts and the eye point do not."""
+    receiver = {'WeaponBolt': 0, 'WeaponTrigger': 0, 'WeaponExtra1': 0}
+    nodes = ['BBGun', '##BBLever', '##BBTrigger', '##BBCarton', '##SightingNode', 'ProjectileNode']
+    spares = spare_bones(nodes, receiver)
+    assert spares == {'bbcarton': 'WeaponExtra1'}
+    assert [part_bone(n, receiver, spares) for n in ('##BBCarton:0', '##BBLever', 'BBGun:0')] == \
+        ['WeaponExtra1', 'WeaponBolt', None]
+    assert spare_bones(nodes + ['##ZZPart'], receiver) == spares, 'one spare, taken in name order'
+
+
+def test_a_sighted_clip_puts_the_eye_point_on_the_cameras_axis():
+    """A mesh naming no eye point gets its top on its middle; centered moves the gun across (camera x) only, so the
+    eye lands on the camera's axis; third person is left alone."""
+    gun = Gun(np.eye(4), {}, {})
+    gun.surfaces = (([np.array([[0.0, 0.0, 0.0], [5.0, 3.0, 1.0], [2.0, 6.0, -1.0]])]), ())
+    gun.add_eye()
+    assert gun.eye_made and np.allclose(gun.frames['##SightingNode'][3, :3], (2.0, 6.0, 0.0))
+    held = compose(np.array([6.0, -4.5, -20.0]), np.eye(3))
+    rig = SimpleNamespace(view=SimpleNamespace(camera=('Camera1st', 'Camera')), fnv_gun=lambda clip, f: held,
+                          camera=lambda moved, f: np.eye(4))
+    move = centered(rig, gun, None, None)
+    eye = gun.frames['##SightingNode'] @ held @ move
+    assert np.isclose(eye[3, 0], 0.0) and np.isclose(eye[3, 1], 6.0 - 4.5) and np.isclose(eye[3, 2], -20.0)
+    assert centered(SimpleNamespace(view=SimpleNamespace(camera=None)), gun, None, None) is None
+
+
+def test_a_hidden_part_scales_to_zero_where_fnvs_clip_hides_it():
+    """A part's visibility curve of the clip's length becomes its scale; another length or part gives none."""
+    clip = SimpleNamespace(times=np.zeros(3), vis_tracks=[('##BBCarton', np.array([0.0, 1.0, 1.0]))])
+    assert shown(clip, '##BBCarton').tolist() == [0.0, 1.0, 1.0]
+    assert shown(clip, '##BBLever') is None
+    assert shown(SimpleNamespace(times=np.zeros(4), vis_tracks=clip.vis_tracks), '##BBCarton') is None
 
 
 def test_bolt_starts_the_frame_before_it_moves():
@@ -118,6 +156,18 @@ def test_bolt_starts_the_frame_before_it_moves():
                        tracks=[BoneTrack(bone='##VRBolt', translations=bolt)])
     assert bolt_start(clip, '##VRBolt') == times[2]
     assert bolt_start(clip, '##Other') is None
+
+
+def test_lever_cut_counts_turns_after_the_shot():
+    """A lever that only turns cuts too, never before Hit despite the key's float rounding."""
+    times = np.arange(6) / 30.0
+    turn = np.tile([1.0, 0.0, 0.0, 0.0], (6, 1))
+    turn[3:] = [np.cos(0.1), np.sin(0.1), 0.0, 0.0]
+    clip = DecodedClip(name='a', duration=times[-1], cycle_type=0, frequency=1.0, times=times,
+                       tracks=[BoneTrack(bone='##BBLever', rotations=turn)], text_keys=[(times[1] - 1e-7, 'Hit')])
+    assert bolt_start(clip, '##BBLever') == times[2]
+    turn[1:] = turn[3]
+    assert bolt_start(clip, '##BBLever') == times[1]
 
 
 def test_a_missing_sighted_clip_falls_back_to_the_aim_clip(tmp_path):

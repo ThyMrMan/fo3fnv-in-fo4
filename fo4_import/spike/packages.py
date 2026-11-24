@@ -24,11 +24,12 @@ from fo4_import.spike.readiness import PACKAGE_LEFT_OUT
 from fo4_import.spike.records import pack_flst
 from fo4_import.spike.script import PACKAGE, QUEST, declared_properties, prefix
 from script_convert.constants import FALLOUT4_ACTOR_VALUE_IDS, FALLOUT4_CHAT_PREFIX, FALLOUT4_WALK_PREFIX
-from script_convert.package_events import (DAY_DONE, ONCE_PER_DAY, WALK_DONE, WALK_FILE, WALK_PLACE, WALK_REACH,
-                                           WALK_SCENE, WALK_TRIGGER, daily, day_marked, package_hooks, quest_gated)
+from script_convert.package_events import (CHAT_REACH, CHAT_SPEED, CHAT_TARGET, DAY_DONE, ONCE_PER_DAY, WALK_DONE,
+                                           WALK_FILE, WALK_PLACE, WALK_REACH, WALK_SCENE, WALK_TRIGGER, daily,
+                                           day_marked, package_hooks, quest_gated)
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import subrecords, walk
-from tes5_import.packages.scripts_falloutnv import package_flags, says_to_player
+from tes5_import.packages.scripts_falloutnv import package_flags, says_to_player, talks_to_npc
 from tes5_import.base.writer import pack_subrecord
 from tes5_import.base.text_reader import get_hex_bytes
 from tes5_import.record_types.navm_falloutnv import parse_vertices
@@ -428,16 +429,20 @@ class Packages:
         if self._chat(rec):
             self.builder.counts['dialogue package with an NPC'] += 1
             self.builder.counts['dialogue package with an NPC, once a day'] += daily(rec)
-            chat = scripts.talk(FALLOUT4_CHAT_PREFIX + self.topic_names[rec['PKDD.Topic'].upper()])
-            props = {'Chat': chat, 'Target': form_map[int(rec['PTDT.Target'], 16)]}
+            props, values = self._chat_inputs(rec, form_map)
+            props['Chat'] = scripts.talk(FALLOUT4_CHAT_PREFIX + self.topic_names[rec['PKDD.Topic'].upper()])
             props.update({DAY_DONE: self.once.day_faction(rec)} if daily(rec) else {})
-            return pack_subrecord('VMAD', package_fragments(DIALOGUE_SCRIPT, DIALOGUE_FRAGMENTS, props))
+            return pack_subrecord('VMAD', package_fragments(DIALOGUE_SCRIPT, DIALOGUE_FRAGMENTS, props, values))
         if not flags or not scripts.dir or not (scripts.dir / f'{name}.psc').exists():
             return b''
         scripts.used.append(name)
         self.builder.counts['package fragments'] += 1
         props, values = scripts.properties(name), None
-        props.update({DAY_DONE: self.once.day_faction(rec)} if day_marked(rec) else {})
+        done = day_marked(rec) or talks_to_npc(rec) and daily(rec)
+        props.update({DAY_DONE: self.once.day_faction(rec)} if done else {})
+        if talks_to_npc(rec):
+            chat_props, values = self._chat_inputs(rec, form_map)
+            props.update(chat_props)
         if says_to_player(rec):
             place, form, reach = self.trigger_area(rec, form_map) or (-1, 0, 0)
             props.update({WALK_TRIGGER: form} if form else {})
@@ -445,6 +450,17 @@ class Packages:
                       WALK_SCENE: ('int', props.pop(FALLOUT4_WALK_PREFIX + rec['FormID'].upper(), 0) & 0xFFFFFF),
                       WALK_FILE: ('string', self.builder.plugin_file)}
         return pack_subrecord('VMAD', package_fragments(name, flags, props, values))
+
+    def _chat_inputs(self, rec: dict, form_map: dict) -> tuple:
+        """({object property: form}, {value property: (type, value)}) of NPC chat `rec`'s ChatArrived arguments: its
+        target, Trigger Location (trigger_area; place -1: none), Activate Distance (PTDT count) and pace.
+        See: docs/fork/fo4_pipeline.md#npc-chat-wait
+        """
+        place, form, reach = self.trigger_area(rec, form_map) or (-1, 0, 0)
+        distance = int(rec.get('PTDT.Count', 0) or 0) or ACTIVATE_DISTANCE
+        values = {WALK_PLACE: ('int', place), WALK_REACH: ('float', float(reach)),
+                  CHAT_REACH: ('float', float(distance)), CHAT_SPEED: ('float', 1.0 if fnv_flags(rec) & ALWAYS_RUN else 0.0)}
+        return {CHAT_TARGET: form_map[int(rec['PTDT.Target'], 16)], **({WALK_TRIGGER: form} if form else {})}, values
 
     def _plan(self, rec: dict, form_map: dict, npc: int) -> 'tuple | str':
         """(template, first input payload[, second input payload]) for FNV package `rec` run by NPC `npc`; why it
@@ -505,15 +521,18 @@ class Packages:
         return self._at(rec, FNV_FIND, 'SitFoundRef', form_map)
 
     def _talk_to(self, rec: dict, form_map: dict) -> 'tuple | str':
-        """(template, PLDT payload) of FNV Dialogue `rec`: to an NPC, a Travel to it (_toward), whose arrival plays
-        the topic (_fragments); a SayTo to the player, a HoldPosition at its wait location (_at) that never
-        completes, until its walk-up scene takes it to the player (_walk). Why not, otherwise.
-        See: docs/fork/fo4_pipeline.md#say-to-packages
+        """(template, PLDT payload) of FNV Dialogue `rec`: to an NPC, a Travel to its Wait Location (_at), else to
+        the NPC (_toward), whose arrival plays the topic (_fragments, ChatArrived); a SayTo to the player, a
+        HoldPosition at its wait location that never completes, until its walk-up scene takes it to the player
+        (_walk). Why not, otherwise.
+        See: docs/fork/fo4_pipeline.md#npc-chat-wait
         """
         toward = self._toward(rec, form_map)
-        if isinstance(toward, str) or not says_to_player(rec):
+        if isinstance(toward, str):
             return toward
-        return self._at(rec, FNV_DIALOGUE, 'HoldPosition', form_map)
+        if says_to_player(rec):
+            return self._at(rec, FNV_DIALOGUE, 'HoldPosition', form_map)
+        return self._at(rec, FNV_DIALOGUE, 'Travel', form_map) if 'PLDT.Type' in rec else toward
 
     def _toward(self, rec: dict, form_map: dict) -> 'tuple | str':
         """(Travel, PLDT payload) near the reference FNV Dialogue `rec` talks to, within its distance (PTDT count; 0
@@ -656,11 +675,6 @@ def target_reference(rec: dict, form_map: dict) -> 'int | None':
     return form_map.get(target, target)
 
 
-def talks_to_npc(rec: dict) -> bool:
-    """True for a Dialogue package aimed at a reference other than the player."""
-    return rec.get('PKDT.Type') == FNV_DIALOGUE and rec.get('PTDT.Target') != PLAYER_TARGET
-
-
 def cowers(rec: dict) -> bool:
     """True for a Flee Not Combat with no location or target (it cowers)."""
     return rec.get('PKDT.Type') == FNV_FLEE and 'PLDT.Type' not in rec and 'PTDT.Type' not in rec
@@ -688,12 +702,13 @@ def schedule(rec: dict) -> bytes:
 
 def _pkdt(rec: dict, vanilla: bytes, override: int) -> bytes:
     """The vanilla PKDT with FNV package `rec`'s general flags the games share, interrupt override `override`, FNV's
-    Always Run as FO4's preferred speed Run, and its own behavior flags (OWN_BEHAVIOR) as FO4's interrupt flags;
-    Once Per Day dropped when a quest test gates it (day_marked marks such a package done instead).
+    Always Run (or a flee: FNV's flee always runs) as FO4's preferred speed Run, its own behavior flags
+    (OWN_BEHAVIOR) as FO4's interrupt flags; Once Per Day dropped when a quest test gates it (day_marked marks such
+    a package done instead).
     See: docs/fork/fo4_pipeline.md#package-flags
     """
     flags = fnv_flags(rec) & ~(ONCE_PER_DAY if quest_gated(rec) else 0)
-    run = flags & ALWAYS_RUN
+    run = ALWAYS_RUN if flags & ALWAYS_RUN or rec.get('PKDT.Type') == FNV_FLEE else 0
     speed = bytes([RUN]) if run else vanilla[SPEED:SPEED + 1]
     interrupt = struct.unpack_from('<H', vanilla, INTERRUPT_FLAGS)[0]
     if flags & OWN_BEHAVIOR:

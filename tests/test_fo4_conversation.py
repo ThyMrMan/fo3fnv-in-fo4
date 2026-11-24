@@ -130,7 +130,8 @@ def test_a_shared_copy_takes_its_own_formid_owner():
     say.builder = SimpleNamespace(counts=Counter(), readiness=SimpleNamespace(add=lambda *a: None),
                                   new_id=lambda line, key=None: keys.append((line, key)) or 0x900,
                                   idles=SimpleNamespace(line=lambda rec: b'', holds=lambda rec: False,
-                                                        switch=lambda rec, topic: 0),
+                                                        gestures=lambda rec: False,
+                                                        switch=lambda rec, topic: (0, 0)),
                                   scripts=SimpleNamespace(dir=None, used=[]))
     say.script_vars, say.voiced, say.once, say.by_topic = {}, [], SayOnce(), {}
     say.info({**_line('00000A02', 'T1', 'Q1'), SAY.SHARED: 'T1'}, {}, place='P')

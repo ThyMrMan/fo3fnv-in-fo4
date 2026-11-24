@@ -177,7 +177,15 @@ moves. `AnimObjectR1` and `L1` rest exactly on the hands (identity under
 - **Mesh:** `<name>_prop.nif`, converted with its chain flattened. The chain
   runs from the root down to the node that holds every shape. The mesh is
   hung (`Prn`) from the FO4 prop bone: R1 or L1 for an FNV hand, A for
-  anything else. It is hung as it is written (`statics.prop_assets`),
+  anything else. When an earlier prop of the idle holds that bone, it takes
+  the next free one of the same place (R2, R3; L2, L3; B): FO4's skeletons
+  hang all three from the hand (`fnv_props.prop_bone`). Until 2026-11-24
+  the second prop was dropped: FO3's photo idle (`LooseTakePhotoA`, Jonas
+  at the birthday party) hangs the flash and the camera from the left
+  hand, and only the flash showed (played 2026-11-23). It also brings back
+  the second prop of FO3's beer-drinking and restrained-sitting idles and
+  FNV's vomiting idle. A prop finding no free bone is counted and left out.
+  It is hung as it is written (`statics.prop_assets`),
   because idles are written after the build's Elric pass; a prop with Havok
   input runs through Elric right then.
 - **Clip:** the prop bone's track carries the chain's transform on every
@@ -275,6 +283,45 @@ on FNV's own FormID (a new record; nothing already built moves).
   `Idles.switch`), now plays that idle from `F3NV_SwitchIdle` instead of
   its SNAM: as it begins, `TES4Polyfill.SwitchIdle` plays `ActionIdleStop`
   and then the idle, retried for up to 2 s (traced `switchidle`).
+  - *The stop stood him up (2026-11-24, from play).* `ActionIdleStop` goes
+    to the graph's standing state, and `CrouchTalkB` starts crouched, so
+    Dad stood up, knelt again and stood ("stand up, kneel down, then stand
+    up again"). FO3 goes from `CrouchTalkA` straight into `CrouchTalkB`.
+    The switch idle now also gets a **bridge**: a loose copy of it on
+    `dyn_ActivationLoop` (`Idles._bridge`, EditorID `<idle>Bridge`, FormID
+    hashed from the FNV idle at site `FNV idle bridge`). The graph's loop
+    wildcard may leave a running one-shot (see
+    [the idle review](fo4_idle_review.md#graph)), and from the loop state
+    the one-shot idle starts, so `SwitchIdle` plays the bridge, then the
+    idle, without the stop. If the bridge is refused it stops first as
+    before. If the idle never starts after the bridge did, the bridge is
+    stopped. Not played yet.
+- <a id="line-gestures"></a>**A counted line gesture ends with its line
+  (2026-11-24, from play, not played since).** In play Dad cheered with
+  his hands through the Overseer's whole Pip-Boy speech. The trace of the
+  2026-11-19 run shows why: his "Happy birthday!" (`CG02IntroYell`,
+  `LooseBDayDadCheerTalk`, loop count 10 on a 5 s section) started at
+  345.9 s as one baked 50 s one-shot. His next two lines could not replace
+  it, and the Overseer spoke from 362.7 to 390.1 s. It stopped only at
+  390.3 s, when Dad's package changed (`F3NV_LoopIdle`).
+  - FO3's IDLE `Animation Group Section` tells the two kinds apart (low 6
+    bits; xEdit `wbIdleAnam`): `CrouchTalkA`/`B` are 20, Whole Body, while
+    the cheers, `GivePipBoy` and the beckoning are 7, Special Idle. FO3's
+    own talk gestures (`DialogueIdles`, 158 of its 160 nodes) are on
+    Special Idle, and the GECK's Idle Animations page says a new animation
+    on a group ends the one playing there. So a Special Idle line gesture
+    lasts as long as its line, and the loop count only covers a line
+    longer than one loop. A Whole Body pose such as the Bible verse
+    kneeling holds across lines until another replaces it.
+  - A line whose speaker idle is a counted loop on Special Idle
+    (`idles.gesture`, `Idles.gestures`) carries `F3NV_GestureIdle` on its
+    last part. Its OnEnd plays `ActionIdleStop` (`TES4Polyfill.EndGesture`,
+    traced `gesture`), not while sitting. Forever loops are left as they
+    were.
+  - Reach: Fallout 3 87 line uses of 28 such idles (the CG02 cheers,
+    crying, beckoning, `DoctorEyeExamineA`); New Vegas 15 uses of 7. Whole
+    Body counted ones (not touched): FO3 4 uses (`LooseCrouchTalkA`,
+    `MS17ViolinPlayer`), FNV none.
 - **Left out:** an idle whose clip is missing (2 of Doc's) or is neither a
   human clip nor in an own rig's folder. A rig's idles play on that rig's
   graph with vanilla creatures' `dynamicAnim` events

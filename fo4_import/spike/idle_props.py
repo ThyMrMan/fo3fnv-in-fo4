@@ -40,30 +40,35 @@ class IdleProps:
                 self.by_idle[int(rec['DATA.Idle'], 16)].append(rec)
 
     def get(self, idle: int) -> tuple:
-        """The props FNV idle `idle` shows, one per FO4 prop bone, a vanilla stand-in first."""
+        """The props FNV idle `idle` shows, one per FO4 prop bone, a vanilla stand-in first; a converted prop
+        whose hand's first prop bone is taken hangs from that hand's next free one."""
         props = {p.bone: p for p in self.vanilla.get(idle)}
         for rec in self.by_idle.get(idle, ()):
-            prop = self._prop(rec)
-            if prop is not None:
-                props.setdefault(prop.bone, prop)
+            prop = self._prop(rec, set(props))
+            if prop is not None and prop.bone not in props:
+                props[prop.bone] = prop
+            elif prop is not None:
+                self.builder.counts['idle prop left out (its prop bone taken)'] += 1
         return tuple(props.values())
 
-    def _prop(self, rec: dict) -> 'ConvertedProp | None':
-        """FNV ANIO `rec` converted (its mesh and record written), once; None (counted) when left out."""
+    def _prop(self, rec: dict, taken: set) -> 'ConvertedProp | None':
+        """FNV ANIO `rec` converted (its mesh and record written) on a prop bone not in `taken`, once; None
+        (counted) when left out."""
         fid = int(rec['FormID'], 16)
         if fid not in self.made:
             path = export_file(self.export_dir, 'meshes', rec['Model.MODL'].lower())
             root = fnv_nif(path) if path.is_file() else None
             parent = prn_bone(root) if root is not None else None
-            self.made[fid] = self._converted(rec, root, parent) if parent in self.bones else None
+            bone = prop_bone(parent, taken) if parent in self.bones else None
+            self.made[fid] = self._converted(rec, root, parent, bone) if bone else None
             self.builder.counts['idle prop converted' if self.made[fid] else
-                                'idle prop left out (no mesh or parent bone)'] += 1
+                                'idle prop left out (no mesh, parent or free prop bone)'] += 1
         return self.made[fid]
 
-    def _converted(self, rec: dict, root, parent: str) -> ConvertedProp:
-        """ANIO `rec` with mesh `root` hanging from FNV bone `parent`: its mesh and record written."""
+    def _converted(self, rec: dict, root, parent: str, bone: str) -> ConvertedProp:
+        """ANIO `rec` with mesh `root` hanging from FNV bone `parent`, on FO4 prop bone `bone`: mesh and record
+        written."""
         chain = chain_of(root)
-        bone = prop_bone(parent)
         model, _ = self.builder.prop_mesh(rec['Model.MODL'], {name: FLAT for name, _ in chain[1:]}, bone)
         self.builder.writer.add_record('ANIO', pack_anio(self.builder.fnv_id(rec['FormID']), rec['EditorID'], model))
         return ConvertedProp(rec['EditorID'], bone, None, (), {}, parent, tuple(chain), self.turns.get(parent))

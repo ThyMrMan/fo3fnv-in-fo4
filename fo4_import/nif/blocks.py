@@ -332,6 +332,13 @@ def read_tri_shape(r: Reader) -> dict:
     return out
 
 
+def sphere_bound(points) -> tuple:
+    """A BSTriShape's bound: its points' box centre and the farthest point's distance."""
+    points = np.asarray(points, dtype=np.float64)
+    center = (points.min(axis=0) + points.max(axis=0)) / 2
+    return *map(float, center), float(np.linalg.norm(points - center, axis=1).max())
+
+
 def pack_tri_shape(b: dict) -> bytes:
     """BSTriShape's bytes; the data size is recomputed, `counts` kept for a shape with no data (particles)."""
     desc, verts, tris = b['vertex_desc'], b['vertices'], b['triangles']

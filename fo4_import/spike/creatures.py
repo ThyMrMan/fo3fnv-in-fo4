@@ -40,8 +40,8 @@ from fo4_import.base.source_fault import without_fault
 from fo4_import.nif import file as nif_file
 from fo4_import.nif.creature import PAIRS, creature_fit, creature_mesh, skeleton_parents, skin_texture
 from fo4_import.spike import records as R
-from fo4_import.spike.actor_data import (ACBS_ALLOW_PC_DIALOGUE, BASE_DATA_FLAGS, CREATURE_FLAGS, HEALTH, UNIQUE,
-                                        StatTables, added_health, hit_proof, with_actor_data)
+from fo4_import.spike.actor_data import (ACBS_ALLOW_PC_DIALOGUE, BASE_DATA_FLAGS, CREATURE_FLAGS, HEALTH, UNARMED_DAMAGE,
+                                        UNIQUE, StatTables, added_health, hit_proof, race_unarmed, with_actor_data)
 from fo4_import.spike.creature_sounds import USE_MODEL, CreatureSounds
 from fo4_import.spike.creature_tint import tinted, tinted_materials
 from fo4_import.spike.npc_skills import merged_prps, with_creature_skills
@@ -75,9 +75,9 @@ FX_SLOT = 0x80000000
 #: FNV creature DATA stats as FO4 actor values (Fallout4.esm AVIF): Health, S.P.E.C.I.A.L., attack damage.
 STATS = {'DATA.Health': 0x2D4, 'DATA.Strength': 0x2C2, 'DATA.Perception': 0x2C3, 'DATA.Endurance': 0x2C4,
          'DATA.Charisma': 0x2C5, 'DATA.Intelligence': 0x2C6, 'DATA.Agility': 0x2C7, 'DATA.Luck': 0x2C8,
-         'DATA.AttackDamage': 0x2DF}
-#: Fallout4.esm's UnarmedDamage actor value; WEAP DNAM offset of Damage - Base (u16), which a bite adds to it.
-UNARMED_DAMAGE, BASE_DAMAGE_AT = 0x2DF, 67
+         'DATA.AttackDamage': UNARMED_DAMAGE}
+#: WEAP DNAM offset of Damage - Base (u16), which a bite adds to UnarmedDamage.
+BASE_DAMAGE_AT = 67
 #: FNV template flag Use Actor Effect List.
 USE_SPELLS = 0x8
 #: A stand-in's own ties a creature leaves out: scripts, factions (FNV's go in their place), short name (FNV has none).
@@ -639,9 +639,7 @@ def with_stats(rec: dict, tables: StatTables):
 
     def edit(subs: bytes) -> bytes:
         """The subrecords with PRPS updated."""
-        race = first_sub(subs, b'RNAM')
-        added = {HEALTH: added_health(subs, tables),
-                 UNARMED_DAMAGE: float(tables.race_unarmed.get(struct.unpack('<I', race)[0] if race else None, 0))}
+        added = {HEALTH: added_health(subs, tables), UNARMED_DAMAGE: race_unarmed(subs, tables)}
         return merged_prps(subs, {av: value - added.get(av, 0.0) for av, value in values.items()})
     return edit
 

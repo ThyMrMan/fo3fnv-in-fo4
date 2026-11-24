@@ -7,6 +7,8 @@ Quest[] Property OpeningQuests Auto Const
 GlobalVariable Property TimeScale Auto Const
 Quest Property StartQuest Auto Const
 Int Property StartStage = 0 Auto Const
+String Property IntroMovie = "" Auto Const
+{The movie the source game's engine played on New Game (its sIntroMovie, FO3's intro), played as Begin starts the source game; empty when the build ships none (FNV's first stage plays its own).}
 ActorValue[] Property Special Auto Const
 {Fallout4.esm's seven SPECIAL actor values, in order.}
 Float[] Property SpecialStart Auto Const
@@ -91,13 +93,18 @@ Function CreateCharacter()
 EndFunction
 
 Function Begin()
-  {Start the source game: the player's SPECIAL, then its first stage, whose race menu Fallout 4's character
-  creation stood in for (F3NV_PlayerControls.RaceMenuDone). Once only; stage 10 calls it by hand, skipping the creation.}
+  {Start the source game: the player's SPECIAL, its New Game movie (IntroMovie, skippable), then its first stage,
+  whose race menu Fallout 4's character creation stood in for (F3NV_PlayerControls.RaceMenuDone). Once only;
+  stage 10 calls it by hand, skipping the creation.}
   If StartQuest.IsRunning() || StartQuest.IsCompleted()
     Return
   EndIf
   SetStartSpecial()
   TES4Polyfill.Controls().RaceMenuDone = true
+  If IntroMovie
+    Debug.Trace("TES4NewGame|intro movie " + IntroMovie)
+    Game.PlayBink(IntroMovie, True, True, True, True)
+  EndIf
   StartQuest.SetStage(StartStage)
   Game.FadeOutGame(False, True, 0.0, 1.0)
 EndFunction

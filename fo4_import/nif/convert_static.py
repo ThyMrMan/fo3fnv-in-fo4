@@ -27,7 +27,7 @@ from PIL import Image
 from asset_convert.nif.pyffi_monkey_patch import apply_patches
 from asset_convert.texture import spec_mask
 from fo4_import.nif import fnv_file, surface_gaps
-from fo4_import.nif.blocks import NONE
+from fo4_import.nif.blocks import NONE, SHADER_GLOW
 from fo4_import.nif.file import NifFile
 from fo4_import.nif.fnv_reader import Records
 
@@ -54,8 +54,8 @@ DESC_COLOR = 0x3B00005430206
 NODE_FLAGS, SHADER_FLAGS = 0xE, (0x80400201, 0x11)
 #: Texture set slots a lighting shader fills (vanilla: 10, specular at 7).
 TEXTURE_SLOTS, SLOT_SPECULAR = 10, 7
-#: A glow-mapped lighting shader's type and flags2 bit, as vanilla cagebulb01.nif (type 2, flags2 0x41).
-SHADER_GLOW, GLOW_MAP_FLAG = 2, 0x40
+#: A glow-mapped lighting shader's flags2 bit (its type blocks.SHADER_GLOW), as vanilla cagebulb01.nif (flags2 0x41).
+GLOW_MAP_FLAG = 0x40
 #: The glow map's slot in an FNV texture set and in FO4's.
 GLOW_SLOT = 2
 IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)

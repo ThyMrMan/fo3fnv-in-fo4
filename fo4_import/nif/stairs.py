@@ -86,23 +86,36 @@ def _covers(tris: np.ndarray, point: np.ndarray) -> np.ndarray:
     return covers_at(cover_frame(tris), np.asarray(point, dtype=float)[None, :2])[0]
 
 
-def _beyond(frame: tuple, tops: np.ndarray, top: float, mid: np.ndarray, out: np.ndarray) -> np.ndarray:
-    """Mask of the treads (cover_frame `frame`) one step below `top` beyond an edge (`mid`, outward `out`); none
-    when a tread at `top` continues past it or the drop is one FO4 climbs anyway."""
-    for hit in covers_at(frame, np.array([mid + out * reach for reach in (2 * TOUCH, REACH / 2, REACH)])):
-        if (hit & (np.abs(tops - top) <= TOUCH)).any():
+def _planes(flat: np.ndarray) -> np.ndarray:
+    """(n, 3) coefficients a, b, c of each face's plane z = a x + b y + c."""
+    xy1 = np.concatenate([flat[:, :, :2], np.ones((len(flat), 3, 1))], axis=2)
+    return (np.linalg.pinv(xy1) @ flat[:, :, 2, None])[:, :, 0]
+
+
+def _beyond(walk: tuple, top: float, mid: np.ndarray, out: np.ndarray) -> tuple:
+    """(mask of the walkable faces (`walk`: cover_frame, planes, which are treads) that are treads one step below
+    edge height `top` beyond an edge (`mid`, outward `out`), their level); none when a walkable face at `top`
+    continues past it or the drop is one FO4 climbs anyway. Heights are each face's plane at the probe point.
+    See: docs/fork/fo4_pipeline.md#sloped-treads
+    """
+    frame, planes, tread = walk
+    points = np.array([mid + out * reach for reach in (2 * TOUCH, REACH / 2, REACH)])
+    heights = (planes[:, :2] @ points.T + planes[:, 2:]).T
+    for hit, z in zip(covers_at(frame, points), heights):
+        if (hit & (np.abs(z - top) <= TOUCH)).any():
             break
-        lower = hit & (tops < top - TOUCH) & (tops >= top - RISER_MAX - TOUCH)
+        lower = hit & tread & (z < top - TOUCH) & (z >= top - RISER_MAX - TOUCH)
         if lower.any():
-            level = tops[lower].max()
-            return lower & (tops >= level - TOUCH) if top - level > RISER_MIN else lower & False
-    return np.zeros(len(tops), dtype=bool)
+            level = z[lower].max()
+            return (lower & (z >= level - TOUCH) if top - level > RISER_MIN else lower & False), float(level)
+    return np.zeros(len(planes), dtype=bool), 0.0
 
 
-def _edge_steps(corners: np.ndarray, treads: np.ndarray) -> tuple:
+def _edge_steps(corners: np.ndarray, nz: np.ndarray, treads: np.ndarray) -> tuple:
     """(treads in a step, risers): each riser is (upper tread, edge start, edge end, lower level, outward)."""
-    flat, tops = corners[treads], corners[treads, :, 2].mean(axis=1)
-    frame, marked, risers, seen = cover_frame(flat), set(), [], set()
+    tops, ground = corners[treads, :, 2].mean(axis=1), np.nonzero(nz >= WALKABLE)[0]
+    walk = (cover_frame(corners[ground]), _planes(corners[ground]), nz[ground] >= FLAT)
+    marked, risers, seen = set(), [], set()
     for k, i in enumerate(treads):
         tri = corners[i]
         centre = tri[:, :2].mean(axis=0)
@@ -110,14 +123,14 @@ def _edge_steps(corners: np.ndarray, treads: np.ndarray) -> tuple:
             mid, along = (p[:2] + q[:2]) / 2, q[:2] - p[:2]
             out = np.array([along[1], -along[0]]) / (np.linalg.norm(along) or 1.0)
             out = out if np.dot(out, mid - centre) > 0 else -out
-            below = _beyond(frame, tops, tops[k], mid, out)
+            below, level = _beyond(walk, (p[2] + q[2]) / 2, mid, out)
             if not below.any():
                 continue
-            marked.update([int(i), *(int(j) for j in treads[below])])
+            marked.update([int(i), *(int(j) for j in ground[below])])
             key = (round(tops[k]), *sorted((tuple(np.round(p[:2])), tuple(np.round(q[:2])))))
             if key not in seen:
                 seen.add(key)
-                risers.append((int(i), p, q, float(tops[below].max()), out))
+                risers.append((int(i), p, q, level, out))
     return marked, risers
 
 
@@ -263,7 +276,7 @@ def stairs(tris: list, materials: list, unit: float, stairs_of) -> tuple:
         return tris, materials, []
     corners, nz = faces(tris, unit)
     treads = np.nonzero(nz >= FLAT)[0]
-    marked, risers = _edge_steps(corners, treads)
+    marked, risers = _edge_steps(corners, nz, treads)
     marked |= _ground_steps(corners, nz, treads) | _ramp_steps(corners, nz)
     out_mats = [stairs_of(m) if i in marked else m for i, m in enumerate(materials)]
     added = [(tuple(tuple(c / unit) for c in face), stairs_of(materials[i]))

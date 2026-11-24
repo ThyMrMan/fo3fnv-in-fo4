@@ -18,7 +18,7 @@ import struct
 import numpy as np
 
 from asset_convert.havok.kf_decode import SPLINE_DEGREE, eval_bspline
-from fo4_import.nif.blocks import NONE
+from fo4_import.nif.blocks import NONE, SHADER_GLOW
 from fo4_import.nif.glow_scale import map_keys
 
 #: (FNV controller type, FNV channel) -> (FO4 value kind, effect shader variable, lighting shader variable).
@@ -187,7 +187,10 @@ def shader_block(nif, cb, timing: dict, at: dict, priority: int) -> 'dict | None
 def _target(nif, fnv_type: str, found: tuple, name: str, at: dict) -> 'tuple | None':
     """(shape name, shader index, shader type, FO4 controller type, variable) that FNV channel `found` of
     controller type `fnv_type` on shape `name` drives among `at['shapes']`; None when the shape is not converted
-    or FO4 leaves the channel out (emittance on a blended unlit shape)."""
+    or FO4 leaves the channel out (emittance on a blended unlit shape; emission on a lit shape with no glow map,
+    which FNV's shader never reads).
+    See: docs/fork/fo4_pipeline.md#lit-emission-without-glow
+    """
     shapes = at['shapes']
     if fnv_type in EMISSIVE and name + GLOW_SUFFIX in shapes:
         name += GLOW_SUFFIX
@@ -195,7 +198,8 @@ def _target(nif, fnv_type: str, found: tuple, name: str, at: dict) -> 'tuple | N
         return None
     value_kind, effect_var, lit_var = found
     _, shader, shader_kind, alpha = shapes[name]
-    if fnv_type == EMITTANCE and blended_unlit(nif, alpha, name, shader_kind):
+    unread = shader_kind == 'Lighting' and nif.blocks[shader][1]['shader_type'] != SHADER_GLOW
+    if fnv_type == EMITTANCE and blended_unlit(nif, alpha, name, shader_kind) or fnv_type in EMISSIVE and unread:
         return None
     kind = f'BS{shader_kind}ShaderProperty'
     return name, shader, kind, f'{kind}{value_kind}Controller', effect_var if shader_kind == 'Effect' else lit_var

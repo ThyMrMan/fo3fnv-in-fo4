@@ -205,11 +205,11 @@ class Condition:
         return with_point(with_keywords(subs, [self._keyword()]), self._point())
 
     def wire_armor(self, fnv: int, fid: int, subs: list, fields: dict) -> list:
-        """Converted armor `subs` (FO4 `fid`, FNV ARMO `fnv` with `fields` health and rating) taking condition
-        mods; unchanged without FNV health."""
+        """Converted armor `subs` (FO4 `fid`, FNV ARMO `fnv` with `fields` health and dt, its FO4 armor rating)
+        taking condition mods; unchanged without FNV health."""
         if fields.get('health', 0) <= 0:
             return subs
-        self.armors[fid] = (fnv, float(fields['health']), round(fields['rating']))
+        self.armors[fid] = (fnv, float(fields['health']), round(fields['dt']))
         return with_point(with_keywords(subs, [self._keyword()]), self._point())
 
     def write(self, ammo_mods, data_dir: Path, helper_index: int) -> None:

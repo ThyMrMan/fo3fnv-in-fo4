@@ -24,6 +24,8 @@ MOVIE_EXTS = ('.bik',)
 #: Bink 1 header: signature, file size - 8, frames, largest frame, frames, width, height, fps, video flags, tracks.
 _HEADER = struct.Struct('<4s10I')
 BINK1 = (b'BIKf', b'BIKg', b'BIKh', b'BIKi')
+#: The source game's default INI (beside its Data folder) and its setting naming the New Game movie, lowercase.
+DEFAULT_INI, INTRO_SETTING = 'Fallout_default.ini', 'sintromovie'
 
 
 def _audio_spans(f, start: int, tracks: int) -> tuple:
@@ -102,12 +104,28 @@ def _current(src: Path, dst: Path) -> bool:
     return dst.is_file() and dst.stat().st_mtime == src.stat().st_mtime and track_ids(dst) == _wanted_ids(src)
 
 
+def shipped_movies(export_dir) -> dict:
+    """source_movies() of a masterless plugin (the build writes no other's)."""
+    return {} if masters_from_export_header(str(export_dir)) else source_movies(export_dir)
+
+
+def intro_movie(export_dir) -> str:
+    """The movie the source game's engine plays on New Game (sIntroMovie in its default INI, beside its Data
+    folder) when the build ships it (shipped_movies); else ''.
+    See: docs/fork/bink_movies.md#new-game-movie
+    """
+    data = source_data(export_dir)
+    ini = data.parent / DEFAULT_INI if data else None
+    lines = ini.read_text(encoding='latin-1').splitlines() if ini and ini.is_file() else []
+    names = [value.strip() for key, _, value in (line.partition('=') for line in lines)
+             if key.strip().lower() == INTRO_SETTING]
+    return next((name for name in names if movie_key(name) in shipped_movies(export_dir)), '')
+
+
 def write_movies(export_dir, data_dir: Path) -> int:
     """Write the masterless plugin's source movies into `data_dir`/Video; how many were (re)written."""
-    if masters_from_export_header(str(export_dir)):
-        return 0
     written = 0
-    for key, src in source_movies(export_dir).items():
+    for key, src in shipped_movies(export_dir).items():
         dst = Path(data_dir, 'Video', *src.parts[-len(key.split('\\')):])
         if _current(src, dst):
             continue

@@ -58,8 +58,10 @@ ORDER = 'PNAM.PrevInfo'
 SAY_ONCE = 0x04
 #: The script a line whose speaker idle loops forever carries: the loop stops when the speaker's package changes.
 LOOP_SCRIPT = 'F3NV_LoopIdle'
-#: The script a line carries whose speaker idle replaces a held one (Idles.switch), and its idle property.
-SWITCH_SCRIPT, SWITCH_IDLE = 'F3NV_SwitchIdle', 'Played'
+#: The script a line carries whose speaker idle replaces a held one (Idles.switch), its idle and bridge properties.
+SWITCH_SCRIPT, SWITCH_IDLE, SWITCH_BRIDGE = 'F3NV_SwitchIdle', 'Played', 'Bridge'
+#: The script on a line's last part whose speaker plays a counted Special Idle gesture (Idles.gestures): it ends there.
+GESTURE_SCRIPT = 'F3NV_GestureIdle'
 #: Keys of a split line's part (conversation.part): its number and the line's count of parts.
 PART, PARTS = '_part', '_parts'
 #: Key of a shared info's copy naming the topic that borrows it (conversation.shared_lines).
@@ -262,18 +264,20 @@ class SayTopics:
                                   end='Fragment_0' if last else None, scripts=marked)
         return object_scripts(marked) if marked else b''
 
-    def _idles(self, rec: dict, first: bool) -> tuple:
-        """([idle helper scripts], (speaker, listener) idles per response) of FNV line `rec` (part `first`): a
-        held idle (counted or forever loop, Idles.holds) is released (LOOP_SCRIPT); an idle replacing a held one
-        (Idles.switch) is played by SWITCH_SCRIPT, not by the line.
+    def _idles(self, rec: dict, first: bool, last: bool) -> tuple:
+        """([idle helper scripts], (speaker, listener) idles per response) of FNV line `rec` (part `first`,
+        `last`): a held idle (counted or forever loop, Idles.holds) is released (LOOP_SCRIPT), a counted gesture
+        (Idles.gestures) as the line ends (GESTURE_SCRIPT); an idle replacing a held one (Idles.switch) is played
+        by SWITCH_SCRIPT through its bridge, not by the line.
         See: docs/fork/fo4_idles.md#idle-switch
         """
         idles, made = self.builder.idles, self.builder.idles.line(rec)
-        switch = idles.switch(rec, self.by_topic.get(rec['ParentDIAL'].upper(), [])) if first else 0
+        switch, bridge = idles.switch(rec, self.by_topic.get(rec['ParentDIAL'].upper(), [])) if first else (0, 0)
         held = [(LOOP_SCRIPT, {}, {})] if first and idles.holds(rec) else []
+        held += [(GESTURE_SCRIPT, {}, {})] if last and idles.gestures(rec) else []
         if not switch:
             return held, made
-        return held + [(SWITCH_SCRIPT, {SWITCH_IDLE: switch}, {})], ((0, made[0][1]),) + made[1:]
+        return held + [(SWITCH_SCRIPT, {SWITCH_IDLE: switch, SWITCH_BRIDGE: bridge}, {})], ((0, made[0][1]),) + made[1:]
 
     def left_out(self, rec: dict, form_map: dict) -> bytes:
         """Count FNV line `rec` as left out, with the condition blocking it (blocker), for its quest; b''."""
@@ -303,7 +307,7 @@ class SayTopics:
         fid = self.builder.new_id(line, key=f'{line} at {place}' if place else None)
         once = first and int(rec.get('DATA.Flags', 0)) & SAY_ONCE
         marked = [self.once.script(rec['FormID'])] if once and owner else []
-        held, idles = self._idles(rec, first)
+        held, idles = self._idles(rec, first, last)
         vmad = self._vmad(rec, first, last, marked + held + list(helpers) * first)
         lines = [rec[f'Response[{i}].ResponseText'] for i in range(int(rec.get('ResponseCount', 0) or 0))]
         flags |= R.INFO_SAY_ONCE if once else 0

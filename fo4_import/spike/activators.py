@@ -80,8 +80,10 @@ class Activators:
             vmad, prompt = self._drink(self.water[fnv_fid]), DRINK_PROMPT
         elif 'SCRI' in rec:
             vmad = self.builder.scripts.vmad(int(rec['SCRI'], 16))
-        return R.pack_acti(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds, vmad, prompt,
-                           self.builder.sounds.field(rec, 'SNAM'), self.builder.radio.receiver(fnv_fid), dest)
+        record = R.pack_acti(fid, f'FNV_{rec["EditorID"]}', rec.get('FULL', ''), model, bounds, vmad, prompt,
+                             self.builder.sounds.field(rec, 'SNAM'), self.builder.radio.receiver(fnv_fid), dest)
+        self.builder.radio.add_on(fnv_fid, record)
+        return record
 
     def ambient(self, rec: dict, model: str) -> bool:
         """Whether FNV activator `rec` only plays its mesh's own loop: no script, name, water or station, and FNV

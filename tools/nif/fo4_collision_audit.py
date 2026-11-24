@@ -70,8 +70,10 @@ def _fnv_points(s) -> np.ndarray:
     kind = type(s).__name__
     if kind == 'bhkMoppBvTreeShape':
         return _fnv_points(s.shape)
-    if kind == 'bhkListShape':
+    if kind in ('bhkListShape', 'bhkConvexListShape'):
         return np.vstack([_fnv_points(c) for c in s.sub_shapes])
+    if kind == 'bhkNiTriStripsShape':
+        return np.vstack([np.array([(v.x, v.y, v.z) for v in d.vertices]) for d in s.strips_data])
     if kind in ('bhkConvexTransformShape', 'bhkTransformShape'):
         m = np.array(s.transform.as_list())
         child = _fnv_points(s.shape)

@@ -82,3 +82,50 @@ def test_an_untextured_glare_pane_is_not_a_screen():
     """Its larger untextured falloff pane, drawn through WHITE, does not."""
     assert not T._unlit(_nif(WHITE), {'shader': 0})
     assert not T._unlit(_nif(''), {'shader': 0})
+
+
+def _quad(y: float, z: float, size: float) -> tuple:
+    """(corners, triangles) of a +X square at (y, z), corner 0 doubled."""
+    corners = [(0.0, y, z), (0.0, y + size, z), (0.0, y + size, z + size), (0.0, y, z + size), (0.0, y, z)]
+    return corners, [(4, 1, 2), (0, 2, 3)]
+
+
+def _bank() -> SimpleNamespace:
+    """One unlit shape holding a 2x2 bank of 30-unit screens and a small indicator light, as VOverseerTerminal01's
+    VMonitorBank:2 (four screens) and Terminal01's T01Screen01:1 (screen plus a side light)."""
+    points, tris = [], []
+    for y, z, size in ((40.0, 120.0, 30.0), (0.0, 120.0, 30.0), (40.0, 80.0, 30.0), (0.0, 80.0, 30.0),
+                       (90.0, 10.0, 3.0)):
+        corners, quad = _quad(y, z, size)
+        tris += [tuple(i + len(points) for i in t) for t in quad]
+        points += corners
+    node = {'name': 0, 'rotation': IDENTITY, 'translation': (0.0, 0.0, 0.0), 'scale': 1.0, 'children': [1]}
+    shape = {'name': 1, 'rotation': IDENTITY, 'translation': (0.0, 0.0, 0.0), 'scale': 1.0, 'shader': 2,
+             'controller': NONE, 'extra': [], 'vertices': [{'position': p} for p in points], 'triangles': tris}
+    blocks = [('NiNode', node), ('BSTriShape', shape),
+              ('BSEffectShaderProperty', {'name': -1, 'source_texture': 'screen.dds'})]
+    return SimpleNamespace(blocks=blocks, strings=['Bank', 'Bank:2'])
+
+
+def test_islands_are_joined_through_shared_positions():
+    """A UV seam's doubled corner still joins its square; separate squares are separate islands."""
+    corners, tris = _quad(0.0, 0.0, 1.0)
+    assert len(T.islands(np.array(corners), np.array(tris))) == 1
+    nif = _bank()
+    shape = nif.blocks[1][1]
+    masks = T.islands(np.array([v['position'] for v in shape['vertices']]), np.array(shape['triangles']))
+    assert sorted(int(m.sum()) for m in masks) == [2] * 5
+
+
+def test_one_screen_of_a_bank_becomes_the_screen_the_rest_keep_their_shape():
+    """FO4 draws its menu on and zooms to all of Screen:0: of four equal screens, only the lowest (then the first
+    by position) is split out beside the shape; the others and the light stay in it with their shader."""
+    nif = _bank()
+    index, mask = T._screen(nif)
+    screen = T._split(nif, index, mask)
+    kept, split = nif.blocks[1][1], nif.blocks[screen][1]
+    assert screen == 3 and nif.blocks[0][1]['children'] == [1, 3]
+    assert len(split['triangles']) == 2 and len(kept['triangles']) == 8 and kept['shader'] == split['shader'] == 2
+    points = np.array([v['position'] for v in split['vertices']])
+    assert np.allclose(points.min(axis=0), (0.0, 0.0, 80.0)) and np.allclose(points.max(axis=0), (0.0, 30.0, 110.0))
+    assert np.allclose(split['bound'], (0.0, 15.0, 95.0, math.hypot(15.0, 15.0)))

@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from asset_convert.havok.clip_retarget import posed_world, quat_wxyz_to_mat, world_positions
-from fo4_import.havok.fnv_props import HANDS, local_at, unscaled
+from fo4_import.havok.fnv_props import HANDS, local_at, prop_bone, unscaled
 from fo4_import.havok.human_clip import HumanClips
 from fo4_import.havok.kf_cache import decoded
 from fo4_import.nif import file as nif_file
@@ -25,19 +25,21 @@ EXPORT = Path(__file__).resolve().parents[1] / 'export' / 'FalloutNV.esm'
 MIRROR, PAPER = 0x0010658C, 0x0005DB21
 MIRROR_CLIP = 'characters\\_male\\idleanims\\specialidle_nvcg01docgivemirror.kf'
 needs_export = pytest.mark.skipif(not (EXPORT / 'ANIO.txt').exists(), reason='needs the FalloutNV.esm export')
+#: FO3's export and its photo idle (LooseTakePhotoA: Jonas's camera and its flash, both on the left hand).
+FO3, TAKE_PHOTO = EXPORT.parent / 'Fallout3.esm', 0x00059C6F
 
 
 class Builder:
     """CellBuilder's prop_mesh, fnv_id, writer and counts, writing under `data`."""
 
-    def __init__(self, data: Path):
-        """Meshes written under `data`."""
-        self.data, self.counts, self.records = data, Counter(), []
+    def __init__(self, data: Path, export: Path = EXPORT):
+        """Meshes of `export` written under `data`."""
+        self.data, self.export, self.counts, self.records = data, export, Counter(), []
         self.writer = SimpleNamespace(add_record=lambda sig, raw: self.records.append((sig, raw)))
 
     def prop_mesh(self, model, pose, bone):
         """prop_assets() of `model` into `data`."""
-        return prop_assets(EXPORT, model, self.data, pose, bone)
+        return prop_assets(self.export, model, self.data, pose, bone)
 
     def fnv_id(self, fid):
         """FNV's own FormID."""
@@ -86,3 +88,20 @@ def test_a_converted_prop_gets_an_anio_and_a_mesh_hung_from_its_hands_prop_bone(
     assert (sig, subs[b'BNAM'], subs[b'MODL']) == ('ANIO', b'AnimObjUnequip\0', b'fnv\\animobjects\\aotestpaper_prop.nif\0')
     nif = nif_file.read((tmp_path / 'Meshes' / 'fnv' / 'animobjects' / 'aotestpaper_prop.nif').read_bytes())
     assert nif.blocks[nif.blocks[0][1]['extra'][0]][0] == 'NiStringExtraData' and 'AnimObjectR1' in nif.strings
+
+
+def test_a_prop_takes_its_hands_next_free_prop_bone():
+    """A hand's three FO4 prop bones are taken in order, then none; any other bone hangs from the root's."""
+    assert prop_bone('Bip01 L Hand') == 'AnimObjectL1'
+    assert prop_bone('Bip01 L Hand', {'AnimObjectL1'}) == 'AnimObjectL2'
+    assert prop_bone('Bip01 R Hand', {'AnimObjectR1', 'AnimObjectR2', 'AnimObjectR3'}) is None
+    assert prop_bone('Bip01 Head') == 'AnimObjectA'
+
+
+@pytest.mark.skipif(not (FO3 / 'ANIO.txt').exists(), reason='needs the Fallout3.esm export')
+def test_two_props_on_one_hand_both_show(tmp_path):
+    """FO3's photo idle hangs the flash and the camera from the left hand: each gets a prop bone of its own."""
+    builder = Builder(tmp_path, FO3)
+    props = IdleProps(builder, FO3, HumanClips(FO3 / 'meshes')).get(TAKE_PHOTO)
+    assert sorted((p.name, p.bone) for p in props) == [('aoTakePhotograph', 'AnimObjectL2'),
+                                                       ('aoTakePhotographFlash', 'AnimObjectL1')]

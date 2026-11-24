@@ -28,7 +28,7 @@ def test_defaults_hold_every_rule():
         'child_male': 'DiamondCitySchoolChildM03', 'child_female': 'DiamondCitySchoolChildF01'}
     assert [(bits, e.edid) for bits, e in table.rules.armor] == [
         (0x4, 'ClothesPrewarShortSleeves'), (0x1 | 0x200 | 0x400, 'ClothesMobsterhat'), (0x800, 'ClothesEyeGlasses'),
-        (0x4000 | 0x10000, 'Clothes_Raider_SurgicalMask')]
+        (0x4000 | 0x10000, 'Clothes_Raider_SurgicalMask'), (0x100 | 0x8000, 'ClothesEyeGlasses')]
     assert {k: (e.edid, e.mode) for k, e in table.rules.melee.items()} == {
         0: ('Knuckles', 'stats'), 1: ('TireIron', 'fnv'), 2: ('BaseballBat', 'fnv')}
     assert table['Stimpak'].category == 'consumable' and table['WeapKnife'].category == 'weapon'

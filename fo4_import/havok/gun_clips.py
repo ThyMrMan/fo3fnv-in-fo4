@@ -44,9 +44,12 @@ clips under the vanilla names they replace; a state FNV has no clip for
   gun's mirror of it (gun_folder) holding those strides, WPNAssemblyPose and every other clip whose target
   stays on the gun, the target carried onto ours (carried_target).
 - Events: each clip takes the annotations of the vanilla clip it replaces
-  (sounds, weaponFire, reloadComplete...), each timed from FNV's matching
-  text key (KEYED; vanilla sounds in order onto FNV's `Sound:` keys), the
-  rest scaled to the clip's length.
+  (weaponFire, reloadComplete...) but its sounds, each timed from FNV's
+  matching text key (KEYED), the rest scaled to the clip's length; FNV's
+  own `Sound:` keys play its SOUNs (heard). Sighted clips put the gun's eye
+  point on the camera's axis (centered; a mesh naming none gets its top),
+  and a `##` part no PART_BONES word maps rides a spare receiver bone,
+  hidden where FNV's clip hides it (shown).
 - AnimTextData: the game reads an entry's resolved clip paths from
   `AnimTextData\\AnimationFileData\\<id>.txt`, id = CRC-32 of the folder list
   joined by `|` (high half) and of the behaviour graph's path (low half), lower case,
@@ -87,7 +90,7 @@ from fo4_import.havok.gun_third import (ON_GUN, PAIRED, THIRD_FOLDER, THIRD_SKEL
                                         mirror, stride, vanilla_worlds, walk_legs)
 from fo4_import.havok.human_clip import BONES, COM, matching_pose
 from fo4_import.nif.convert_static import NifFormat
-from fo4_import.nif.gun import SIGHTING, bone_for
+from fo4_import.nif.gun import SIGHTING, part_bone, spare_bones
 from fo4_import.pipeline.elric_cache import write_new, write_stored
 from fo4_import.pipeline.work_cache import lookup_versioned, store_bytes, store_versioned
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
@@ -102,9 +105,13 @@ FNV_WEAPON = 'Weapon'
 ROLE_WEAPON, PLAYER = 1, 'AnimArchetypePlayer'
 #: How far (game units) a part moves from its first frame before it counts as moving.
 MOVED = 0.05
+#: How far (radians) a part turns from its first frame before it counts as moving (a lever).
+TURNED = 0.01
+#: Seconds within which a text key and a frame are one moment (keys and frames round differently).
+SAME_TIME = 1e-4
 #: Vanilla annotation (lower case) -> the FNV text key (lower-case prefix) it is timed from.
 KEYED = {'weaponfire': 'hit', 'ejectshellcasing': 'eject'}
-SOUND_EVENT, FNV_SOUND = 'soundplay.', 'sound:'
+SOUND_EVENT, FNV_SOUND, PLAY = 'soundplay.', 'sound:', 'SoundPlay.'
 #: The DLC06 additive race's subrecords before SADD, each filled from HumanRaceSubGraphData's same-named one.
 HEAD = ('EDID', 'DESC', 'BOD2', 'PRPS', 'DATA', 'MNAM', 'FNAM', *['MTNM'] * 5, 'VTCK', 'PNAM', 'UNAM', 'NAM1',
         'MNAM', 'INDX', 'FNAM', 'INDX', 'GNAM', 'NAM3', 'MNAM', 'FNAM', *['NAME'] * 32, 'RBPC', 'VNAM')
@@ -117,7 +124,7 @@ CLIP_FILES = 'gun_clip_files'
 #: The file under a data folder's archive staging keeping its clip files' stamps (write_stored) between builds.
 STAMPS = 'gun_clip_stamps.json'
 #: The gun clips' hand-bumped version: raise it whenever _convert makes other files or values for the same key.
-GUN_CLIPS_VERSION = 4
+GUN_CLIPS_VERSION = 5
 
 
 @dataclass(frozen=True)
@@ -207,19 +214,26 @@ def with_folder(folders: list, ours: str) -> list:
 
 
 def annotations(vanilla: list, vanilla_length: float, keys: list, length: float) -> list:
-    """[(time, text)]: each vanilla annotation (time, text) timed from its FNV text key (KEYED; sounds in order
-    onto FNV's `Sound:` keys), else scaled from the vanilla clip's length to `length`."""
-    sounds = [t for t, k in keys if k.lower().startswith(FNV_SOUND)]
-    out = []
+    """[(time, text)]: each vanilla annotation (time, text) but its sounds, timed from its FNV text key (KEYED), else
+    scaled from the vanilla clip's length to `length`; and each FNV `Sound:` key playing its own SOUN (heard).
+    See: docs/fork/fo4_spikes.md#gun-sounds
+    """
+    out = [(round(min(float(t), length), 4), PLAY + heard(k)) for t, k in keys if heard(k)]
     for t, text in sorted(vanilla):
+        if text.lower().startswith(SOUND_EVENT):
+            continue
         prefix = KEYED.get(text.lower())
         at = next((float(kt) for kt, k in keys if prefix and k.lower().startswith(prefix)), None)
-        if at is None and text.lower().startswith(SOUND_EVENT) and sounds:
-            at = float(sounds.pop(0))
         if at is None:
             at = t * length / vanilla_length if vanilla_length else 0.0
         out.append((round(min(at, length), 4), text))
     return sorted(out)
+
+
+def heard(key: str) -> 'str | None':
+    """The SNDR EditorID of FNV text key `key`'s SOUN (`Sound: <EditorID>`), else None."""
+    kind, _, name = key.partition(':')
+    return f'FNV_{name.strip()}' if kind.strip().lower() + ':' == FNV_SOUND and name.strip() else None
 
 
 def subgraph_entries(subs: list) -> list:
@@ -265,11 +279,20 @@ def perspective(entry: dict) -> int:
 
 
 def bolt_start(clip, part: 'str | None') -> 'float | None':
-    """When FNV's bolt part (track `part`) first leaves its first frame's place; None without it or if it stays."""
-    track = next((t for t in clip.tracks if t.bone == part and t.translations is not None), None)
+    """When FNV's bolt part (track `part`) first leaves its first frame's place or turn (a lever only turns), not
+    before the shot (the `Hit` key); None without it or if it stays.
+    See: docs/fork/fo4_spikes.md#lever-cut
+    """
+    track = next((t for t in clip.tracks if t.bone == part), None)
     if track is None:
         return None
-    moved = np.flatnonzero(np.linalg.norm(track.translations - track.translations[0], axis=1) > MOVED)
+    shot = next((float(t) for t, k in clip.text_keys if k.lower().startswith(KEYED['weaponfire'])), 0.0)
+    off = np.zeros(len(clip.times), bool)
+    if track.translations is not None:
+        off |= np.linalg.norm(track.translations - track.translations[0], axis=1) > MOVED
+    if track.rotations is not None:
+        off |= 2 * np.arccos(np.clip(np.abs(track.rotations @ track.rotations[0]), 0.0, 1.0)) > TURNED
+    moved = np.flatnonzero(off & (clip.times > shot + SAME_TIME))
     return float(clip.times[moved[0] - 1]) if len(moved) and moved[0] > 0 else None
 
 
@@ -278,13 +301,20 @@ def _matrix(rotation_wxyz, translation) -> np.ndarray:
     return compose(translation, quat_wxyz_to_mat(rotation_wxyz))
 
 
-def _track(name: str, mats: list) -> BoneTrack:
-    """A BoneTrack of per-frame row-vector local matrices, its quaternions kept on one hemisphere."""
+def _track(name: str, mats: list, scales: 'np.ndarray | None' = None) -> BoneTrack:
+    """A BoneTrack of per-frame row-vector local matrices, its quaternions kept on one hemisphere, `scales` its own."""
     q = np.array([mat_to_quat_wxyz(m[:3, :3] / np.linalg.norm(m[0, :3])) for m in mats])
     for k in range(1, len(q)):
         if np.dot(q[k], q[k - 1]) < 0:
             q[k] = -q[k]
-    return BoneTrack(bone=name, rotations=q, translations=np.array([m[3, :3] for m in mats]))
+    return BoneTrack(bone=name, rotations=q, translations=np.array([m[3, :3] for m in mats]), scales=scales)
+
+
+def shown(clip, part: str) -> 'np.ndarray | None':
+    """`clip`'s per-frame visibility of part `part` (0 hidden: as scale), else None."""
+    stem = part.split(':')[0]
+    return next((np.asarray(vis, float) for bone, vis in clip.vis_tracks
+                 if bone.split(':')[0] == stem and len(vis) == len(clip.times)), None)
 
 
 def fo4_skeleton(raw: bytes) -> tuple:
@@ -581,6 +611,19 @@ def anchor_for(rig: Rig, gun: 'Gun', clip, moved, vanilla) -> np.ndarray:
     return np.linalg.inv(_in_camera(rig, gun, clip, moved)) @ theirs
 
 
+def centered(rig: Rig, gun: 'Gun', clip, moved) -> 'np.ndarray | None':
+    """Gun.anchor for sighted FNV `clip` (`moved`: it retargeted): the camera-space move across putting the gun's eye
+    point (##SightingNode) on the camera's forward axis in its first frame; None in third person.
+    See: docs/fork/fo4_spikes.md#centered-sights
+    """
+    if rig.view.camera is None or SIGHTING not in gun.frames:
+        return None
+    eye = gun.frames[SIGHTING] @ rig.fnv_gun(clip, 0) @ np.linalg.inv(rig.camera(moved, 0))
+    out = np.eye(4)
+    out[3, 0] = -eye[3, 0]
+    return out
+
+
 def neutral_clip(bones: list, length: float) -> DecodedClip:
     """A two-key clip of `length` seconds holding every one of `bones` at identity (an additive layer's no-op)."""
     times = np.array([0.0, length])
@@ -791,6 +834,20 @@ class Gun:
     left: 'tuple | None' = None
     #: {vanilla clip path, lower case: the folder holding our stride standing in for it} (GunClips._strides).
     strides: dict = field(default_factory=dict)
+    #: Whether the eye point is ours (add_eye), FNV's mesh naming none.
+    eye_made: bool = False
+
+    def add_eye(self) -> None:
+        """An eye point (##SightingNode) when FNV's mesh names none: the top of the mesh, on its middle.
+        See: docs/fork/fo4_spikes.md#centered-sights
+        """
+        points = self.points(0)
+        if SIGHTING in self.frames or not len(points):
+            return
+        fnv = np.hstack([points, np.ones((len(points), 1))]) @ self.inverse
+        top = fnv[int(np.argmax(fnv[:, 1]))]
+        self.frames[SIGHTING] = compose(np.array([top[0], top[1], 0.0]), np.eye(3))
+        self.eye_made = True
 
     def points(self, which: int) -> np.ndarray:
         """Every vertex of our gun (0) or the template's (1), Weapon frame."""
@@ -802,9 +859,9 @@ class Gun:
     @classmethod
     def build(cls, matrix: np.ndarray, frames: dict, receiver: dict) -> 'Gun':
         """The gun of FNV node `frames` (fnv_frames) on a receiver of {bone: rest 4x4}."""
-        parts = {}
+        parts, spares = {}, spare_bones(frames, receiver)
         for name, frame in frames.items():
-            bone = bone_for(name, receiver) if name.startswith('##') else None
+            bone = part_bone(name, receiver, spares) if name.startswith('##') else None
             if bone and bone not in parts:
                 parts[bone] = (receiver[bone], np.linalg.inv(frame), name)
         return cls(matrix, parts, frames)
@@ -842,7 +899,8 @@ class Gun:
                 out[IK_LEFT].append(world[left] @ np.linalg.inv(placed))
             for bone, (rest, rest_inv, name) in self.parts.items():
                 out[bone].append(rest @ self.inverse @ rest_inv @ self.part_local(src_clip, name, f) @ self.matrix)
-        return [_track(name, mats) for name, mats in out.items()]
+        return [_track(name, mats, shown(src_clip, self.parts[name][2]) if name in self.parts else None)
+                for name, mats in out.items()]
 
     def left_hand(self, rig: Rig, moved, f: int, world: list, hold_at: tuple, weight: float) -> list:
         """Frame `f`'s worlds with the left arm bent to its target, `world` unchanged without one: `weight` of the
@@ -873,11 +931,13 @@ class Gun:
 @dataclass
 class Converted:
     """What a gun's clip conversion gives its records: {template Anims keyword: the gun's own replacing it} (one
-    per view), the sights' camera lift, the clips written, and whether the hold was moved for being off screen."""
+    per view), the sights' camera lift, the clips written, whether the hold was moved for being off screen, and the
+    SNDR EditorIDs the clips play (heard)."""
     replaces: dict
     lift: 'float | None'
     clips: dict
     moved: bool = False
+    sounds: tuple = ()
 
 
 class GunClips:
@@ -899,6 +959,8 @@ class GunClips:
         self.third_clips = {}
         #: The clip file stamps (read_stamps, write_stored), read on first use.
         self.stamps = None
+        #: The SNDR EditorIDs the gun being converted plays (heard), for Converted.sounds.
+        self.heard = set()
 
     def save_stamps(self) -> None:
         """Keep this build's clip file stamps for the next build of the data folder (when any were read)."""
@@ -1049,7 +1111,8 @@ class GunClips:
         cls, names = named
         gun = Gun.build(placement, fnv_frames(gun_path), receiver)
         gun.surfaces = surfaces
-        written, lift, replaces, ours = {}, None, {}, None
+        gun.add_eye()
+        written, lift, replaces, ours, self.heard = {}, None, {}, None, set()
         for view in VIEWS:
             if view.perspective not in entries:
                 continue
@@ -1072,7 +1135,7 @@ class GunClips:
         self.added += [aimed(self._with_targets(gun, rec['EditorID'], e, made, ours), kw, keyword)
                        for kw, keyword in replaces.items() for e in self.entries
                        if kw in e['target'] and (perspective(e) == 0 or perspective(e) not in written)]
-        return Converted(replaces, lift, written, gun.moved)
+        return Converted(replaces, lift, written, gun.moved, tuple(sorted(self.heard)))
 
     def _third_anim(self, path: str):
         """A fresh copy of _third_parsed(path)."""
@@ -1177,7 +1240,7 @@ class GunClips:
             if made is None:
                 continue
             out[clip_name] = stem + (f' ({piece})' if piece else '')
-            if clip_name == 'WPNIdleSighted':
+            if clip_name == 'WPNIdleSighted' and (stem.endswith(SIGHTED) or not gun.eye_made):
                 lift = gun.sight_lift(rig, *made)
             if clip_name == HELD_POSE and view.camera:
                 gun.left = left_targets(rig, made[1], left_grip(template, rig))
@@ -1200,8 +1263,10 @@ class GunClips:
         clip = cut_piece(clip, piece, length, bolt_start(clip, bolt) if BOLT_CLIP.lower() in resolved else None)
         if clip is None:
             return None
+        self.heard.update(filter(None, (heard(k) for _, k in clip.text_keys)))
         moved = rig.retarget(clip)
-        gun.anchor = anchor_for(rig, gun, clip, moved, anim or template) if moving else None
+        gun.anchor = anchor_for(rig, gun, clip, moved, anim or template) if moving else \
+            centered(rig, gun, clip, moved) if kf.stem.lower().endswith(SIGHTED) else None
         gun.reach = left_reach(rig, gun, clip, gap)
         weights = grip_weights(clip_name, len(clip.times)) if vanilla_left or gun.reach is not None else None
         finish(rig, gun, clip, moved, held, anim or template, (grip[0] if vanilla_left else None, weights, grip[1]))

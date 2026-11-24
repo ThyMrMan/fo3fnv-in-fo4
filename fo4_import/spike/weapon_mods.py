@@ -45,6 +45,8 @@ EFFECT_NAMES = {REGEN_SHOTS: 'regenerate ammo', REGEN_SECONDS: 'regenerate ammo'
 FNV_FLAGS1, FNV_AUTOMATIC, FNV_SPREAD, FNV_FLAGS2, FNV_NIGHT_VISION = 12, 0x2, 16, 56, 0x1000
 FNV_EFFECTS, FNV_VALUES = 140, 152
 SLOT_SIGS = (b'WMI1', b'WMI2', b'WMI3')
+#: FNV WEAP's silenced shot (a mod's): the first WMS1 (3D; the second is its distant one) and WMS2 (2D).
+SILENCED = (b'WMS1', b'WMS2')
 RECEIVER, BARREL, GRIP = 'ap_gun_receiver', 'ap_gun_Barrel', 'ap_gun_Grip'
 #: Effect -> attach points in preference order (vanilla's part roles); any other effect: OTHER_POINTS.
 POINTS = {CAPACITY: ('ap_gun_Mag', BARREL, RECEIVER), ZOOM: ('ap_gun_Scope',), SILENCE: ('ap_gun_Muzzle',),
@@ -77,12 +79,14 @@ KEPT = (b'MODL', b'MODT', b'FNAM', b'NAM1')
 
 @dataclass(frozen=True)
 class Gun:
-    """An FNV gun's mod data: EditorID, automatic, min spread, night-vision scope and [(slot, IMOD, effect, value)]."""
+    """An FNV gun's mod data: EditorID, automatic, min spread, night-vision scope, [(slot, IMOD, effect, value)] and
+    its silenced shot's (3D, 2D) SOUNs, or ()."""
     edid: str
     automatic: bool
     spread: float
     night_vision: bool
     slots: tuple
+    silenced: tuple = ()
 
 
 @dataclass
@@ -176,10 +180,12 @@ def fnv_guns(raw: bytes) -> tuple:
             continue
         dnam = subs[b'DNAM']
         effects, values = struct.unpack_from('<3I', dnam, FNV_EFFECTS), struct.unpack_from('<3f', dnam, FNV_VALUES)
+        quiet = [next((struct.unpack('<I', b)[0] for s, b in subrecords(rec.body) if s == sig), 0) for sig in SILENCED]
         guns[rec.form_id] = Gun(subs[b'EDID'].rstrip(b'\0').decode('cp1252'), bool(dnam[FNV_FLAGS1] & FNV_AUTOMATIC),
                                 struct.unpack_from('<f', dnam, FNV_SPREAD)[0],
                                 bool(struct.unpack_from('<I', dnam, FNV_FLAGS2)[0] & FNV_NIGHT_VISION),
-                                tuple((i, imod, effects[i], values[i]) for i, imod in named))
+                                tuple((i, imod, effects[i], values[i]) for i, imod in named),
+                                tuple(quiet) if all(quiet) else ())
     return guns, imods
 
 
@@ -211,6 +217,15 @@ class WeaponMods:
             bounds or struct.unpack('<6h', subs[b'OBND']), value, weight, keywords=(self.kw[LOOSE_MOD_KEYWORD],)))
         self.builder.counts['MISC (loose weapon mods)'] += 1
         return fid
+
+    def silenced(self, fnv: int) -> tuple:
+        """(3D, 2D) FO4 descriptors of FNV gun `fnv`'s silenced shot (WMS1, WMS2) when a mod of its silences it,
+        else ()."""
+        gun = self.guns.get(fnv)
+        if gun is None or not gun.silenced or not any(s[2] in (SILENCE, SUPPRESSOR) for s in gun.slots):
+            return ()
+        made = tuple(self.builder.sounds.descriptor(f) for f in gun.silenced)
+        return made if all(made) else ()
 
     def test_items(self) -> list:
         """[(loose mod, 1)] of every FNV IMOD, for the test chest."""

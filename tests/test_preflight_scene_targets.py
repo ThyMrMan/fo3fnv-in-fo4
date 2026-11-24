@@ -56,7 +56,7 @@ def plugin(reply_conditions, other_conditions=None):
     TOPIC, holding the reply (and another line when `other_conditions` is given)."""
     lines = [rec('INFO', REPLY, reply_conditions, TOPIC)]
     lines += [rec('INFO', OTHER, other_conditions, TOPIC)] if other_conditions is not None else []
-    vmad = package_fragments(DIALOGUE_SCRIPT, DIALOGUE_FRAGMENTS, {'Chat': SCENE, 'Target': INTERCOM_REF})
+    vmad = package_fragments(DIALOGUE_SCRIPT, DIALOGUE_FRAGMENTS, {'Chat': SCENE, 'TES4ChatTarget': INTERCOM_REF})
     return PluginIndex([
         rec('QUST', QUEST, [('EDID', zs('FNV_CG02'))] + alias(0, 'Speaker') + alias(1000, 'Listener')),
         rec('NPC_', DAD, [('EDID', zs('FNV_CG02Dad')), ('PKID', u32(PACKAGE))]),

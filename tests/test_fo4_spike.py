@@ -448,6 +448,17 @@ def test_the_facing_edge_holds_the_middle_of_a_split_border():
     assert NM.facing(((0, 4, 0), (0, 8, 0)), verts, tri) == 0
 
 
+def test_a_floor_over_part_of_a_triangle_caps_its_height():
+    """Stockholm's gate: a perch over a corner of a long ground triangle, not over its center, caps that
+    triangle's Height; its neighbor beside the perch and a floor meeting it at an edge stay uncapped."""
+    ground = ([(0, 0, 0), (800, 0, 0), (0, 300, 0), (800, 300, 0)], [[0, 1, 2], [1, 3, 2]])
+    perch = ([(700, 200, 650), (790, 200, 650), (790, 290, 650)], [[0, 1, 2]])
+    edge = ([(0, 300, 300), (800, 300, 300), (0, 600, 300)], [[0, 1, 2]])
+    low, high, side = NM.heights([ground, perch, edge])
+    assert low[1] == 650 - NM.FLOOR_GAP and low[0] == NM.NO_CEILING
+    assert high[0] == side[0] == NM.NO_CEILING
+
+
 def test_an_exterior_pathing_cell_stores_y_then_x():
     """As all 7,113 Fallout4.esm exterior navmeshes do."""
     assert struct.pack('<I', NM.grid_parent(-18, 3)) == struct.pack('<hh', 3, -18)
@@ -867,6 +878,16 @@ def test_a_locked_reference_keeps_its_level_and_key_and_an_unlocked_one_gets_no_
     assert CB._lock(builder, {}) == b'' and builder.counts['locked references'] == 1
 
 
+def test_an_inaccessible_door_takes_fo4s_inaccessible_lock_and_flag():
+    """A door flagged Inaccessible (0x100) gets XLOC level 254 over its own lock, and the flag; another type doesn't."""
+    builder = SimpleNamespace(fnv_types={0x10: 'DOOR', 0x11: 'STAT'}, counts=Counter(), readables=None)
+    door = {'RecordFlags': '256', 'NAME': '00000010', 'XLOC.Level': '100'}
+    assert CB._lock(builder, door) == pack_subrecord('XLOC', struct.pack('<B3xIB3xI', 254, 0, 0, 0))
+    assert not CB.inaccessible(builder, dict(door, NAME='00000011'))
+    flags = struct.unpack_from('<I', R.pack_refr(1, 2, (0, 0, 0), (0, 0, 0), shut=True), 8)[0]
+    assert flags == 0x400 | 0x100
+
+
 def test_the_census_flags_an_unrouted_type_and_a_missing_target():
     """A type with no route and a route to a type Fallout 4 lacks are both problems."""
     fo4 = {target for target, _ in RT.ROUTES.values() if target}
@@ -1185,6 +1206,15 @@ def test_fnvs_own_behavior_flags_become_fo4_interrupt_flags():
     assert struct.unpack_from('<I', own)[0] == 0
 
 
+def test_every_flee_runs():
+    """FNV's flee always runs, so a flee without Always Run still gets Preferred Speed Run; a travel keeps walking."""
+    vanilla = struct.pack('<I4BHH', 0, 18, 0, 1, 0, 0, 0)
+    flee = PK._pkdt({'PKDT.Flags': '2', 'PKDT.Type': PK.FNV_FLEE}, vanilla, 0)
+    assert struct.unpack_from('<I', flee)[0] & PK.ALWAYS_RUN and flee[PK.SPEED] == PK.RUN
+    travel = PK._pkdt({'PKDT.Flags': '2', 'PKDT.Type': PK.FNV_TRAVEL}, vanilla, 0)
+    assert not struct.unpack_from('<I', travel)[0] & PK.ALWAYS_RUN and travel[PK.SPEED] == 1
+
+
 def test_a_guard_held_through_combat_gets_a_combat_override_list():
     """An FNV Guard flagged Continue During Combat gets a second, HoldPosition copy with the Combat override, listed
     in its NPC's ECOR form list; a Guard without the flag and a cowering flee (a HoldPosition) with it get none."""
@@ -1228,6 +1258,36 @@ def test_a_dialogue_package_with_an_npc_travels_to_it_and_plays_the_topics_chat(
     assert b'F3NV_DialoguePackage' in vmad and talks == {'TES4Chat_CaptainParkerArrest': 0x77}
     assert struct.pack('<I', 0x77) in vmad and struct.pack('<I', 0x55) in vmad
     assert PK.DAY_DONE.encode() not in vmad
+
+
+def test_an_npc_chat_goes_to_its_wait_location_first():
+    """CG03AmataTurnInTest: a Travel to the turn-in marker (its Wait Location), not toward Mr. Brotch; its fragments
+    wait for Brotch on his chair (Trigger Location, radius 0) and talk within the Activate Distance 500."""
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.topic_names, packages.hooks, packages.boxes = {'0005F9BC': 'CG03TurnInTestTopic'}, {}, {}
+    packages.builder = SimpleNamespace(scripts=SimpleNamespace(talk=lambda prop: 0x77), counts=Counter())
+    rec = {'FormID': '0005F9C8', 'PKDT.Type': '15', 'PTDT.Type': '0', 'PTDT.Target': '0001CFB8', 'PTDT.Count': '500',
+           'PKDD.Topic': '0005F9BC', 'PLDT.Type': '0', 'PLDT.Location': '000604CF', 'PLDT.Radius': '0',
+           'PLD2.Type': '0', 'PLD2.Location': '00033D51', 'PLD2.Radius': '0'}
+    form_map = {0x1CFB8: 0x55, 0x604CF: 0x66, 0x33D51: 0x44}
+    assert packages._plan(rec, form_map, 0) == ('Travel', struct.pack('<iIi', 0, 0x66, 0))
+    vmad = packages._fragments(rec, form_map)
+    assert b'F3NV_DialoguePackage' in vmad and struct.pack('<I', 0x44) in vmad
+    assert PK.CHAT_REACH.encode() in vmad and struct.pack('<f', 500.0) in vmad
+
+
+def test_an_npc_chat_with_its_own_scripts_starts_its_chat_first_on_fallout4(monkeypatch):
+    """CG02ButchTalkToWally has only an OnBegin script: its fragment script gets an OnEnd that plays the chat
+    (ChatArrived) before anything else, and returns when it did not play."""
+    from script_convert import package_events as PE
+    monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+    rec = {'FormID': '0005AD5A', 'PKDT.Type': '15', 'PTDT.Target': '000300F5', 'OnBegin.Script': 'set x to 1'}
+    assert 'OnEnd' in PE.package_hooks([], [rec])['0005AD5A']
+    assert PE.package_hooks([], [{**rec, 'OnBegin.Script': ''}]) == {}
+    props, lines = PE.chat_arrival(rec, 'OnEnd', 'CG02ButchWallyTopic')
+    assert props['TES4Chat_CG02ButchWallyTopic'] == 'Scene' and lines[1].strip() == 'Return'
+    assert lines[0].startswith('  If !TES4Polyfill.ChatArrived(akActor, Self, TES4Chat_CG02ButchWallyTopic, ')
+    assert PE.chat_arrival(rec, 'OnBegin', 'CG02ButchWallyTopic') == ({}, [])
 
 
 def test_a_quest_gated_once_a_day_chat_is_done_once_it_starts():
@@ -1742,6 +1802,28 @@ def test_a_station_an_npc_plays_gets_one_invisible_receiver_on_its_frequency():
     subs = dict(subrecords(written[0][24:]))
     assert len(written) == 1 and subs[b'MODL'] == RA.NPC_RECEIVER_MODEL.encode() + b'\0'
     assert struct.unpack('<IffBB', subs[b'RADR'])[1] == RA.LOUNGE_FREQUENCIES[0]
+
+
+def test_a_radio_placed_open_by_default_places_a_copy_that_starts_on():
+    """A receiver some reference places Open by Default (Moriarty's radio) gets one copy, EditorID suffixed On,
+    RADR Starts Active; that reference places it, its other references and plain activators keep their base."""
+    from fo4_import.spike import radio as RA
+    from fo4_import.spike import records as R
+    from tes5_import.base.tes5_reader import subrecords
+    radio, written = RA.Radio.__new__(RA.Radio), []
+    radio.builder = SimpleNamespace(counts=Counter(), writer=SimpleNamespace(
+        derive_formid=lambda site, key: 0x900, add_record=lambda sig, data: written.append((sig, data))))
+    radio.placed_on, radio.on = {'0002056C': 0x54E8B}, {}
+    radr = struct.pack('<IffBB', RA.RECEIVER_OUTPUT, 98.0, 1.0, 0, 0)
+    record = R.pack_acti(0x100, 'FNV_VintageRadioGNR01', 'Radio', 'm.nif', (0,) * 6, b'', '', 0, radr)
+    radio.add_on(0x54E8B, record)
+    radio.add_on(0x54E8B, record)
+    radio.add_on(0x12345, R.pack_acti(0x101, 'FNV_Lever', '', 'm.nif', (0,) * 6, b'', ''))
+    subs = dict(subrecords(written[0][1][24:]))
+    assert len(written) == 1 and subs[b'EDID'] == b'FNV_VintageRadioGNR01On\0'
+    assert struct.unpack('<IffBB', subs[b'RADR'])[1:] == (98.0, 1.0, 1, 0)
+    assert radio.base_of({'FormID': '0002056C'}, 0x100) == 0x900 and radio.base_of({'FormID': '000C5689'}, 0x100) == 0x100
+    assert radio.builder.counts['radios placed on'] == 1
 
 
 def test_an_on_demand_programs_goodbye_line_ends_the_run():

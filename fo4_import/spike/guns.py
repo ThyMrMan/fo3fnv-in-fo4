@@ -48,7 +48,7 @@ from fo4_import.pipeline.elric_cache import write_new
 from fo4_import.pipeline.mesh_cache import cached_convert
 from fo4_import.spike.gun_choice import (GUN_TYPES, INCLUDE_SIZE, OBTS_DEFAULT, PROPERTY_SIZE, Choice, GunChoices,
                                          built_in_scope, includes, includes_at, properties, traded, weapon_model)
-from fo4_import.spike.records import pack_kywd
+from fo4_import.spike.records import pack_kywd, pack_u32
 from fo4_import.spike.scol import angles, rotation
 from fo4_import.spike.weapon_mods import (FNV_NIGHT_VISION, ZOOM_Z, scope_preset, scope_properties, with_properties,
                                           zoom_presets)
@@ -74,6 +74,12 @@ CONE_PROPERTIES = frozenset({33, 34, 35, 38, 47})
 #: derive_formid sites of a gun's own Anims keyword (key: its FNV FormID) and of the one additive subgraph race.
 KEYWORD_SITE, RACE_SITE = 'FNV gun anims KYWD', 'FNV gun anims RACE'
 RACE_EDID = 'FNV_HumanRaceSubGraphDataAdditive'
+#: FNV WEAP sound fields -> FO4 WEAP DNAM offsets (xEdit): attack fail (dry fire), idle, equip, unequip.
+DNAM_SOUNDS = {'TNAM': 85, 'UNAM': 89, 'NAM9': 93, 'NAM8': 97}
+#: KYWD TNAM type Sound; Fallout4.esm's sound keywords a shot's KSSM adds for the player and a silencer.
+SOUND_TYPE, PLAYER_SOUND, SILENCED_SOUND = 6, 's_10_Player', 's_20_Silenced'
+#: derive_formid sites of a gun's own sound keyword (key: its FNV FormID) and KSSMs (key: FormID and variant).
+SOUND_KEYWORD_SITE, KSSM_SITE = 'FNV gun sound KYWD', 'FNV gun KSSM'
 
 
 def _fnv_path(export_dir, rec: dict):
@@ -109,6 +115,10 @@ class Guns:
         self.edids = {dict(subs).get(b'EDID', b'').rstrip(b'\0').decode('cp1252'): fid for fid, subs in self.mods.items()}
         self.clips, self.converted, self.bodies, self.zooms = None, {}, {}, zoom_presets(builder.fo4)
         self.turns, self.warmed, self.guesses, self.taken = {}, False, {}, {}
+        self.sound_kinds = {r.form_id for r, _ in walk(builder.fo4, b'KYWD')
+                            if first_sub(r.body, b'TNAM') == struct.pack('<I', SOUND_TYPE)}
+        #: {FNV FormID: the gun's own sound keyword} (sounded).
+        self.sound_keywords = {}
 
     def turn(self, fnv: int) -> np.ndarray:
         """The row-vector 4x4 FNV gun `fnv`'s mesh was put in FO4's frame by (gun.placement); FO4's axes
@@ -289,6 +299,9 @@ class Guns:
             self.builder.writer.add_record('KYWD', pack_kywd(keyword, f'FNV_{name}_{rec["EditorID"]}', struct.unpack(
                 '<I', first_sub(olds[old].body, b'TNAM'))[0]))
         self.builder.counts['guns on FNV clips'] += 1
+        for sound in made.sounds:
+            self.builder.counts['gun clip sounds' if self.builder.sounds.named(sound[len('FNV_'):])
+                                else 'gun clip sound with no FNV SOUN'] += 1
         self.converted[fnv] = made
         return made
 
@@ -323,14 +336,42 @@ class Guns:
         return {b'MODL': path, b'MOD4': path} if path else {}
 
     def anim_keywords(self, fnv: int, template: list) -> dict:
-        """{b'KWDA': `template`'s keywords with each Anims keyword its clips replace traded for FNV gun `fnv`'s own}
-        when its clips converted, else {}."""
-        made = self.converted.get(fnv)
-        if made is None:
+        """{b'KWDA': `template`'s keywords with each Anims keyword its clips replace traded for FNV gun `fnv`'s own,
+        and its sound keywords for the gun's own (sounded)} when either is made, else {}."""
+        made, own = self.converted.get(fnv), self.sound_keywords.get(fnv)
+        if made is None and own is None:
             return {}
         kwda = dict(template)[b'KWDA']
-        ids = [made.replaces.get(k, k) for k in struct.unpack(f'<{len(kwda) // 4}I', kwda)]
+        ids = [made.replaces.get(k, k) if made else k for k in struct.unpack(f'<{len(kwda) // 4}I', kwda)]
+        ids = [k for k in ids if k not in self.sound_kinds] + [own] if own else ids
         return {b'KWDA': struct.pack(f'<{len(ids)}I', *ids)}
+
+    def sounded(self, fnv: int, rec: dict, dnam: bytearray, silenced: tuple = ()) -> None:
+        """Give gun `rec` (FormID `fnv`) FNV's own sounds when FNV names its shot (SNAM): dry fire, idle, equip
+        and unequip into `dnam`; its shot through KSSMs on a sound keyword of its own (anim_keywords puts it in
+        place of the template's), as vanilla plays every shot: the 2D one (XNAM) for the player, `silenced` (3D,
+        2D descriptors) under s_20_Silenced.
+        See: docs/fork/fo4_spikes.md#gun-sounds
+        """
+        sounds = self.builder.sounds
+        shot = sounds.field(rec, 'SNAM')
+        if not shot:
+            return
+        for key, at in DNAM_SOUNDS.items():
+            struct.pack_into('<I', dnam, at, sounds.field(rec, key) or struct.unpack_from('<I', dnam, at)[0])
+        own = self.builder.writer.derive_formid(SOUND_KEYWORD_SITE, f'{fnv:08X}')
+        self.builder.writer.add_record('KYWD', pack_kywd(own, f's_40_FNV_{rec["EditorID"]}', SOUND_TYPE))
+        self.sound_keywords[fnv] = own
+        player, quiet = self.builder.keywords[PLAYER_SOUND], self.builder.keywords[SILENCED_SOUND]
+        shots = [('NPC', shot, ()), ('Player', sounds.field(rec, 'XNAM') or shot, (player,))]
+        shots += [('SilencedNPC', silenced[0], (quiet,)), ('SilencedPlayer', silenced[-1], (quiet, player))] \
+            if silenced else []
+        for kind, sound, more in shots:
+            fid = self.builder.writer.derive_formid(KSSM_SITE, f'{fnv:08X} {kind}')
+            body = pack_subrecord('EDID', f'FNV_{rec["EditorID"]}{kind}\0'.encode('cp1252')) + pack_u32('DNAM', sound)
+            self.builder.writer.add_record('KSSM', pack_fo4_record('KSSM', fid, 0, body + b''.join(
+                pack_u32('KNAM', k) for k in (own, *more))))
+            self.builder.counts['KSSM (FNV gun shots)'] += 1
 
     def write_subgraphs(self) -> None:
         """The additive race mapping every converted gun's keyword to its clips (none when no gun converted). A

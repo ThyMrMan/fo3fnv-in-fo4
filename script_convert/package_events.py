@@ -11,11 +11,12 @@ See: docs/fork/fo4_script_compile.md#package-events
 
 import re
 
-from script_convert.constants import FALLOUT4_WALK_PREFIX
+from script_convert.constants import FALLOUT4_CHAT_PREFIX, FALLOUT4_WALK_PREFIX
 from script_convert.say_to_done import script_name
 from script_convert.target import is_fallout4
 from fo4_import.spike.conditions import parse, raws
-from tes5_import.packages.scripts_falloutnv import DIALOGUE_TYPE, package_sections, says_to_player
+from tes5_import.packages.scripts_falloutnv import (DIALOGUE_TYPE, package_flags, package_sections, says_to_player,
+                                                    talks_to_npc)
 
 #: The Int property holding a SayTo package's number (GreetOnce), its DialogueDone mark once its walk-up starts.
 WALK_DONE = 'TES4WalkDone'
@@ -23,6 +24,8 @@ WALK_DONE = 'TES4WalkDone'
 WALK_PLACE, WALK_TRIGGER, WALK_REACH = 'TES4WalkPlace', 'TES4WalkTrigger', 'TES4WalkReach'
 #: The walk-up scene's id and plugin file, to look it up once its quest loads it (its Scene property is left unfilled).
 WALK_SCENE, WALK_FILE = 'TES4WalkScene', 'TES4WalkFile'
+#: An NPC chat's target, the Activate Distance its speaker talks within, and its pace walking up (0 walk, 1 run).
+CHAT_TARGET, CHAT_REACH, CHAT_SPEED = 'TES4ChatTarget', 'TES4ChatReach', 'TES4ChatSpeed'
 #: Block type: the package fragments it runs in (Done on completion, Change on leaving it, End on either).
 SECTIONS = {'onpackagestart': ('OnBegin',), 'onpackagedone': ('OnEnd',), 'onpackageend': ('OnEnd', 'OnChange'),
             'onpackagechange': ('OnChange',)}
@@ -88,9 +91,29 @@ def walk_up(rec: dict, end: 'str | None' = None) -> tuple:
             WALK_TRIGGER: 'Form', WALK_REACH: 'Float'}, lines
 
 
+def chat_arrival(rec: dict, section: str, topic: str) -> tuple:
+    """({property: type}, first FO4 OnEnd lines) of an NPC chat with package scripts of its own: its `topic` chat
+    once the speaker is in place (TES4Polyfill.ChatArrived), returning when it did not play; then the package done
+    for the day when daily. The OnEnd's own body runs after the chat, as FO3/FNV end the package once it talked.
+    See: docs/fork/fo4_pipeline.md#npc-chat-wait
+    """
+    if section != 'OnEnd' or not is_fallout4() or not talks_to_npc(rec) or not topic:
+        return {}, []
+    scene = FALLOUT4_CHAT_PREFIX + topic
+    props = {scene: 'Scene', CHAT_TARGET: 'ObjectReference', WALK_PLACE: 'Int', WALK_TRIGGER: 'Form',
+             WALK_REACH: 'Float', CHAT_REACH: 'Float', CHAT_SPEED: 'Float'}
+    lines = [f'  If !TES4Polyfill.ChatArrived(akActor, Self, {scene}, {CHAT_TARGET}, {WALK_PLACE}, {WALK_TRIGGER}, '
+             f'{WALK_REACH}, {CHAT_REACH}, {CHAT_SPEED})', '    Return', '  EndIf']
+    if daily(rec):
+        props[DAY_DONE] = 'Faction'
+        lines.append(f'  TES4Polyfill.PackageDone(akActor, {DAY_DONE})')
+    return props, lines
+
+
 def package_hooks(scripts, packages) -> dict:
     """{PACK FormID (upper hex): {section: [(script name, function)]}} of `scripts`' package blocks (SCPT records)
-    naming `packages` (PACK records); a SayTo package to the player also gets an OnBegin (walk_up).
+    naming `packages` (PACK records); a SayTo package to the player also gets an OnBegin (walk_up), an NPC chat with
+    sections of its own an OnEnd (chat_arrival).
     See: docs/fork/fo4_pipeline.md#say-to-packages
     """
     by_name = {(r.get('EditorID') or '').lower(): (r.get('FormID') or '').upper() for r in packages}
@@ -102,9 +125,11 @@ def package_hooks(scripts, packages) -> dict:
                 calls = hooks.setdefault(by_name[package.lower()], {}).setdefault(section, [])
                 calls += [call] if call not in calls else []
     for rec in packages:
-        own = [('OnBegin',)] * says_to_player(rec) + [('OnEnd',)] * day_marked(rec)
+        fid = (rec.get('FormID') or '').upper()
+        chat = talks_to_npc(rec) and package_flags(rec, hooks.get(fid, {}))
+        own = [('OnBegin',)] * says_to_player(rec) + [('OnEnd',)] * (day_marked(rec) or bool(chat))
         for section, in own:
-            hooks.setdefault((rec.get('FormID') or '').upper(), {}).setdefault(section, [])
+            hooks.setdefault(fid, {}).setdefault(section, [])
     return hooks
 
 
