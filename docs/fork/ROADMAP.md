@@ -6,8 +6,8 @@ what is next. Dates, counts and history are in the
 
 ## <a id="fo4-state"></a><a id="alpha"></a>Where it stands
 
-**Release:** [f3nv-0.5](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases/tag/f3nv-0.5),
-an alpha (prerelease, 2026-11-23). A fresh download converts, NPC faces
+**Release:** [f3nv-0.6](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases/tag/f3nv-0.6),
+an alpha (prerelease, 2026-11-24). A fresh download converts, NPC faces
 included (measured on the user's PC since 0.3, without the Creation Kit).
 Since 0.4 the export and caches live in a work folder beside the app, so a
 new release unzips beside the old one and upgrades cleanly
@@ -17,7 +17,14 @@ compile in Caprica again instead of FO4's slow compiler. Shared
 conversation menus keep their topics ([fix](fo4_dialogue_gaps.md#shared-menu-topics)),
 so a build's reference check passes. It also lowers the
 build's memory peak, and gives a quieter log with a steadier time estimate
-([build resources](fo4_build_resources.md)).
+([build resources](fo4_build_resources.md)). 0.6 encodes voice with our own
+xWMA encoder instead of a Microsoft tool ([encoder](fo4_ck_replacements.md#xwma-spike)),
+keeps converted voice files across output folders and releases
+([voice cache](fo4_build_speed.md#voice-cache)), and drops the Black
+Landscape Fix requirement ([played without it](fo4_spikes.md#empty-land-layers)).
+It fixes Fallout 3's `washmontop` distant terrain
+([world frame](fo4_pipeline.md#terrain-lod-world-frame)), and the app shows
+when a quiet build is still working ([activity line](fo4_gui.md#activity)).
 
 - **New Vegas** is playable from Doc Mitchell's house onward, with its four
   story DLC, five add-on packs and about 20 mods. Nearly every system is
@@ -44,7 +51,7 @@ Most of what is left is play-testing and fixing what testers find.
 
 | Feature | State | What's left | Doc |
 |---|---|---|---|
-| Landscape | Works | Needs the Black Landscape Fix mod for now; a few soft land seams | [exterior](fo4_spikes.md#spike-4-exterior) |
+| Landscape | Works | A few soft land seams; no longer needs the Black Landscape Fix mod ([played without it](fo4_spikes.md#empty-land-layers)) | [exterior](fo4_spikes.md#spike-4-exterior) |
 | Distant terrain | Partial | Seams between tiles (fix built, not played) | [terrain LOD](fo4_pipeline.md#terrain-lod) |
 | Distant objects | Partial | Distant trees and the DLC and mod worlds' objects not played | [object LOD](fo4_pipeline.md#object-lod-masters) |
 | Pip-Boy world map | Partial | Marker positions fixed, not played | [world map](fo4_pipeline.md#world-map) |

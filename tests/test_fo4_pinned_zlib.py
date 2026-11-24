@@ -51,7 +51,7 @@ def test_a_missing_library_names_how_to_build_it(monkeypatch, tmp_path):
     monkeypatch.setattr(P, 'LIBRARY', tmp_path / 'f3_zlib.dll')
     P.library.cache_clear()
     try:
-        with pytest.raises(RuntimeError, match='gen_f3_zlib'):
+        with pytest.raises(RuntimeError, match='gen_native_c'):
             P.compress(b'data', 9)
     finally:
         P.library.cache_clear()

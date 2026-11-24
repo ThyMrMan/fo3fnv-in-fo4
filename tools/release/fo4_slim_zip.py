@@ -27,7 +27,7 @@ from fo4_import.pipeline.code_tag import ROOT, imported, module_file
 ENTRIES = ('fo4_app', 'convert', 'fo4_import.helpers_plugin', 'fo4_import.spike.facegen',
            'fo4_import.pipeline.build_plan', 'fo4_import.app.runtime_dll', 'fo4_import.classic_look',
            'fo4_import.pipeline.run', 'tools.validate.fo4_ref_check', 'tools.validate.fo4_check',
-           'tools.validate.fo4_install_check')
+           'tools.validate.fo4_install_check', 'tools.release.machine_benchmark')
 #: Tracked files every zip carries beside the traced code: launchers, docs, the F4SE plugins the output ships.
 EXTRA_FILES = ('Convert to Fallout 4.cmd', 'TES Auto-Convert.cmd', 'README.md', 'LICENSE', 'requirements.txt',
                'native/src/f3_zlib/zlib/LICENSE', 'tes_runtime/dist/F3NV.dll', 'tes_runtime/dist/CleanroomUI.dll',

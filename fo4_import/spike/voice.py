@@ -3,7 +3,7 @@
 FO4 finds a line at Sound/Voice/<plugin>/<voice type>/<INFO id, load-order byte 0>_<n>.fuz,
 by the speaker's voice type. Each speaker maps its FNV voice folder to its
 stand-in's FO4 voice type; a line gets a file under every stand-in whose FNV
-folder recorded it. Audio comes from the FO4 Creation Kit's xWMAEncode; lips from the recording's own .lip
+folder recorded it. Audio comes from our xWMA encoder (native/src/xwma); lips from the recording's own .lip
 (lip.from_fnv), else the Creation Kit's LipGenerator, else the recording's loudness (loudness_lip).
 
 See: docs/fork/fo4_spikes.md#spike-1-voice
@@ -14,7 +14,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import struct
 import subprocess
 import tempfile
@@ -26,12 +25,15 @@ import numpy as np
 
 from core.build_resources import profile_cores
 
-from asset_convert.audio.audio_converter import SilentSource, convert_file_to_xwm, find_ffmpeg, pack_fuz
+from asset_convert.audio.audio_converter import (WAV_FORMAT, SilentSource, convert_file_to_xwm, find_ffmpeg,
+                                                  pack_fuz)
+from asset_convert.paths import XWMA_ENC
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base import lip
 from fo4_import.base.source import asset_dirs, plugin_name
 from fo4_import.pipeline.export_index import export_masters
 from fo4_import.pipeline.stage_timer import counted
+from fo4_import.pipeline.work_cache import lookup_versioned, store_versioned
 
 #: FNV voice file name: <quest>_<topic>_<INFO id>_<response number>.ogg.
 _FILE_RE = re.compile(r'_([0-9a-f]{8})_(\d+)\.ogg$', re.I)
@@ -47,6 +49,12 @@ LIP_SCHEME = 'fnv-lip-1'
 LIP_FALLBACK = 'loudness-1'
 #: Sample rate a recording is decoded at for its loudness lip.
 LOUDNESS_RATE = 16000
+#: Work-cache site of converted voice files, and its version: bump it when a converted file's bytes change.
+VOICE_SITE, VOICE_VERSION = 'voice_file', 2
+#: Recordings one ffmpeg run decodes at most; its command line's length bound (Windows: 32,767); seconds it may take.
+DECODE_BATCH, COMMAND_CHARS, DECODE_TIMEOUT = 32, 24000, 600
+#: Command-line characters one recording's decode needs beyond its paths (its -i, -map and output options).
+ARGUMENT_CHARS = 80
 
 
 def fnv_folders(export_dir: Path, voice_type: str) -> tuple:
@@ -198,15 +206,30 @@ def relip_once(job_list: list, stamp: Path) -> int:
     return changed
 
 
-def _copy_converted(written: Path, first: Path, dest: Path) -> bool:
-    """Copy `written` (what converting to `first` wrote: it, or the .xwm left when its lips failed) to `dest` as
-    the conversion would have written it; whether `dest` itself was written."""
-    target = dest if written == first else dest.with_suffix('.xwm')
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(written, target)
-    if target.suffix.lower() == '.fuz':
-        dest.with_suffix('.xwm').unlink(missing_ok=True)
-    return target == dest
+def _write(made: tuple, destinations: list) -> int:
+    """Write `made` (suffix, bytes: a .fuz, or the .xwm left when its lips failed) to each of `destinations` under
+    that suffix, a .fuz replacing an .xwm beside it; how many destinations were written as named."""
+    suffix, data = made
+    for dest in destinations:
+        target = dest.with_suffix(suffix)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        if suffix == '.fuz':
+            dest.with_suffix('.xwm').unlink(missing_ok=True)
+    return sum(dest.suffix.lower() == suffix for dest in destinations)
+
+
+def _digest(path: Path) -> str:
+    """SHA-1 of the file at `path`, '' when there is none."""
+    return hashlib.sha1(path.read_bytes()).hexdigest() if path.is_file() else ''
+
+
+def cache_inputs(source: tuple, first: Path, lipgen: bool) -> tuple:
+    """VOICE_SITE inputs of `source` (recording, text) made as `first`'s kind.
+    See: docs/fork/fo4_build_speed.md#voice-cache
+    """
+    recording = Path(source[0])
+    return _digest(recording), _digest(recording.with_suffix('.lip')), source[1] or '', first.suffix.lower(), lipgen
 
 
 def _convert_own_lip(recording: Path, fuz: Path, made: bytes, tools: tuple) -> bool:
@@ -231,14 +254,16 @@ def loudness_lip(recording: Path, ffmpeg: str) -> 'bytes | None':
     return lip.from_loudness(np.frombuffer(done.stdout, '<i2').astype(np.float32) / 32768, LOUDNESS_RATE)
 
 
-def _convert_one(source: tuple, first: Path, tools: tuple) -> bool:
-    """`source` (recording, transcript) converted to `first`, with the recording's own lip when it has one, else
-    LipGenerator's when it is installed and works, else one from its loudness (loudness_lip)."""
+def _convert_one(source: tuple, first: Path, tools: tuple, wav: 'Path | None' = None) -> bool:
+    """`source` (recording, transcript) converted to `first` (read from its decoded `wav` when given), with the
+    recording's own lip when it has one, else LipGenerator's when it is installed and works, else one from its
+    loudness (loudness_lip)."""
+    audio_in = wav or source[0]
     made = own_lip(source[0]) if first.suffix.lower() == '.fuz' else None
     if made:
-        return _convert_own_lip(source[0], first, made, tools)
+        return _convert_own_lip(audio_in, first, made, tools)
     lipgen = tools[2] if Path(tools[2]).is_file() else None
-    if not convert_file_to_xwm(source[0], first, tools[0], tools[1], lipgen, source[1]):
+    if not convert_file_to_xwm(audio_in, first, tools[0], tools[1], lipgen, source[1]):
         return False
     audio = first.with_suffix('.xwm')
     made = loudness_lip(source[0], tools[0]) if first.suffix.lower() == '.fuz' and audio.is_file() else None
@@ -248,18 +273,70 @@ def _convert_one(source: tuple, first: Path, tools: tuple) -> bool:
     return True
 
 
-def _convert_shared(source: tuple, destinations: list, tools: tuple) -> int:
-    """`source` (recording, transcript) converted once to the first of `destinations` (_convert_one), then copied
-    to the rest; how many destinations were written (none when it fails or decodes to silence)."""
-    first = destinations[0]
+def _made(source: tuple, first: Path, tools: tuple, wav: 'Path | None') -> 'tuple | None':
+    """(suffix, bytes) of `source` converted to `first` (_convert_one): the .fuz, or the .xwm left when its lips
+    failed; None when it fails or decodes to silence."""
     try:
-        if not _convert_one(source, first, tools):
-            return 0
+        if not _convert_one(source, first, tools, wav):
+            return None
     except SilentSource:
-        return 0
+        return None
     fallback = first.with_suffix('.xwm')
     written = fallback if first.suffix.lower() == '.fuz' and fallback.is_file() else first
-    return int(written == first) + sum(_copy_converted(written, first, dest) for dest in destinations[1:])
+    return written.suffix.lower(), written.read_bytes()
+
+
+def _convert_shared(source: tuple, destinations: list, tools: tuple, wav: 'Path | None' = None) -> int:
+    """`source` (recording, transcript) converted once (_made, kept in the work cache under VOICE_SITE), then
+    written to every one of `destinations`; how many were written (none when it fails or decodes to silence)."""
+    made = _made(source, destinations[0], tools, wav)
+    if made is None:
+        return 0
+    store_versioned(VOICE_SITE, VOICE_VERSION, cache_inputs(source, destinations[0], Path(tools[2]).is_file()), made)
+    return _write(made, destinations)
+
+
+def _from_cache(source: tuple, destinations: list, lipgen: bool) -> 'int | None':
+    """Files written from `source`'s VOICE_SITE entry; None when it has none."""
+    made = lookup_versioned(VOICE_SITE, VOICE_VERSION, cache_inputs(source, destinations[0], lipgen))
+    return None if made is None else _write(made, destinations)
+
+
+def decode(recordings: list, folder: Path, ffmpeg: str) -> dict:
+    """{recording: its WAV in `folder`} of `recordings`, all decoded to WAV_FORMAT by one ffmpeg run; {} when that
+    run fails (each is then decoded alone).
+    See: docs/fork/fo4_build_speed.md#voice-batches
+    """
+    wavs = {path: folder / f'{i}.wav' for i, path in enumerate(dict.fromkeys(recordings))}
+    cmd = [ffmpeg, '-v', 'error', '-y', *(a for path in wavs for a in ('-i', str(path)))]
+    cmd += [a for i, wav in enumerate(wavs.values()) for a in ('-map', f'{i}:a', *WAV_FORMAT, str(wav))]
+    try:
+        done = subprocess.run(cmd, capture_output=True, timeout=DECODE_TIMEOUT, **POPEN_FLAGS)
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    return wavs if done.returncode == 0 and all(wav.is_file() for wav in wavs.values()) else {}
+
+
+def batches(groups: list, workers: int) -> list:
+    """`groups` [(source, destinations)] cut into runs of at most DECODE_BATCH (fewer when that keeps `workers`
+    busy), each run's recordings naming under COMMAND_CHARS of command line."""
+    size = max(1, min(DECODE_BATCH, -(-len(groups) // max(1, workers))))
+    out, run, chars = [], [], 0
+    for group in groups:
+        need = 2 * len(str(group[0][0])) + ARGUMENT_CHARS
+        if run and (len(run) == size or chars + need > COMMAND_CHARS):
+            out.append(run)
+            run, chars = [], 0
+        run.append(group)
+        chars += need
+    return out + [run] if run else out
+
+
+def _convert_batch(batch: list, tools: tuple) -> int:
+    """_convert_shared of each of `batch`, decoded first in one ffmpeg run."""
+    with tempfile.TemporaryDirectory(prefix='voice_batch_') as folder:
+        wavs = decode([s[0] for s, _ in batch if Path(s[0]).suffix.lower() != '.wav'], Path(folder), tools[0])
+        return sum(_convert_shared(source, dests, tools, wavs.get(source[0])) for source, dests in batch)
 
 
 def _attempt(job: tuple) -> str:
@@ -289,14 +366,19 @@ def convert_new(job_list: list, lipgen_dir: Path, record: Path) -> int:
 
 
 def convert(job_list: list, lipgen_dir: Path) -> int:
-    """Run every job (source, .fuz with a transcript or .xwm without) with the CK's xWMAEncode and LipGenerator,
-    each (source, transcript) once to each distinct destination (_convert_shared); how many files were written."""
-    tools = (find_ffmpeg(need_decoder='vorbis'), str(lipgen_dir / 'xWMAEncode.exe'),
-             str(lipgen_dir / 'LipGenerator.exe'))
+    """Run every job (source, .fuz with a transcript or .xwm without) with our xWMA encoder and the CK's
+    LipGenerator, each (source, transcript) once to each distinct destination: from the work cache when it keeps
+    one (_from_cache), else converted in batches (_convert_batch); how many files were written.
+    See: docs/fork/fo4_build_speed.md#voice-cache
+    """
+    tools = (find_ffmpeg(need_decoder='vorbis'), str(XWMA_ENC), str(lipgen_dir / 'LipGenerator.exe'))
     shared = {}
     for source, dest, text in job_list:
         dests = shared.setdefault((source, text), [])
         dests += [] if dest in dests else [dest]
-    with ThreadPoolExecutor(profile_cores()) as pool:
-        return sum(counted(pool.map(lambda item: _convert_shared(*item, tools), shared.items()), len(shared),
-                           'voice files'))
+    lipgen, workers = Path(tools[2]).is_file(), profile_cores()
+    with ThreadPoolExecutor(workers) as pool:
+        kept = list(pool.map(lambda item: _from_cache(*item, lipgen), shared.items()))
+        todo = batches([item for item, n in zip(shared.items(), kept) if n is None], workers)
+        made = sum(counted(pool.map(lambda batch: _convert_batch(batch, tools), todo), len(todo), 'voice batches'))
+    return made + sum(n for n in kept if n is not None)

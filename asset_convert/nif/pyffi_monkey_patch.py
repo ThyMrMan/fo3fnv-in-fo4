@@ -75,6 +75,8 @@ import struct
 import sys
 import time as _time
 
+from asset_convert.nif import pyffi_enum_values
+
 # ---------------------------------------------------------------------------
 # Patch 1: time.clock (removed in Python 3.8)
 # ---------------------------------------------------------------------------
@@ -1430,6 +1432,7 @@ def apply_patches():
         _install_no_op_struct_logging()
         _install_vectorised_tangent_space()
         _install_single_hop_interchangeable()
+        pyffi_enum_values.install()
         # Patch 13: native Array.read/write for flat float element types
         # (Vector3/Color4/TexCoord).  Array.read is 95% of all NIF read time.
         # Lives in its own module because it owns a compiled extension; a

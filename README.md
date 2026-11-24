@@ -79,7 +79,7 @@ differs from the original games is in [fo4_drift.md](docs/fork/fo4_drift.md).
 | **Fallout: New Vegas or Fallout 3** | Steam or GOG, with any DLC you want converted. For Fallout 3, the Game of the Year edition has all five DLC. |
 | **[Mod Organizer 2](https://github.com/ModOrganizer2/modorganizer)** | Set up for Fallout 4. The steps below assume it. |
 | **[F4SE](https://f4se.silverlock.org/)** | For 1.11.240, installed into your Fallout 4 folder, its `Data` folder included (converted scripts compile against its script sources). |
-| **Three mods in MO2** | [Address Library for F4SE Plugins](https://www.nexusmods.com/fallout4/mods/47327), [Mod Configuration Menu](https://www.nexusmods.com/fallout4/mods/21497), [Black Landscape Fix](https://www.nexusmods.com/fallout4/mods/108574) (the F4SE version; without it, some bare ground turns black). |
+| **Two mods in MO2** | [Address Library for F4SE Plugins](https://www.nexusmods.com/fallout4/mods/47327), [Mod Configuration Menu](https://www.nexusmods.com/fallout4/mods/21497). |
 | **A strong PC** | 32 GB of RAM and about 100 GB of free disk space. |
 
 > [!CAUTION]
@@ -99,8 +99,8 @@ launcher. Install the Creation Kit through Steam anyway, for its script
 sources. The few faces our own FaceGen can't make fall back to running it,
 and it runs only on Windows. Known not to work yet: the release ships its
 pinned compression library and its script compiler for Windows only, so a
-build stops before writing the plugin. Voice and sounds need Wine and
-`xWMAEncode.exe`, and distant objects need Wine ([details](docs/audits/fo4_redo_audit_2026-11-23.md#off-windows)).
+build stops before writing the plugin. Voice and sounds need a Linux build
+of our encoder, and distant objects need Wine ([details](docs/audits/fo4_redo_audit_2026-11-23.md#off-windows)).
 Please [report](#problems) how it goes.
 
 ### 1. Download
@@ -122,8 +122,6 @@ Double-click **`Convert to Fallout 4.cmd`** in that folder.
 
 - The first time, it installs Python 3.14 (if you don't have it) and the
   packages the converter needs. This takes a few minutes.
-- It offers to download `xWMAEncode.exe` from Microsoft (part of the DirectX
-  SDK, about 600 MB, deleted afterward). Say yes: voice lines need it.
 - It checks your PC against the list above, then opens the app. Anything
   missing is listed with what to do; the window stays open until you press a
   key.
@@ -344,12 +342,12 @@ cover them.
 | [xEdit and all contributors](https://github.com/TES5Edit/TES5Edit) | Record layouts for all three games; the condition functions and actor value names, read from `wbDefinitionsFNV.pas`, `wbDefinitionsFO3.pas` and `wbDefinitionsFO4.pas` in `external/xedit/`; `LODGenx64.exe` (distant objects) in `external/lodgen/`; FO4Edit's optional full check | MPL-2.0 / GPL-2.0 (xEdit dual license); the definitions are unmodified, MPL-2.0 text in `external/xedit/LICENSE.txt`; LODGen redistributed |
 | [F4SE](https://f4se.silverlock.org/) team | `F3NV.dll` is an F4SE plugin built against F4SE 0.7.9's source | F4SE's own terms; F4SE itself is not redistributed (you install it) |
 | [ThyMrMan — Cleanroom UI](https://github.com/ThyMrMan/cleanroom-ui) | The dialogue menu and menu framework: `CleanroomDialogue.dll` and `CleanroomUI.dll`, and its plugin, movies, translations, MCM page and scripts (built from the pinned commit, prebuilt in the release download) | **GPL-3.0** with the modding exception; redistributed |
-| [7-Zip](https://www.7-zip.org/) (Igor Pavlov) | `external/7zip/`: the launcher takes `xWMAEncode.exe` out of Microsoft's SDK installer; reading mod archives | **GNU LGPL** with BSD-3-clause and unRAR parts; redistributed, license text in `external/7zip/License.txt` |
+| [7-Zip](https://www.7-zip.org/) (Igor Pavlov) | `external/7zip/`: reading mod archives | **GNU LGPL** with BSD-3-clause and unRAR parts; redistributed, license text in `external/7zip/License.txt` |
 | [zlib](https://zlib.net/) (Jean-loup Gailly, Mark Adler) | `native/dist/f3_zlib.dll`: one pinned zlib, so the same build gives the same bytes on every PC | **zlib License**; redistributed, license text in `native/src/f3_zlib/zlib/LICENSE` |
 | [Orvid — Caprica](https://github.com/Orvid/Caprica) | Fallout 4 Papyrus compiler (v0.3.0), `external/caprica/Caprica.exe` | **MIT** (© 2015 Orvid King); redistributed, license text in `external/caprica/LICENSE` |
 | [Bad Dog — PyNifly](https://github.com/BadDogSkyrim/PyNifly) | Havok packfile reader and animation codec, vendored in `external/pynifly_hkx/`: creature and gun animation conversion | **GPL-3.0** (vendored from PyNifly 27.4.0; local changes marked `# TESConversion:`); see the GPL note below |
 | [FFmpeg](https://ffmpeg.org/) | `external/ffmpeg/ffmpeg.exe`, decoding the games' MP3 and WAV voice and sound files | **LGPL v2.1 or later**; redistributed, license text in `external/ffmpeg/COPYING.LGPLv2.1`. See the LGPL note below |
-| [Microsoft DirectX SDK (June 2010)](https://www.microsoft.com/en-us/download/details.aspx?id=6812) | `xWMAEncode.exe`, compressing voice lines | Microsoft; **not redistributed**: the launcher fetches it from Microsoft |
+| [595554963github — Xwma-Codec](https://github.com/595554963github/Xwma-Codec) | Its WMA v2 encoder, changed so Fallout 4 plays its files, in `native/src/xwma/`; built into `native/dist/xwma_enc.exe`, which compresses every voice line and sound | **GPL-3.0**; redistributed, source in `native/src/xwma/` |
 | [Apache Flex SDK](https://flex.apache.org/) | Compiling our own menus' ActionScript into Flash movies | **Apache-2.0**; a build tool, not shipped (the release download carries the movies it built). Adobe's `playerglobal.swc` is never shipped or committed |
 | [Dear-Modding-FO4 — CommonLibF4](https://github.com/Dear-Modding-FO4/commonlibf4) | `F3NVTest.dll`, the automated test runs' control channel | **GPL-3.0**; test-only, never shipped |
 | Bethesda — Fallout 4 Creation Kit | The Fallout 4 script sources converted scripts compile against, unpacked from your install; the fallback for faces our own FaceGen can't make | Bethesda's terms; installed by you from Steam, not redistributed |

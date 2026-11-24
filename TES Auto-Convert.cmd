@@ -4,7 +4,7 @@ rem First run: installs Python 3.14 if missing (winget, no admin), creates a
 rem private .venv here that reuses packages already installed in that Python
 rem and installs only what is missing or at another version into .venv (never
 rem into the user's own Python). Every run: repairs a broken .venv, checks the
-rem packages, offers xWMAEncode.exe while it is missing, and runs
+rem packages, offers xWMAEncode.exe while it is missing (Skyrim only), and runs
 rem core\setup_check.py, which lists anything else still to install.
 rem Setup output goes to logs\launcher.log.
 setlocal
@@ -44,10 +44,11 @@ echo Installing Python packages. The first time this can take a few minutes ...
 :packages
 echo Checking Python packages ...
 "%VENV_PY%" -m pip install --disable-pip-version-check -q -r requirements.txt >>"%LOG%" 2>&1 || goto fail
-call :get_xwmaencode
 if defined FO4_APP goto fo4_app
 rem The Fallout 4 release zip has no Skyrim converter (gui.py): start its app instead.
 if not exist gui.py goto fo4_app
+rem Only the Skyrim converter needs xWMAEncode; the Fallout 4 build ships its own encoder (native\dist\xwma_enc.exe).
+call :get_xwmaencode
 "%VENV_PY%" -m core.setup_check %FIRST_RUN%
 start "" ".venv\Scripts\pythonw.exe" gui.py
 exit /b 0

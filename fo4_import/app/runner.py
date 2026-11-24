@@ -13,6 +13,7 @@ from pathlib import Path
 
 from asset_convert import paths as data_paths
 from core import run_log
+from core.process_job import CpuWatch
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.app.stages import REPO
 from fo4_import.base import release
@@ -20,6 +21,27 @@ from fo4_import.pipeline import eta
 
 #: Output lines worth repeating on the Finished screen: replacement fallbacks and errors.
 WARNING_MARKS = ('replacements:', 'Traceback', 'Error', 'ERROR', 'FAILED')
+#: Seconds without a log line before the activity line counts the quiet; cores below IDLE_CORES count as idle.
+QUIET_SECONDS, IDLE_CORES = 5, 0.05
+
+
+def _span(seconds: float) -> str:
+    """`seconds` as '45 s' or '2 min 10 s'."""
+    minutes, seconds = divmod(int(seconds), 60)
+    return f'{minutes} min {seconds} s' if minutes else f'{seconds} s'
+
+
+def activity(quiet: float, cpu: 'tuple | None') -> str:
+    """The line showing a run is alive: how long the log has been quiet and what CpuWatch.sample() saw.
+    See: docs/fork/fo4_gui.md#activity
+    """
+    said = f'No new output for {_span(quiet)}' if quiet >= QUIET_SECONDS else 'Output arriving'
+    if cpu is None:
+        return said + '.'
+    cores, running = cpu
+    if cores >= IDLE_CORES:
+        return f'{said}; still working: {cores:.1f} cores busy across {running} processes.'
+    return f'{said}; the build is not using the CPU (waiting on another program, or stuck if this lasts).'
 
 
 @dataclass
@@ -47,7 +69,7 @@ class Runner:
     def __init__(self, plan: list, env: 'dict | None' = None, name: str = ''):
         """Runs `plan` [(key, label, argv or its maker)] with `env`, logged as `name`."""
         self.plan, self.process, self.stopped, self.warnings, self.env = plan, None, False, [], env or {}
-        self.name = name
+        self.name, self.watch = name, CpuWatch()
 
     def run(self, on_line) -> list:
         """Run each stage in order, calling `on_line(text)` per output line and writing it to the run log; the
@@ -73,6 +95,7 @@ class Runner:
                 break
         if log is not None:
             log.close('done' if results and all(r.code == 0 for r in results) else 'stopped or failed')
+        self.watch.close()
         return results
 
     def _one(self, argv: list, on_line) -> 'int | None':
@@ -82,6 +105,7 @@ class Runner:
         env = {**os.environ, **self.env, 'PYTHONUNBUFFERED': '1', 'PYTHONIOENCODING': 'utf-8'}
         self.process = subprocess.Popen(argv, cwd=REPO, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                         text=True, encoding='utf-8', errors='replace', **POPEN_FLAGS)
+        self.watch.add(self.process.pid)
         for line in self.process.stdout:
             line = line.rstrip('\r\n')
             if any(mark in line for mark in WARNING_MARKS):

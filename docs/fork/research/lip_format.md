@@ -93,7 +93,7 @@ tracks 0–15, 27 zero tracks, the 17 modifiers, flags 13, size = body + 16.
   44,961 (`Voices` and `MenuVoices`), Anchorage 2,139. The inherited Skyrim
   voice step ignores them (its file pattern takes audio only).
 - **Voice stage.** A line whose recording has a `.lip` beside it gets that
-  lip converted and packed with the xWMAEncode audio; LipGenerator only runs
+  lip converted and packed with the encoded audio; LipGenerator only runs
   for lines without one. The failed-job record keys on the lip's hash too,
   so lines LipGenerator failed on are tried again.
 - **Existing builds.** `relip_once` gives every built `.fuz` its own lip once

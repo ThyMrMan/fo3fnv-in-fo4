@@ -3,6 +3,7 @@
 See: docs/fork/fo4_plan_release.md#slim-zip
 """
 
+import re
 import zipfile
 
 from tools.release import fo4_slim_zip as Z
@@ -27,6 +28,15 @@ def test_trace_reaches_the_stages_not_the_skyrim_gui():
     assert {'fo4_app.py', 'fo4_import/__init__.py', 'fo4_import/base/papyrus.py',
             'tools/validate/fo4_install_check.py'} <= modules
     assert 'gui.py' not in modules
+
+
+def test_zip_carries_every_program_a_stage_runs():
+    """Every module the app's stages run with -m, and every repo script they run by path, is traced."""
+    source = (Z.ROOT / 'fo4_import' / 'app' / 'stages.py').read_text(encoding='utf-8')
+    modules = {m.replace('.', '/') + '.py' for m in re.findall(r"'-m', '([\w.]+)'", source)}
+    scripts = {'/'.join(re.findall(r"'([\w.]+)'", m)) for m in re.findall(r"REPO((?: / '[\w.]+')+)", source)}
+    assert modules and scripts
+    assert modules | scripts <= Z.traced()
 
 
 def test_zip_carries_the_helper_scripts():

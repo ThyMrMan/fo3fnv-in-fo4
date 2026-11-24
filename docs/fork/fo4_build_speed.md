@@ -581,6 +581,35 @@ any script's compile. The `.pex` files were there all along:
 start. One edit to `TES4Polyfill.psc` with unchanged declarations
 recompiled only that script.
 
+<a id="voice-cache"></a>**Voice files in the work cache (2026-11-23).** A
+`.fuz` was kept only in the output folder, so a new output folder, a new
+release's folder or a moved install converted every line again: the laptop's
+0.5 upgrade test redid all 37,061 FNV voice files (about 40 minutes) though
+0.3 had made them. Each converted file is now kept in the work cache under
+the versioned site `voice_file` (`voice.VOICE_VERSION`), keyed by the
+recording's and its own `.lip`'s SHA-1, the transcript, the kind (`.fuz` or
+silent `.xwm`) and whether LipGenerator is installed (`voice.cache_inputs`).
+A build writes every line it finds there before converting the rest. On 300
+FNV recordings: 4.6 s converted, 0.3 s from the cache into a new folder. The
+cache holds about as much as the voice files themselves (some 2 GB for
+FalloutNV.esm), pruned like the rest after 14 days unused. LipGenerator is
+not deterministic (the same recording twice gives lips of 4,881 and 2,490
+bytes; the audio is identical), which is why the version is bumped by hand
+and not checked against reference results.
+
+<a id="voice-batches"></a>**One ffmpeg run per batch of recordings.** Each line
+launched ffmpeg to decode its `.ogg`, then xWMAEncode, at 15 lines a second
+on the laptop with its CPU near 20%: process launches, not audio work.
+`voice.decode` now decodes up to 32 recordings in one ffmpeg run (fewer when
+that keeps every worker busy, and under 24,000 characters of command line),
+and `decode_to_wav` copies a WAV already in the voice format instead of
+decoding it. A batch whose run fails decodes each recording alone, as
+before. On 300 recordings on the desktop: 4.6 s per-file, 3.2 s batched,
+the same files but LipGenerator's own lips. The encoder is still one launch a
+line: xWMAEncode had no batch mode, and our own encoder
+([xwma_enc](fo4_ck_replacements.md#xwma-spike)), which replaced it, takes
+the same one-file command line.
+
 | Cost | Seen before the fixes above | Lead |
 |---|---|---|
 | `base STAT` on Goodies | 796 s, then 157 s ([audit](#audit-2026-11-11)) | Not explained. |

@@ -2154,6 +2154,26 @@ true of `NiGeometryDataFlags` only. For every Bethesda file we read or write it
 is a single bool, so a count of 2 was never representable there in the first
 place; the clamp is still correct, its stated reason is not.
 
+<a id="enum-values-kept"></a>
+
+## An enum field keeps a value nif.xml does not list
+
+**Code:** `asset_convert/nif/pyffi_enum_values.py`.
+
+pyffi reads `Extra Vectors Flags` as the high byte of the `#BS202#` data
+flags above: bit 4 (12 of the u16) is Has Tangents, bits 0-3 are the top of
+the Havok Material. Its nif.xml lists only 0 and 16, so a mesh whose Havok
+material reaches those bits reads as 17 or 20. A read stores any value, but
+`EnumBase.set_value` refuses an unlisted one: it logs `invalid enum value (20)
+for ExtraVectorsFlags` and keeps the old value. Every copy goes through it,
+so turning strips into a shape (`get_interchangeable_tri_shape`, used by the
+object LOD reduction in `lod_far_gen`) wrote 0, and the reduction then took
+the mesh for one without tangents. Seen 22 times in the first Fallout 3 build
+with 0.5 (2026-11-23). On Fallout 4 nothing showed: the static path rebuilds
+every tangent frame from positions, UVs and normals (`convert_static.
+tangent_frame`). `set_value` now keeps an integer the enum does not list, as
+a read does; a listed value or name still goes through pyffi's own path.
+
 <a id="morrowind-collision"></a>
 
 ## Morrowind collision: `RootCollisionNode` (2026-09-01)

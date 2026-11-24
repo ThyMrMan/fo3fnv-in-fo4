@@ -247,7 +247,7 @@ the tests, and can't build without a Cleanroom UI checkout and the Flex SDK
   all 89 helper scripts (`TES4Polyfill` among them) out of releases up to
   f3nv-0.4, so every converted script calling them failed in both compilers
   (`test_zip_carries_the_helper_scripts`).
-- `native/dist` (the native extensions and pinned zlib), the three DLLs the
+- `native/dist` (the native extensions, pinned zlib and our xWMA encoder), the three DLLs the
   output ships, both launchers, the README and the license.
 - What a download can't build, at the paths the code reads it from:
   - the pinned Cleanroom UI tree (`temp/cleanroom_ui_src/<pin>`);

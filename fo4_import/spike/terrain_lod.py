@@ -67,6 +67,8 @@ SEGMENT_CELLS = 4
 NO_PARENT = 0xFFFFFFFF
 #: Vanilla's skirt depth per level step, world units (Commonwealth tiles: 1,000 at level 4 to 4,000 at 32).
 SKIRT_STEP = 1000
+#: World units a cell spans.
+CELL = 4096
 
 
 def tiles(export_dir: Path, world: str) -> list:
@@ -151,6 +153,18 @@ def without_skirts(pos: np.ndarray, tris: np.ndarray) -> np.ndarray:
         top[(x, y)] = max(top.get((x, y), z), z)
     skirt = border & np.array([z < top.get((x, y), z) for x, y, z in pos])
     return tris[~skirt[tris].any(axis=1)]
+
+
+def tile_origin(pos: np.ndarray, path: Path) -> np.ndarray:
+    """What to take from the tile at `path`'s land positions `pos` for its own frame (0 to level x CELL across):
+    its south-west corner when every point lies in the tile's world square (authored in world coordinates, as
+    Fallout 3's washmontop), else nothing.
+    See: docs/fork/fo4_pipeline.md#terrain-lod-world-frame
+    """
+    level, x, y = map(int, TILE_RE.search(path.name).groups())
+    corner = np.array([x * CELL, y * CELL, 0.0])
+    inside = len(pos) and ((pos[:, :2] >= corner[:2]) & (pos[:, :2] <= corner[:2] + level * CELL)).all()
+    return corner if inside and corner.any() else np.zeros(3)
 
 
 def skirt_depth(level: int) -> int:
@@ -238,11 +252,12 @@ def segments(counts: np.ndarray) -> bytes:
     return out + b''.join(struct.pack('<4I', int(s) if n else 0, int(n), NO_PARENT, 0) for s, n in zip(starts, counts))
 
 
-def _water_blocks(data, level: int, first: int) -> list:
+def _water_blocks(data, level: int, first: int, origin: np.ndarray) -> list:
     """The WATER node's blocks (node, shape, effect shader, multi-bound, AABB) of FNV tile `data`, the node at
-    block `first`; [] when the tile has no water. Level 4's shape is cut into segments by cell."""
+    block `first`, its positions less the land's `origin` (tile_origin); [] when the tile has no water. Level 4's
+    shape is cut into segments by cell."""
     pos, tris = water_shape(data)
-    local, tris = tile_units(pos, tris, level)
+    local, tris = tile_units(pos - origin, tris, level)
     if not len(tris):
         return []
     used, tris = np.unique(tris, return_inverse=True)
@@ -262,10 +277,12 @@ def btr(path: Path, level: int, textures: tuple) -> bytes:
     """The .btr of the FNV tile at `path` of `level`, textured by (diffuse, normal) Data paths: the land, then the
     WATER node when the tile has water, in vanilla's block order."""
     data = read_tile(path)
-    pos, uv, tris = with_skirts(*land_shape(data), level)
+    pos, uv, tris = land_shape(data)
+    origin = tile_origin(pos, path)
+    pos, uv, tris = with_skirts(pos - origin, uv, tris, level)
     local, tris = tile_units(pos, tris, level)
     uv = 1 - uv
-    water = _water_blocks(data, level, 4)
+    water = _water_blocks(data, level, 4, origin)
     nif = F.NifFile(strings=['chunk', 'Land', ''] + ['WATER'] * bool(water))
     land = _shape(1, local, tris, level, 2, (VERTEX_DESC, [{'position': tuple(p), 'bitangent_x': 0, 'uv': tuple(t)}
                                                            for p, t in zip(local, uv)]))

@@ -14,7 +14,7 @@ import sys
 import zlib
 from pathlib import Path
 
-#: The library tools/generators/gen_f3_zlib.py builds, committed in native/dist.
+#: The library tools/generators/gen_native_c.py builds, committed in native/dist.
 LIBRARY = Path(__file__).resolve().parents[2] / 'native' / 'dist' / {
     'win32': 'f3_zlib.dll', 'darwin': 'libf3_zlib.dylib'}.get(sys.platform, 'libf3_zlib.so')
 #: Window bits: a zlib stream, and raw deflate (gzip() writes its own header and trailer).
@@ -29,7 +29,7 @@ GZIP_HEAD = struct.Struct('<4sIBB')
 def library() -> ctypes.CDLL:
     """The pinned zlib, loaded and typed once; RuntimeError when it is missing or another version."""
     if not LIBRARY.is_file():
-        raise RuntimeError(f'{LIBRARY} is missing: build it with python -m tools.generators.gen_f3_zlib')
+        raise RuntimeError(f'{LIBRARY} is missing: build it with python -m tools.generators.gen_native_c f3_zlib')
     lib = ctypes.CDLL(str(LIBRARY))
     lib.f3_deflate.argtypes = (ctypes.c_char_p, ctypes.POINTER(ctypes.c_ulong), ctypes.c_char_p, ctypes.c_ulong,
                                ctypes.c_int, ctypes.c_int)

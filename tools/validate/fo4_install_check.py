@@ -42,8 +42,6 @@ REQUIRED_MODS = (
     ('Address Library for F4SE Plugins', 'F4SE/Plugins/version-{version}.bin',
      'https://www.nexusmods.com/fallout4/mods/47327'),
     ('Mod Configuration Menu', 'F4SE/Plugins/mcm.dll', 'https://www.nexusmods.com/fallout4/mods/21497'),
-    ('Black Landscape Fix (F4SE)', 'F4SE/Plugins/BlackLandscapeFixRD.dll',
-     'https://www.nexusmods.com/fallout4/mods/108574'),
 )
 #: (mod, its file) of mods that must be off: F3NV.dll's dialogue menu refuses its hooks while XDI.dll loads.
 CONFLICTING_MODS = (('Extended Dialogue Interface', 'F4SE/Plugins/XDI.dll'),)

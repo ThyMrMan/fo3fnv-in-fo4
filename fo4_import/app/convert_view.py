@@ -10,14 +10,16 @@ fo4_import.app.runner; a zip is made afterwards when the user chose zip output.
 See: docs/fork/fo4_gui.md#convert-screen
 """
 
-from PySide6.QtCore import QThread, Signal
+import time
+
+from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
                                QPlainTextEdit, QPushButton, QRadioButton, QSpinBox, QToolButton, QVBoxLayout, QWidget)
 
 from fo4_import.app import stages
 from fo4_import.app.mo2_setup import environment
-from fo4_import.app.runner import Runner
+from fo4_import.app.runner import Runner, activity
 from fo4_import.app.target_box import TargetBox
 from fo4_import.pipeline import eta
 
@@ -25,6 +27,8 @@ from fo4_import.pipeline import eta
 LOG_LINES = 20000
 SCOPES = (('world', 'Whole (the game: every worldspace a door or script reaches; a DLC or mod: all it changes)'),
           ('test', 'Test block (3x3 cells around the start, plus its interiors)'), ('region', 'Region (grid corners)'))
+#: Milliseconds between activity line updates while a run goes.
+ACTIVITY_MS = 2000
 #: The advanced toggle's text, folded and open.
 ADVANCED = ('Show advanced options (stages, what the build covers)', 'Hide advanced options')
 
@@ -81,6 +85,10 @@ class ConvertView(QWidget):
         self.log.setMaximumBlockCount(LOG_LINES)
         self.log.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
         self.advanced, self.more = QWidget(), QToolButton()
+        self.alive, self.ticker, self.last_output = QLabel(), QTimer(self), 0.0
+        self.alive.setStyleSheet('color: gray')
+        self.ticker.setInterval(ACTIVITY_MS)
+        self.ticker.timeout.connect(self._tick)
         self._layout()
 
     def _layout(self) -> None:
@@ -101,7 +109,7 @@ class ConvertView(QWidget):
         for widget in (self._game_box(), self.target, self.next):
             box.addWidget(widget)
         box.addLayout(controls)
-        for widget in (self.estimate, self.more, self.advanced):
+        for widget in (self.estimate, self.alive, self.more, self.advanced):
             box.addWidget(widget)
         box.addWidget(self.log, 1)
 
@@ -216,7 +224,15 @@ class ConvertView(QWidget):
         self.start.setEnabled(False)
         self.stop.setEnabled(True)
         self.status.setText(f'Running {len(plan)} stage(s)...')
+        self.last_output = time.monotonic()
+        self.ticker.start()
         self.thread.start()
+
+    def _tick(self) -> None:
+        """Show how long the log has been quiet and whether the build is using the CPU."""
+        if self.thread is not None:
+            quiet = time.monotonic() - self.last_output
+            self.alive.setText(activity(quiet, self.thread.runner.watch.sample()))
 
     def _line(self, line: str) -> None:
         """A build's progress line under the controls; any other line to the log, an 'estimate:' one under the
@@ -224,6 +240,7 @@ class ConvertView(QWidget):
         if line.startswith(eta.PROGRESS):
             self.estimate.setText(line.removeprefix(eta.PROGRESS))
             return
+        self.last_output = time.monotonic()
         self.log.appendPlainText(line)
         if line.startswith('estimate: '):
             self.estimate.setText('Estimated: ' + line.removeprefix('estimate: '))
@@ -236,6 +253,8 @@ class ConvertView(QWidget):
 
     def _done(self, results: list, warnings: list, made_zip: str) -> None:
         """Re-enable Convert and hand the outcome on."""
+        self.ticker.stop()
+        self.alive.clear()
         self.start.setEnabled(True)
         self.stop.setEnabled(False)
         failed = [r for r in results if r.code != 0]

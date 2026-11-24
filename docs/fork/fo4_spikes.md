@@ -236,8 +236,9 @@ come out identical.
   speaker's voice-type folder. Each speaker maps that folder to the stand-in's
   FO4 voice type (`VOICES`), and a line gets a file wherever FNV recorded it.
 - **Conversion:** the shared `convert_file_to_xwm` with the FO4 CK's own
-  `Tools\LipGen\LipGenerator\` `LipGenerator.exe` and `xWMAEncode.exe` (same
-  command line as Skyrim's). The `.fuz` is the same `FUZE` v1 container, and
+  `Tools\LipGen\LipGenerator\LipGenerator.exe` and our encoder
+  `native/dist/xwma_enc.exe` (xWMAEncode's command line; it replaced the CK's
+  `xWMAEncode.exe`, [why](fo4_ck_replacements.md#xwma-spike)). The `.fuz` is the same `FUZE` v1 container, and
   the lip header matches vanilla's.
 - **Transcript:** response text with bracketed tags (`[SUCCEEDED]`) removed;
   the subtitles keep them, as FNV's do.
@@ -2422,6 +2423,9 @@ moving statics, 22 static collections, 11 misc items, 6 lights, 6 sounds,
   sweep), and it cleaned 0 cells in each. Each fetch holds only that run's
   last game launch, so this is strong evidence, not proof. What's left is a
   play without the mod.
+- **Played without the mod (2026-11-24):** the user played the FNV opening
+  with the mod disabled and saw no black ground. It is no longer a required
+  mod: the README, `fo4_install_check.py` and the Finished screen dropped it.
 
 ### <a id="spike-4-trees"></a>Trees (built 2026-10-09, played 2026-10-10: they look right)
 

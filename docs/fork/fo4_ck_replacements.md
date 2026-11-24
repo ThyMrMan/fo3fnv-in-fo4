@@ -11,7 +11,7 @@ and the build's own docs; costs quoted are the docs' measurements.
 
 **Why.** The FO4 build still runs Bethesda's and Microsoft's Windows-only
 tools as stages: the Creation Kit (FaceGen, AnimTextData), Elric, Archive2,
-LipGenerator, xWMAEncode and FO4's Papyrus compiler
+LipGenerator, xWMAEncode (now replaced, [encoder](#xwma-spike)) and FO4's Papyrus compiler
 (`fo4_import/app/stages.py`, `WINDOWS_TOOLS`). Each one blocks the
 [cross-platform app](fo4_gui.md), and several cost time, determinism or
 reliability on Windows too.
@@ -28,7 +28,7 @@ reliability on Windows too.
 | FaceGen (4) | The CK, per NPC, when ours fails: once in 286 logged face runs (5 Dead Money NPCs, 2026-11-21), and the CK failed them too ([audit](../audits/fo4_redo_audit_2026-11-23.md#faces)) | FaceGeom heads and `_d`/`_msn`/`_s`, the app's default (`--own-facegen`), 0.29 s a face ([own stage](fo4_facegen_plan.md#own-stage)); textures through our encoder ([encoder](fo4_facegen_plan.md#own-dds-encoder)) | Play test; drop the CK fallback; hair up to 0.29 units off, cause unknown |
 | Collision and ragdolls (5) | Elric, only for what ours does not cover: 0 of 6,188 FalloutNV.esm meshes, 2 of 2,066 in NVWillow, both of which Elric failed ([audit](../audits/fo4_redo_audit_2026-11-23.md#elric)) | Convex shapes, triangle meshes on still or keyframed bodies, spheres, capsules, lists, ragdoll and hinge constraints, creature ragdolls ([steps](fo4_hknp_writer.md#steps)) | Play test; triangle meshes on bodies with full motion; flat shapes; other constraint kinds; then drop Elric |
 | Lip files (7) | LipGenerator, when installed and it works | FNV's lips converted ([lips](research/lip_format.md#built)); the recording's loudness otherwise ([lips](#lips)) | Play test; decide whether to stop calling LipGenerator |
-| Voice audio (6) | xWMAEncode inside each `.fuz` | The `.fuz` itself | Not started: a spike on whether the game plays another codec |
+| Voice audio (6) | none | The `.fuz` and its audio: our encoder `native/dist/xwma_enc.exe` (Xwma-Codec, changed) since 2026-11-24 ([encoder](#xwma-spike)) | A Linux build of the encoder |
 | Precombines and previs (8) | none yet (CK planned, [before](fo4_pipeline.md#before)) | Not built | Not started: the CK route first |
 
 ## <a id="options"></a>What we could build, by payoff for the work
@@ -40,7 +40,7 @@ reliability on Windows too.
 | 3 | **CK AnimTextData → our writer for everything** | Medium: format decoded ([AnimTextData](research/anim_text_data.md)), name hash known, gun entries written | Removes a CK run (233 s when it ran every build), the MO2 round trip and the CK editing deployed files in place ([why](fo4_own_rig.md#anim-info)) |
 | 4 | **CK FaceGen → our own heads and tint textures** | Large; already [planned](fo4_facegen_plan.md#direct) | FNV's full face shape (sliders reach 70–91%); no CK stage (0.43 s per NPC on a small plugin, but 5.7 s per face and 3.8 hours for FalloutNV.esm on 2026-11-12, then a [hang on exit](fo4_facegen_plan.md#ck-exit-hang)); mod builds stop needing the CK for new NPCs. A community first: no open FO4 FaceGen baker exists |
 | 5 | **Elric → our own hknp collision writer** ([plan](fo4_hknp_writer.md)) | Large. Starting points: `Kalmarv/havok-formats` (GPL-3.0, builds hknp compressed meshes, reads hk_2014 packfiles), NifSkope Wild Wasteland Edition's FO4 hknp writer (BSD-3, [found 2026-11-11](research/fo4_open_landscape.md#hknp-writer)), BGS's class layouts (MIT), our NIF writer | Byte-reproducible output (Elric writes uninitialized bytes: 162 of 946 files differed); parallel (Elric deadlocks above one instance); no crash cases (the TLD_Travelers `graft` failure); 23–183 s off each mod build; a fixed ragdoll order for own rigs ([random today](fo4_own_rig.md)). No longer a first: one NifSkope fork now writes it |
-| 6 | **xWMAEncode → something open** | Spike first: does the game play another codec inside `.fuz`? Else vet `595554963github/Xwma-Codec` (GPL-3.0, no README) | Voice builds on any OS |
+| 6 | **xWMAEncode → something open** (done) | Small: `595554963github/Xwma-Codec` (GPL-3.0, C) works with four changes ([encoder](#xwma-spike)) | Voice builds on any OS |
 | 7 | **LipGenerator → nothing** | Small: only lines with no FNV `.lip` (Voices1: 315 of 52,896) need it; make those from the audio's loudness, or leave them silent | The last LipGenerator run gone; deterministic lips (LipGenerator gave 1,758 and 1,746 bytes for one line) |
 | 8 | **Precombines and previs, our own** | Very large. Precombining is mesh merging plus records; previs is a visibility bake. Nothing open exists | Frame rate in dense areas without the CK, and per-mod rebuilds. Do the CK route first; revisit once it works |
 
@@ -60,6 +60,61 @@ reliability on Windows too.
   collision writer would each be firsts
   ([survey](research/fo4_open_landscape.md#tools)), and both fit
   [the spin-off strategy](spin_offs.md#strategy).
+
+## <a id="xwma-spike"></a>6. An open xWMA encoder (spiked 2026-11-23, played 2026-11-24)
+
+`595554963github/Xwma-Codec` is a C WMA v2 encoder (tables from ffmpeg) that
+writes RIFF `XWMA` with `fmt ` (0x161, no extra data), `dpds` and bit-reservoir
+packets, the layout xWMA uses. Built with MSVC (needs `_USE_MATH_DEFINES` and a
+`__builtin_clz`), as-is its files fail: Microsoft's decoder
+(`xWMAEncode in.xwm out.wav`) stops after one packet. Four changes make
+it pass, measured on 6 FNV lines at 48 kbps mono 44.1 kHz:
+
+- **Packet size 2230**, xWMAEncode's for 48 kbps (it wrote 278). XAudio2
+  accepts only a fixed list of packet sizes.
+- **Frame budget from the bitrate, not the packet size**, scaled 130%: files
+  then come out about xWMAEncode's size (6,756–71,542 bytes against
+  6,756–64,840) and score 20.7–32.1 dB SNR against the source, against
+  21.9–27.7 dB for xWMAEncode (better on 4 of 6; the two short lines trail by
+  2–4 dB).
+- **No leading pad**: it added 2,048 samples (46 ms) of delay, which would
+  shift lip sync; now 0, like xWMAEncode.
+- **`dpds` counts every decoded frame**: it stopped one frame short of what
+  the decoder outputs; now its last entry equals the decoded bytes.
+
+All 382 matched Doc Mitchell lines re-encoded this way decode to full length
+in Microsoft's decoder. Encoding takes about as long as xWMAEncode
+(0.02–0.08 s a line). Our decoded lines run 0.05–0.14 s longer than
+xWMAEncode's (trailing silence).
+
+**Played (2026-11-24):** the user played the FNV opening with those 382 lines
+as loose files and heard no problems.
+
+**Built in (2026-11-24).** The encoder lives in `native/src/xwma/`
+(`xwma_encoder.c` with the four changes written in, upstream's
+`wma_tables.h`, and `main.c` taking xWMAEncode's `-b <rate> in out`).
+`python -m tools.generators.gen_native_c xwma_enc` builds the committed
+`native/dist/xwma_enc.exe`, and `voice.convert` runs it for every voice
+line and sound file. Those always come in as mono 44.1 kHz 16-bit
+(`WAV_FORMAT`) at 48 kbps. The packet size is a table of the setups
+measured against xWMAEncode, only that one so far, and the encoder refuses
+any other setup rather than guess a size XAudio2 may reject.
+
+- **Same bytes as the build the user played:** on all 6 spike lines.
+- **Through the real stage:** 24 Doc Mitchell lines and a silent line
+  (`voice.convert` into a scratch folder). Microsoft's decoder reads every
+  one to full length, 0.10 to 0.13 s past the recording.
+- **What it changed:** `VOICE_VERSION` went to 2, so the voice cache does not
+  hand back xWMAEncode's files. Lines already staged keep them (both play);
+  a line is encoded again only when its file is missing.
+- **No SDK download:** the launcher no longer offers Microsoft's DirectX SDK
+  to Fallout 4 users. That copy of xWMAEncode was never used on the Fallout 4
+  path (the stage ran the CK's copy).
+- **Bug found on the way:** two lines with the same recording and transcript
+  are one cache entry. Two threads storing it at once collided on one
+  temporary file name and crashed the stage. `work_cache.replace_with` now
+  gives each thread its own name and keeps the other writer's copy
+  (`tests/test_fo4_work_cache.py`).
 
 ## <a id="ba2"></a>1. The texture BA2 is ours (built 2026-11-11, not built in game)
 

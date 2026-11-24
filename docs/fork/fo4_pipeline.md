@@ -4456,7 +4456,7 @@ permissive, compatible with our GPL-3.0; its notice must stay with the
 source). `native/src/f3_zlib/f3_zlib.c`
 exports one call, `f3_deflate` (window bits 15 or -15, memory level 8, the
 default strategy, as `zlib.compress`). It is built by
-`python -m tools.generators.gen_f3_zlib` into `native/dist/f3_zlib.dll`
+`python -m tools.generators.gen_native_c f3_zlib` into `native/dist/f3_zlib.dll`
 (`.so`/`.dylib` elsewhere), a plain library loaded through ctypes, so one
 build serves every Python version. It is committed and required: a missing
 library raises; nothing falls back to Python's zlib. Stock zlib is plain C
@@ -7808,6 +7808,19 @@ the textures skipped while staged and current. The first every-world build
 after this stopped on Lucky38World: 6 of its 135 tile meshes have no
 textures (level 4, x-16 y-12 among them). `tiles` now leaves out a tile
 missing its diffuse or normal map; every other world keeps all its tiles.
+
+<a id="terrain-lod-world-frame"></a>**Tiles authored in world coordinates (2026-11-23, not played).**
+Vanilla's `.btr` positions are the tile's own frame, 0 to 4,096 tile units
+across (every Commonwealth tile, out to cell -96), and so are every FNV
+tile's and 14 of Fallout 3's 15 LOD worlds' (0 to 16,384 world units).
+Fallout 3's `washmontop` alone authors its tiles' land in world coordinates
+(tile 4.60.-25: x 245,760 to 262,144). Taken as tile
+frame, every one of its tiles was drawn a tile corner away, and the 8 past
+cell 64 overflowed the half floats (`overflow encountered in cast`, the first
+Fallout 3 build with 0.5): world / 4 passes 65,504, so their positions and
+bounds were NaN. `tile_origin` takes the tile's corner (from its name) off
+a tile whose land lies wholly in its world square, and the same off its
+water; a tile in its own frame, or at the origin, is unchanged.
 
 <a id="distant-water"></a>**Distant water (code 2026-11-09, not built or played).**
 Vanilla's layout, read from `Fallout4 - Meshes.ba2`: 2,083 of the

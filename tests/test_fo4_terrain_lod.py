@@ -117,6 +117,29 @@ def test_a_tile_becomes_one_scaled_land_shape_facing_up():
     assert nif.blocks[2][1]['shader_type'] == 18 and nif.blocks[3][1]['textures'][:2] == ['d.dds', 'n_msn.dds']
 
 
+def test_a_tile_in_world_coordinates_moves_to_its_own_frame():
+    """A tile whose land lies in its world square (Fallout 3's washmontop) loses its corner; one in its own frame,
+    or at the origin, keeps its positions."""
+    pos = grid(3, 16384.0)[0]
+    path = Path('w.level4.x60.y-24.nif')
+    world = pos + (60 * 4096, -24 * 4096, 0)
+    assert T.tile_origin(world, path).tolist() == [60 * 4096, -24 * 4096, 0]
+    assert T.tile_origin(pos, path).tolist() == [0, 0, 0]
+    assert T.tile_origin(pos, Path('w.level4.x0.y0.nif')).tolist() == [0, 0, 0]
+
+
+#: Fallout 3's farthest washmontop tile, its land in world coordinates (x 262,144 to 278,528).
+WASHMONTOP = [t for t in T.tiles(Path('export/Fallout3.esm'), 'washmontop') if t[:3] == (4, 64, -25)]
+
+
+@pytest.mark.skipif(not WASHMONTOP, reason='needs the Fallout3.esm export')
+def test_washmontop_s_far_tile_lands_in_vanilla_s_tile_units():
+    """Its land comes out finite and 0 to 4,096, as vanilla's tiles."""
+    shape = F.read(T.btr(WASHMONTOP[0][3], 4, ('d.dds', 'n_msn.dds'))).blocks[1][1]
+    pos = np.array([v['position'] for v in shape['vertices']], float)
+    assert np.isfinite(pos).all() and pos[:, :2].min() == 0 and pos[:, :2].max() == 4096
+
+
 def test_segments_trailer_is_vanilla_s():
     """16 segments, start index 3 x the first triangle, an empty segment at 0, no parent (commonwealth.4.-12.-16)."""
     counts = np.zeros(16, int)

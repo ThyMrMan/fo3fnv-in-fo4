@@ -44,6 +44,8 @@ MOPP_BRIDGE = REPO / 'external' / 'mopp_bridge' / 'dovah_hkp_mesh_mopp_bridge.ex
 
 #: Native helper programs built by `python native/build.py --programs`.
 SPT_ENGINE_DUMP = REPO / 'native' / 'dist' / 'spt_engine_dump.exe'
+#: Our xWMA encoder (native/src/xwma), built by `python -m tools.generators.gen_native_c`.
+XWMA_ENC = REPO / 'native' / 'dist' / ('xwma_enc.exe' if os.name == 'nt' else 'xwma_enc')
 
 #: Compiled native extension modules built by `python native/build.py`.
 NATIVE_DIST = REPO / 'native' / 'dist'

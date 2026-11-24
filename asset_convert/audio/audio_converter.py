@@ -65,6 +65,9 @@ _WORKER_COUNT = worker_count()
 # mostly-idle wait), so the CPU-bound ffmpeg/xWMAEncode stages of other jobs
 # fill the gaps.
 _LIP_WORKER_COUNT = max(_WORKER_COUNT, min(64, _WORKER_COUNT * 2))
+#: Sample rate voice is decoded at for xWMAEncode and LipGenerator, and ffmpeg's output options for it.
+WAV_RATE = 44100
+WAV_FORMAT = ('-ac', '1', '-ar', str(WAV_RATE), '-c:a', 'pcm_s16le')
 
 # ---------------------------------------------------------------------------
 # Tool detection + single-file conversion
@@ -283,6 +286,25 @@ def has_samples(wav_path) -> bool:
         return w.getnframes() > 0
 
 
+def voice_wav(path) -> bool:
+    """Whether `path` is a WAV already in WAV_FORMAT (mono, WAV_RATE, 16-bit PCM)."""
+    try:
+        with wave.open(str(path)) as w:
+            return (w.getnchannels(), w.getframerate(), w.getsampwidth(), w.getcomptype()) == (1, WAV_RATE, 2, 'NONE')
+    except (OSError, EOFError, wave.Error):
+        return False
+
+
+def decode_to_wav(src_path, wav_path, ffmpeg: str) -> bool:
+    """Write `src_path` to `wav_path` in WAV_FORMAT: copied when it is one (voice_wav), else decoded by ffmpeg."""
+    if Path(src_path).suffix.lower() == '.wav' and voice_wav(src_path):
+        shutil.copyfile(src_path, wav_path)
+        return True
+    done = subprocess.run([ffmpeg, '-y', '-i', str(src_path), *WAV_FORMAT, str(wav_path)], capture_output=True,
+                          timeout=60, **POPEN_FLAGS)
+    return done.returncode == 0 and Path(wav_path).is_file()
+
+
 def convert_file_to_xwm(src_path, dst_path, ffmpeg: str,
                          xwmaencode: 'str | None' = None,
                          lipgenerator: 'str | None' = None,
@@ -321,19 +343,7 @@ def convert_file_to_xwm(src_path, dst_path, ffmpeg: str,
     wav_path = tmp_dir / 'voice.wav'
     xwm_path = tmp_dir / 'voice.xwm'
     try:
-        # Stage 1: ffmpeg → WAV
-        cmd_wav = [
-            ffmpeg,
-            '-y',
-            '-i', str(src_path),
-            '-ac', '1',             # mono
-            '-ar', '44100',         # 44.1 kHz
-            '-c:a', 'pcm_s16le',   # 16-bit PCM
-            str(wav_path),
-        ]
-        r1 = subprocess.run(cmd_wav, capture_output=True, timeout=60,
-                            **POPEN_FLAGS)
-        if r1.returncode != 0 or not wav_path.is_file():
+        if not decode_to_wav(src_path, wav_path, ffmpeg):
             return False
         if not has_samples(wav_path):
             raise SilentSource(src_path.name)

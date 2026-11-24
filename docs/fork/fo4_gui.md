@@ -205,6 +205,18 @@ Vegas only (`GAMES[...]['classic']`).
   replacement profile.
 - **Running:** stages run on a worker thread. The log streams into the window,
   and Build's counts and timings are shown.
+- <a id="activity"></a>**Whether a quiet run is alive** (added 2026-11-24). A
+  moving bar only shows the window is alive, not the build: the 0.4 run sat on
+  a dead compiler for a long time while the window looked busy. So every 2 s
+  a gray line under the estimate says how long the log has been quiet and what
+  the build's processes are doing ("No new output for 2 min 10 s; still
+  working: 6.4 cores busy across 9 processes"). Each stage's process goes into
+  a Windows job of its own (`core.process_job.CpuWatch`), and the job's
+  accounting counts CPU time for everything the stage starts, including
+  workers that already exited. The job allows breakaway, like the pool job,
+  because MO2 starts the Creation Kit that way. So the CK's own CPU time is
+  not counted, and while it works the line says the build is waiting on
+  another program.
 - <a id="earlier-runs"></a>**What earlier runs left** (`stages.found`, added
   2026-10-24), from the app or the command line, shown beside each stage:
   - Export: the export with its date (`_HEADER.txt`).
@@ -353,7 +365,7 @@ passes `--light` ([the policy](research/fo4_light_plugins.md#policy)).
   | FO4 Papyrus compiler (Creation Kit) | Build: the scripts Caprica fails on | those scripts stay uncompiled (`papyrus.compile_folder` returns nothing) |
   | Elric (Creation Kit) | Build: meshes our physics writer (`hknp_write`) doesn't cover; 0 in the 2026-11-21 FalloutNV.esm build ([audit](../audits/fo4_redo_audit_2026-11-23.md#elric)) | those meshes have no collision (`elric._run` finishes none) |
   | Creation Kit FaceGen | Faces: NPCs our own FaceGen fails on | those NPCs have no FaceGen |
-  | `xWMAEncode.exe` (DirectX SDK; the `.cmd` launcher downloads it) | Build: every voice and sound file (`audio_converter.convert_file_to_xwm`, under Wine off Windows) | no voice or sound files |
+  | `xwma_enc.exe` (ours, `native/src/xwma`, shipped) | Build: every voice and sound file (`voice.convert` through `audio_converter.convert_file_to_xwm`); no Linux build yet, and `convert_file_to_xwm` would hand a native one Wine paths | no voice or sound files |
   | LipGenerator (Creation Kit) | Build: a voice line with no FNV `.lip`, when installed | the lip comes from the recording's loudness (`voice.loudness_lip`) |
   | `LODGenx64.exe` (bundled) | Build: object LOD, under Wine off Windows | no object LOD |
   | `texconv.exe` (Elric folder) | no longer used: our own encoder writes face and terrain LOD textures ([encoder](fo4_facegen_plan.md#own-dds-encoder)) | — |
@@ -361,7 +373,7 @@ passes `--light` ([the policy](research/fo4_light_plugins.md#policy)).
 
 - **Pinned zlib:** `native/dist` holds `f3_zlib.dll` only. Elsewhere
   `base/pinned_zlib.py` raises without `libf3_zlib.so` / `.dylib`, so no
-  plugin is written until those are built (`tools/generators/gen_f3_zlib.py`).
+  plugin is written until those are built (`tools/generators/gen_native_c.py`).
 - **Native speedups:** the `.pyd` modules are built for Windows today; the
   NIF geometry reader falls back to pure Python without its module.
 

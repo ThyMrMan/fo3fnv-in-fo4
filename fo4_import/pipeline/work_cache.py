@@ -18,6 +18,7 @@ import json
 import os
 import pickle
 import shutil
+import threading
 import time
 from pathlib import Path
 
@@ -81,11 +82,24 @@ def module_ran(module: str) -> dict:
     return hashes(k for rel in rels if rel for k in module_keys(rel))
 
 
+def replace_with(target: Path, data: bytes) -> bool:
+    """Write `data` to `target` through a temporary file of this thread's own; False when another writer holds
+    `target` open (two workers storing the same entry), its copy standing."""
+    partial = target.with_suffix(f'.{os.getpid()}.{threading.get_ident()}.tmp')
+    partial.write_bytes(data)
+    try:
+        partial.replace(target)
+    except PermissionError:
+        partial.unlink(missing_ok=True)
+        if not target.exists():
+            raise
+        return False
+    return True
+
+
 def write_ran(entry: Path, ran: dict) -> None:
     """Keep `ran` as `entry`'s code record."""
-    partial = ran_path(entry).with_suffix(f'.{os.getpid()}.tmp')
-    partial.write_text(json.dumps(ran, sort_keys=True), encoding='utf-8')
-    partial.replace(ran_path(entry))
+    replace_with(ran_path(entry), json.dumps(ran, sort_keys=True).encode('utf-8'))
 
 
 def lookup(site: str, module: str, inputs: tuple, default=None):
@@ -129,16 +143,8 @@ def store(site: str, module: str, inputs: tuple, value, ran: 'dict | None' = Non
     same map), its copy stands."""
     entry = _entry(site, inputs)
     entry.parent.mkdir(parents=True, exist_ok=True)
-    partial = entry.with_suffix(f'.{os.getpid()}.tmp')
-    partial.write_bytes(pickle.dumps(value))
-    try:
-        partial.replace(entry)
-    except PermissionError:
-        if not entry.exists():
-            raise
-        partial.unlink(missing_ok=True)
-        return value
-    write_ran(entry, ran if ran is not None else module_ran(module))
+    if replace_with(entry, pickle.dumps(value)):
+        write_ran(entry, ran if ran is not None else module_ran(module))
     return value
 
 

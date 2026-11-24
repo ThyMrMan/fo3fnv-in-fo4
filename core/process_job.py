@@ -116,6 +116,8 @@ def _kernel32():
     k32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
     k32.SetInformationJobObject.argtypes = [
         ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    k32.QueryInformationJobObject.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p]
     k32.CloseHandle.argtypes = [ctypes.c_void_p]
     return k32
 
@@ -500,3 +502,81 @@ def describe_limit() -> str:
         except ValueError:
             pass
     return "Process containment: on"
+
+
+#: QueryInformationJobObject's JobObjectBasicAccountingInformation class.
+_JOB_BASIC_ACCOUNTING = 1
+#: Job CPU times count 100 ns ticks.
+_TICKS_PER_SECOND = 10_000_000
+
+
+def _accounting_struct():
+    """JOBOBJECT_BASIC_ACCOUNTING_INFORMATION: CPU times (100 ns ticks) and process counts."""
+    import ctypes
+
+    class Accounting(ctypes.Structure):
+        """The job's accounting block."""
+        _fields_ = [(n, ctypes.c_longlong) for n in ("TotalUserTime", "TotalKernelTime", "PeriodUserTime",
+                                                      "PeriodKernelTime")] + [
+            (n, ctypes.c_ulong) for n in ("PageFaults", "TotalProcesses", "ActiveProcesses", "Terminated")]
+
+    return Accounting
+
+
+class CpuWatch:
+    """CPU use of processes added to a job of their own and everything they start (breakaway allowed, as the pool
+    job does, so a child that leaves is not counted). Off Windows, or if the job can't be made, it reports nothing.
+    See: docs/fork/fo4_gui.md#activity
+    """
+
+    def __init__(self):
+        """A watch with no processes yet."""
+        self.handle, self.last = None, None
+        if not _IS_WIN:
+            return
+        import ctypes
+
+        k32 = _kernel32()
+        handle = k32.CreateJobObjectW(None, None)
+        info = _extended_limit_struct()()
+        info.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_BREAKAWAY_OK
+        if handle and k32.SetInformationJobObject(handle, _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+                                                  ctypes.byref(info), ctypes.sizeof(info)):
+            self.handle = handle
+        elif handle:
+            k32.CloseHandle(handle)
+
+    def add(self, pid: int) -> bool:
+        """Put process `pid` (and what it starts from now on) in the watch; whether it went in."""
+        if self.handle is None:
+            return False
+        k32 = _kernel32()
+        ph = k32.OpenProcess(_PROCESS_SET_QUOTA | _PROCESS_TERMINATE, False, pid)
+        ok = bool(ph and k32.AssignProcessToJobObject(self.handle, ph))
+        if ph:
+            k32.CloseHandle(ph)
+        return ok
+
+    def sample(self) -> 'tuple | None':
+        """(cores busy on average since the last sample, processes running), or None on the first sample, off
+        Windows or when the job can't be read."""
+        if self.handle is None:
+            return None
+        import ctypes
+        import time
+
+        info = _accounting_struct()()
+        if not _kernel32().QueryInformationJobObject(self.handle, _JOB_BASIC_ACCOUNTING, ctypes.byref(info),
+                                                     ctypes.sizeof(info), None):
+            return None
+        now = (time.monotonic(), info.TotalUserTime + info.TotalKernelTime)
+        last, self.last = self.last, now
+        if last is None or now[0] <= last[0]:
+            return None
+        return (now[1] - last[1]) / _TICKS_PER_SECOND / (now[0] - last[0]), info.ActiveProcesses
+
+    def close(self) -> None:
+        """Let the job go (its processes keep running)."""
+        handle, self.handle = self.handle, None
+        if handle:
+            _kernel32().CloseHandle(handle)

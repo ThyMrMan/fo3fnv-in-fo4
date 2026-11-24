@@ -11,6 +11,7 @@ import pytest
 
 from asset_convert.audio.audio_converter import pack_fuz
 from fo4_import.base import lip
+from fo4_import.pipeline import work_cache
 from fo4_import.spike import voice
 
 FO4_VOICES = Path(r'C:\Program Files (x86)\Steam\steamapps\common\Fallout 4\Data\Fallout4 - Voices.ba2')
@@ -77,6 +78,7 @@ def test_a_recording_with_its_own_lip_skips_lipgenerator(tmp_path, monkeypatch):
         Path(dst).write_bytes(b'XWMA')
         return True
     monkeypatch.setattr(voice, 'convert_file_to_xwm', fake_xwm)
+    monkeypatch.setattr(work_cache, 'CACHE', tmp_path / 'work')
     dest = tmp_path / 'out' / 'Type' / '00000001_1.fuz'
     dest.parent.mkdir(parents=True)
     assert voice._convert_shared((recording, 'Hi.'), [dest], ('ffmpeg', 'xwma', 'lipgen')) == 1
@@ -111,6 +113,7 @@ def test_a_line_lipgenerator_cannot_lip_gets_a_loudness_lip(tmp_path, monkeypatc
         return True
     monkeypatch.setattr(voice, 'convert_file_to_xwm', fake_xwm)
     monkeypatch.setattr(voice, 'loudness_lip', lambda rec, ffmpeg: b'LIP')
+    monkeypatch.setattr(work_cache, 'CACHE', tmp_path / 'work')
     dest = tmp_path / 'out' / 'Type' / '00000001_1.fuz'
     dest.parent.mkdir(parents=True)
     assert voice._convert_shared((recording, 'Hi.'), [dest], ('ffmpeg', 'xwma', str(tmp_path / 'none.exe'))) == 1
