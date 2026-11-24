@@ -66,7 +66,7 @@ here, so a later patch can close the gap. Content is never dropped.
 | Faces | FaceGen shape and texture | FO4 sculpt regions fitted to FNV (about 70% of the shape), matched hair and eyes | [sculpt](fo4_spikes.md#spike-2-sculpt) |
 | Cell grading | Imagespace values | One LUT baked from FNV's grading | [imagespace](fo4_spikes.md#spike-2-imagespace) |
 | Glass and blended surfaces | Alpha-blended lit surfaces | Decals, effect materials or cut-outs | [transparency](fo4_spikes.md#spike-2-transparency) |
-| Collision | FNV Havok | Rebuilt through the CK's Elric | [collision](fo4_spikes.md#spike-2-collision) |
+| Collision | FNV Havok | Rebuilt as Fallout 4 hknp physics by our own writer ([writer](fo4_hknp_writer.md)) | [collision](fo4_spikes.md#spike-2-collision) |
 | Character collision height | FNV's controller fits a 139 opening | FO4's human skeleton box lowered from 128 to 115 so it does too; FO4's own NPCs get the same box | [player collision](research/fo4_target.md#player-collision) |
 | Script timing | Per-frame GameMode blocks | Papyrus timers (0.1 s at the fastest) | [timing](fo4_spikes.md#spike-3-timing) |
 | Faction enemy test | GetActorFactionPlayerEnemy: the actor's faction hates the player | `IsHostileToActor` of the player, which also follows the actor's aggression (FO4 has no faction-only test); the Tops gamblers flee, Hannigan's runner runs | [package conditions](fo4_pipeline.md#package-conditions) |

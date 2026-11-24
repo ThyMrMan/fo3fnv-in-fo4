@@ -42,7 +42,7 @@ as `stats` does; the race comes from the rig table.
 
 - `fo4_import/rig/assets.py`: `skeleton.hkx` (animation skeleton only,
   `anim_fo4`), clips with root motion (`kf_decode` → `anim_fo4`, motion
-  patched with `packfile`), `skeleton.nif` (FNV's ragdoll through Elric, plus
+  patched with `packfile`), `skeleton.nif` (FNV's ragdoll through our writer, `hknp_ragdoll`, plus
   `CharacterController`/`CharacterBumper` phantoms, BSXFlags 0xC6, `BSBound`),
   the skinned body and its materials.
 - `fo4_import/rig/behavior.py`: the root graph (creature states inline,

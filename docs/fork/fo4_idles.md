@@ -186,8 +186,8 @@ moves. `AnimObjectR1` and `L1` rest exactly on the hands (identity under
   the second prop of FO3's beer-drinking and restrained-sitting idles and
   FNV's vomiting idle. A prop finding no free bone is counted and left out.
   It is hung as it is written (`statics.prop_assets`),
-  because idles are written after the build's Elric pass; a prop with Havok
-  input runs through Elric right then.
+  because idles are written after the build's collision pass; a prop with
+  Havok input gets its physics from our writer right then.
 - **Clip:** the prop bone's track carries the chain's transform on every
   frame, with FNV's clip channels where the clip moves a chain node.
   - On a hand, the transform is turned from FNV's hand frame into FO4's, by

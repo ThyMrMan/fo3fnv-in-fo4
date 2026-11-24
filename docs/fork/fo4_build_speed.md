@@ -93,7 +93,7 @@ work cache has (`ran=None`).
   type whatever the mod holds (globals, factions, perks, reputations, recipes
   and their items, encounter zones).
 - Master meshes are checked in the mesh cache (26–153 s), written into the
-  mod's folder, given collision by Elric (23–183 s), and deleted afterwards
+  mod's folder, given collision (23–183 s through Elric, before 2026-11-24), and deleted afterwards
   when they match the master's copy.
 - At the very end `master_overrides.drop_unchanged` compares each master
   record to the built master's bytes and drops the ones that match.
@@ -180,7 +180,7 @@ fault"), `Guns.choose`, `Equipment._own_models`, `overlay.meshes`,
 creature keeps its target's skin, as a `stats` stand-in does),
 `TalkingMachines._part` (part left out, as a missing one is),
 `Terminals._look` (falls to `mesh()`), `Swaps._pair` (no swap, as for no
-such shape) and `ObjectLod._converted`/`_shipped` (no LOD mesh). A faulted Elric graft is not stored in the work cache. `run`
+such shape) and `ObjectLod._converted`/`_shipped` (no LOD mesh). A faulted mesh's collision finish is not stored in the work cache. `run`
 and `overlay` print `source fault: <file>: <reason>` lines and write them to
 the stamp under `source faults`. Asset lookup (`export_index.asset_chain`,
 behind `export_file` and `asset_root`) adds the game's own plugins
@@ -413,7 +413,9 @@ cached. The sculpt fit was most of a face's time, all of it in
   writer (`BLOCKS`) and `graft` / `without_havok` / `_renumber` shape the bytes.
   Elric's own run is already cached by bytes alone (`elric_cache.process`).
   So `elric_finish` keeps a code record: the functions `elric.finish` ran,
-  not `ran=None`. *Built.*
+  not `ran=None`. *Built.* Since 2026-11-24 Elric does not run: the key is
+  the mesh's bytes alone and the record names what `elric_cache.finished`
+  (our writer) ran ([seam](fo4_hknp_writer.md#seam)).
 - <a id="collision-pool"></a>**Collision, one record a mesh, in a pool
   (2026-11-12).** The warm build of 2026-11-12 spent 477.6 s in
   `collision` because every one of the 7,707 `elric_finish` entries
@@ -439,11 +441,10 @@ cached. The sculpt fit was most of a face's time, all of it in
     everything for its other sites.
   - `elric_cache.finish_one` finishes one mesh with its own record.
     `finished_each` runs the misses in worker processes (`pool_workers`, 512
-    MB each) once there are `POOLED` (16) or more. A mesh only a new Elric
-    run can finish raises `NeedsElric` in its worker (`cached_process`) and
-    joins one `_batch` after the pool, so Elric still runs as one instance.
-    Faults a worker meets come back with its result and are counted in the
-    main process.
+    MB each) once there are `POOLED` (16) or more. Faults a worker meets
+    come back with its result and are counted in the main process. (Until
+    2026-11-24 a mesh only Elric could finish raised `NeedsElric` and joined
+    one Elric batch after the pool.)
 
   Measured on a scratch copy, pre-Elric meshes taken from the build's
   `mesh_files` cache, empty work caches:
@@ -539,7 +540,7 @@ only its archives. So `drop_loose` found none of them, and every mod shipped
 its masters' meshes again in its own Main archive. In Strip Lights that was
 6,771 meshes, all byte-identical to the game's archive.
 - Every build now writes `<plugin>.meshes.json` beside its plugin, and the
-  deploy carries it. It lists each mesh the build ships as Elric finished it,
+  deploy carries it. It lists each mesh the build ships as the collision step finished it,
   by path: `elric_cache.mark`, the `elric_finish` entry's key and code-record
   digest, plus whether collision worked.
 - A dependent build reads its masters' records (`master_copies.theirs`). In
@@ -554,7 +555,7 @@ its masters' meshes again in its own Main archive. In Strip Lights that was
 - The records count only when every master in another folder has one, the
   last master's winning. So a master built before this change cannot hide a
   different copy of the same path.
-- Weapon meshes (dressed after Elric) and object LOD meshes (read by the LOD
+- Weapon meshes (dressed after collision) and object LOD meshes (read by the LOD
   bake) are always built.
 - **Measured:** the game's record was simulated (a hard-linked copy of its MO2
   folder, the record holding only meshes byte-identical to its archive).

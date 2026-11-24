@@ -1,18 +1,20 @@
 # Plan sketch: the build without the Creation Kit (2026-11-11)
 
-Status (2026-11-23): 1 [built](#ba2), 2 [built](#caprica), 3
-[built](#anim-text) and in every build, 7 [built](#lips); 4 the app's
-default, with a per-NPC CK fallback that fired once in 286 logged runs; 5
-built, with no FalloutNV.esm mesh left to Elric
-([audit](../audits/fo4_redo_audit_2026-11-23.md#elric)); 6 and 8 not
-started. Status lives in
+Status (2026-11-24): 1 [built](#ba2), 2 [built](#caprica), 3
+[built](#anim-text) and in every build, 6 [built](#xwma-spike), 7
+[built](#lips); 4 and 5 built and the only route: the CK FaceGen fallback
+and Elric were dropped
+([audit](../audits/fo4_redo_audit_2026-11-23.md#elric)); 8 not started. No
+build step runs the Creation Kit; its script sources must still be
+installed. Status lives in
 [ROADMAP.md](ROADMAP.md). Built on the [open-tools survey](research/fo4_open_landscape.md#tools)
 and the build's own docs; costs quoted are the docs' measurements.
 
-**Why.** The FO4 build still runs Bethesda's and Microsoft's Windows-only
-tools as stages: the Creation Kit (FaceGen, AnimTextData), Elric, Archive2,
-LipGenerator, xWMAEncode (now replaced, [encoder](#xwma-spike)) and FO4's Papyrus compiler
-(`fo4_import/app/stages.py`, `WINDOWS_TOOLS`). Each one blocks the
+**Why.** The FO4 build ran Bethesda's and Microsoft's Windows-only tools as
+stages: the Creation Kit (FaceGen, AnimTextData), Elric, Archive2,
+LipGenerator, xWMAEncode and FO4's Papyrus compiler
+(`fo4_import/app/stages.py`, `WINDOWS_TOOLS`). LipGenerator and FO4's
+compiler remain, each as a fallback ([the table](#today)). Each one blocks the
 [cross-platform app](fo4_gui.md), and several cost time, determinism or
 reliability on Windows too.
 
@@ -25,8 +27,8 @@ reliability on Windows too.
 | BA2 packing (1) | none | Main, texture and voice archives written by us (`base/ba2_write.py`, `base/ba2_textures.py`; [texture BA2](#ba2)) | Play test |
 | Papyrus (2) | FO4's compiler, only as the fallback for mods' scripts | Every FalloutNV.esm script in our Caprica build ([Caprica](#caprica)) | Play test |
 | AnimTextData (3) | none | Every file, in every build since 2026-11-12 ([ours](research/anim_text_data.md#ours)) | — |
-| FaceGen (4) | The CK, per NPC, when ours fails: once in 286 logged face runs (5 Dead Money NPCs, 2026-11-21), and the CK failed them too ([audit](../audits/fo4_redo_audit_2026-11-23.md#faces)) | FaceGeom heads and `_d`/`_msn`/`_s`, the app's default (`--own-facegen`), 0.29 s a face ([own stage](fo4_facegen_plan.md#own-stage)); textures through our encoder ([encoder](fo4_facegen_plan.md#own-dds-encoder)) | Play test; drop the CK fallback; hair up to 0.29 units off, cause unknown |
-| Collision and ragdolls (5) | Elric, only for what ours does not cover: 0 of 6,188 FalloutNV.esm meshes, 2 of 2,066 in NVWillow, both of which Elric failed ([audit](../audits/fo4_redo_audit_2026-11-23.md#elric)) | Convex shapes, triangle meshes on still or keyframed bodies, spheres, capsules, lists, ragdoll and hinge constraints, creature ragdolls ([steps](fo4_hknp_writer.md#steps)) | Play test; triangle meshes on bodies with full motion; flat shapes; other constraint kinds; then drop Elric |
+| FaceGen (4) | none since 2026-11-24: an NPC ours fails on is listed and has no FaceGen, as the CK fallback left the only 5 it ever got ([audit](../audits/fo4_redo_audit_2026-11-23.md#faces)) | FaceGeom heads and `_d`/`_msn`/`_s`, 0.29 s a face ([own stage](fo4_facegen_plan.md#own-stage)); textures through our encoder ([encoder](fo4_facegen_plan.md#own-dds-encoder)) | Play test; hair up to 0.29 units off, cause unknown |
+| Collision and ragdolls (5) | none since 2026-11-24: a mesh ours does not cover has no collision (0 in FalloutNV.esm, Fallout3.esm and NVWillow) ([seam](fo4_hknp_writer.md#seam)) | Convex shapes, point shapes, triangle meshes on still, keyframed or moving bodies, spheres, capsules, lists, ragdoll and hinge constraints, creature ragdolls ([steps](fo4_hknp_writer.md#steps)) | Play test; other constraint kinds |
 | Lip files (7) | LipGenerator, when installed and it works | FNV's lips converted ([lips](research/lip_format.md#built)); the recording's loudness otherwise ([lips](#lips)) | Play test; decide whether to stop calling LipGenerator |
 | Voice audio (6) | none | The `.fuz` and its audio: our encoder `native/dist/xwma_enc.exe` (Xwma-Codec, changed) since 2026-11-24 ([encoder](#xwma-spike)) | A Linux build of the encoder |
 | Precombines and previs (8) | none yet (CK planned, [before](fo4_pipeline.md#before)) | Not built | Not started: the CK route first |
@@ -50,8 +52,9 @@ reliability on Windows too.
   Windows-only. Items 1–7 make every stage but precombines portable.
 - **No Creation Kit install for users.** Users would need only the game and
   their mod manager, not the CK, CKPE and Tools.
-- **Mod-manager neutral for real.** The CK steps run through MO2
-  (`pipeline/creation_kit.py`) so the CK sees the profile's plugins;
+- **Mod-manager neutral for real.** The CK steps ran through MO2 so the CK
+  saw the profile's plugins; none is left. Our FaceGen still reads an MO2
+  profile's mod order (`pipeline/creation_kit.py`), and
   [the app's design](fo4_gui.md) promises any mod manager.
 - **Faster, repeatable builds.** No serial CK or Elric runs, everything in
   the process pool, the same bytes every build (FaceGen and lips included),
@@ -230,6 +233,6 @@ more. Not looked at in game: how a loudness lip reads next to LipGenerator's.
 
 ## <a id="order"></a>Suggested order
 
-1, 2, 3, 4, 5 and 7 are built (see [the table](#today) for what each has
-left). Next: play-test them together, make 4 the default, cover 5's last
-shapes and drop Elric. 6 needs its spike. 8 waits for the CK route.
+1 to 7 are built, and 4 and 5 are the only route (see [the table](#today)
+for what each has left). Next: play-test them together. 8 waits for the CK
+route.

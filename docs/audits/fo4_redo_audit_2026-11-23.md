@@ -136,6 +136,12 @@ check are gone ([own stage](../fork/fo4_facegen_plan.md#own-stage)).
 
 ## <a id="caprica"></a>4. Caprica leaves whole folders to FO4's compiler
 
+**Built 2026-11-24.** Two causes, both found by keeping each run's output:
+a run stopped by a syntax error in another folder's script, read through
+the own-folder import, and a Caprica crash on one script
+(`DLC05CryoFreezeRoomSCRIPT`). Zeta now compiles 872 of 879 in Caprica,
+NewVegasBountiesII 974 of 974 ([details](../fork/fo4_pipeline.md#caprica-other-folder)).
+
 From the latest logs (`temp/queue/`):
 
 | Build | Caprica compiled | Left to FO4's compiler | FO4's compiler's result |

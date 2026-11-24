@@ -80,10 +80,11 @@ Stages, each scoped and cached on its own so a fix rebuilds only its stage:
      file.
    - Region filtering is a scope on this stage, not a separate code path.
 4. **Assets:** meshes, materials, textures, trees, sounds and voice, each
-   keyed by its source file and converted once into a cache. Elric and
-   BA2 packing run on the cache's output.
+   keyed by its source file and converted once into a cache. Collision
+   (our physics writer; Elric until 2026-11-24) and BA2 packing run on the
+   cache's output.
 5. **Scripts:** the existing FO4 target, compiled incrementally.
-6. **Engine passes:** CK FaceGen, LOD (terrain, then objects), then
+6. **Engine passes:** FaceGen (ours; the CK's until 2026-11-15), LOD (terrain, then objects), then
    precombines and previs last, since any change to a cell's statics
    makes them stale.
 7. **Pack:** BA2s per plugin.
@@ -111,9 +112,11 @@ command line.
     texture is a miss.
   - `mesh_cache.warm` fills it first in worker processes, from the meshes
     of the bases the scope places (`run.scope_models`).
-- **An Elric cache** (`elric_cache.process`). Elric's output is kept per
-  pre-Elric NIF, keyed by its bytes and a SHA-1 over Elric's exe, DLLs and
-  settings; a NIF Elric crashes on is remembered as a crash.
+- **An Elric cache** (`elric_cache.process`, until 2026-11-24, when our
+  physics writer replaced Elric: [seam](fo4_hknp_writer.md#seam)). Elric's
+  output was kept per pre-Elric NIF, keyed by its bytes and a SHA-1 over
+  Elric's exe, DLLs and settings; a NIF Elric crashed on was remembered as a
+  crash.
   - Elric writes uninitialized bytes into its physics: two fresh builds
     differed in 162 of 946 files, only inside `bhkPhysicsSystem` (32 bytes
     in `flamerfuel.nif`, 3 in `woodplanks01nv.nif`). Our own blocks were
@@ -763,8 +766,9 @@ Against the spike-block build:
   the module doing it, and every byte it reads. It now holds:
   - the specular maps (`normal_dds`) and glow maps (`encode_dds`), keyed
     by the image;
-  - each finished mesh after Elric (`elric_cache.finish`), keyed by the
-    pre-Elric NIF and Elric's files, with its failed flag;
+  - each finished mesh after collision (`elric_cache.finish`), keyed by the
+    pre-Elric NIF's bytes (and Elric's files, until 2026-11-24), with its
+    failed flag;
   - the outfits moved onto FO4's body, their shape materials and the
     rigid-headgear check, keyed by the converted and FNV meshes.
 
@@ -7103,14 +7107,16 @@ order of payoff:
    by its source bytes' hash plus a converter version. A rebuild converts
    only what changed. The same rule as the navmesh cache: no mtimes,
    paths or worker counts in the key.
-2. **An Elric cache.** Elric's physics is keyed by the pre-Elric NIF's
-   bytes and Elric's version, so Elric runs only on meshes whose collision
+2. **An Elric cache.** Elric's physics was keyed by the pre-Elric NIF's
+   bytes and Elric's version, so Elric ran only on meshes whose collision
    input changed. Before the cache it ran once a build over every mesh.
+   Since 2026-11-24 our physics writer replaces Elric, in the process pool.
 3. **Parallel work.**
    - Mesh, texture and tree conversion run in a process pool (pure
      Python, `cpu_count() - 1` workers).
-   - Elric cannot: several instances at once deadlock
-     ([skeleton](#skeleton)), so its cache carries it.
+   - Elric could not: several instances at once deadlock
+     ([skeleton](#skeleton)), so its cache carried it. Our writer
+     replacing it runs in the pool.
 4. **Read once.** One index of the export per run (the
    [import-once](../commentary/performance.md#import-once-per-run) rule),
    instead of each spike module parsing the text files itself.
@@ -7248,11 +7254,64 @@ kinds than FO4's compiler listed, never more. A baseline holding FO4's
 words for the other four kinds would need `--write-baseline` once.
 
 **Caprica's problem, left to FO4's compiler:** a run that names no script
-of its folder (a crash, a run past `TIMEOUT`, an error in a header or
-another file); and a script with any error outside the seven, such as
+of its folder and no script of the shared copy ([below](#caprica-other-folder)),
+such as a run past `TIMEOUT` or an error in a header; a script Caprica
+crashes on; and a script with any error outside the seven, such as
 `Cannot initialize a 'var' value with a 'None'!` or a syntax error. A run
 that ends that way without exit code 0 has its .pex deleted, as one may be
 half written.
+
+### <a id="caprica-other-folder"></a>A run stopped by another folder's script, or by a crash (built 2026-11-24, not built in game)
+
+**Before.** A run that named no script of its own folder ended that
+folder, and every script still in it went to FO4's compiler. Zeta.esm left
+295 of 879 that way, NewVegasBountiesII.esp 82 of 974. Rerunning Zeta's
+staged scripts in 12 folders with each run's output kept showed two
+causes, neither a timeout:
+
+- **Another folder's script.** The scripts' own folder is on every run's
+  import list, so Caprica also parses the scripts of the other 11 folders
+  that a folder's scripts use. `SpaceBridge01MasTri_7703` and
+  `SpaceBridge04MasTri_7814` (`Unexpected character ':'`, a syntax error)
+  stopped 5 folders; `_errors` keeps only names of the run's own folder,
+  so 3 of them (the ones not holding the script) ended.
+- **A crash.** `DLC05CryoFreezeRoomSCRIPT` crashes Caprica (exit
+  `0xC0000005`, no error line) whenever it is compiled with the masters'
+  sources imported, which ended its folder of 74. Bisected alone. Why
+  Caprica crashes on it is not found.
+
+**Rule (`caprica._drain`).**
+
+- The runs import a shared copy of the scripts' own folder (`_shared`,
+  hard links under `_caprica/own`) in its place. A run whose errors name a
+  script there renames it to `.gone` (`_unshare`) and runs again; the
+  script's own folder still compiles it and records its errors. Several
+  folders can stop on one script at once, so a folder also runs again when
+  another already renamed it; a folder never runs again for a name it
+  already handled.
+- A run with a nonzero exit, no error line and more than one script left
+  moves half its scripts to a new folder (`_split`) and drains both, so a
+  crash costs about 2 log2(n) runs and leaves only the script it crashes
+  on. A timeout and a header error still end the folder (halving either
+  would only repeat it).
+
+**Measured** (`caprica.compile_files` over each mod's staged scripts, its
+masters' sources imported as the build does):
+
+| Plugin | Caprica before | Runs | Caprica now | Runs |
+|---|---|---:|---|---:|
+| Zeta.esm | 584 of 879 | 14 | 872 of 879 | 32 |
+| NewVegasBountiesII.esp | 892 of 974 (build log) | 12 | 974 of 974 | 12 |
+
+Zeta's 7 left are the 7 FO4's compiler fails too (872 of 879). The shared
+copy costs 2.0 s to make and 0.8 s to remove for FalloutNV.esm's 18,627
+scripts, only when something is compiled.
+
+**Cost when a master is missing.** With a master's sources absent from
+the import list, each script that uses it fails, leaves the shared copy,
+and its users fail in turn: NewVegasBountiesII without
+`SomeguySeries.esm` took 300 runs (757 compiled) where ending the folder
+took 12. A build always imports every master's folder.
 
 **`Var` defaults.** FO4's compiler takes only `None` as a `Var`
 parameter's default (`cannot initialize a var to 0`, also `False`, `""`,

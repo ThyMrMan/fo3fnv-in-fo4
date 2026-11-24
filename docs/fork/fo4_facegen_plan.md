@@ -2049,8 +2049,10 @@ green gives 2.9; the decoded rule, 0.9.
 - The converted NPC record holds FO4 slider values: sculpt regions
   (FMRI/FMRS) for shape, tint layers and a skin tone for colour
   ([sculpt](fo4_spikes.md#spike-2-sculpt), [tints](fo4_spikes.md#spike-2-tints)).
-- The CK exports what the game draws (`-ExportFaceGenData`, run through
-  MO2; [facegen](fo4_spikes.md#spike-2-facegen)):
+- The faces stage writes what the game draws, with our own FaceGen
+  ([own stage](#own-stage)); until 2026-11-24 the CK's `-ExportFaceGenData`
+  run through MO2 did, and later only for NPCs ours failed on
+  ([facegen](fo4_spikes.md#spike-2-facegen)):
   - `Meshes\Actors\Character\FaceGenData\FaceGeom\<plugin>\<id>.nif`: every
     head part as a skinned BSSubIndexTriShape in one head-local frame;
   - `Textures\Actors\Character\FaceCustomization\<plugin>\<id>_d.dds`,
@@ -2063,32 +2065,17 @@ green gives 2.9; the decoded rule, 0.9.
   faces read rounder and more generic than FNV's (Sgt Kilborn, 2026-11-09).
 - Hair is chosen per NPC from FO4's own hairstyles: by name, then by style,
   then by drawn coverage ([hair styles](fo4_spikes.md#hair-styles)).
-- The CK needs the MO2 profile, and is a Windows-only stage of the app.
-  It costs about 2 s per NPC on a small plugin, but 5.7 s per face on
-  FalloutNV.esm: the overnight run of 2026-11-12 wrote 2,382 faces in
-  3.8 hours. The timeout allows 6 s per NPC_ record.
-- <a id="ck-exit-hang"></a>**The CK can hang on exit after a big export.**
-  On that run it wrote its last face at 05:27, then stayed up until it was
-  closed by hand at 07:21. It hit an access violation in `CreationKit.exe+38A466`
-  with cell `FNVVault22d` loaded, and CKPE wrote the crash zip only on that
-  close. Every NPC still missing a face had a creature race, so the export was
-  complete. MO2's `run` waits for the CK, so the old timeout never ran.
-  `creation_kit.run` now starts MO2 without waiting. Once the CK has written
-  files and then gone `CK_QUIET` (15 min) without a new one, it counts as
-  done and is closed. `facegen --collected` finishes a stage from files that
-  an earlier CK run left in overwrite.
-- **A CK stuck before its first file** (a load hang or an error dialog) is
-  closed after `CK_FIRST` (30 min) and stops the stage. Before, only the
-  overall timeout caught it, 6 s per NPC: about 6 hours for FalloutNV.esm.
-- **A CK export that stops early now fails the stage (2026-11-13).** A CK
-  that stalls mid-export is closed after `CK_QUIET` like a finished one, so
-  after every CK export `facegen.complete` compares the FaceGeom NIFs written
-  with the NPCs `facegeom.exported` says the CK exports (the plugin's own
-  `NPC_` records, not taking traits from a template, of a race with a FaceGen
-  head). A missing one stops the stage and names the NPCs. In the CK fallback
-  of `--own-facegen`, only the failed NPCs are expected; a fallback that
-  leaves one without a head is reported as before, and the stage then exits
-  with an error instead of passing.
+- The stage reads the MO2 profile's mod order (`F3NV_MO2_PROFILE` picks
+  another profile) and runs on any OS. An NPC it fails on is listed and has
+  no FaceGen; the stage still finishes.
+- <a id="ck-exit-hang"></a>**When the CK ran (until 2026-11-24).** It cost
+  about 2 s per NPC on a small plugin but 5.7 s per face on FalloutNV.esm
+  (2,382 faces in 3.8 hours on 2026-11-12), and could hang on exit after a
+  big export: that run wrote its last face at 05:27 and stayed up, after an
+  access violation in `CreationKit.exe+38A466`, until closed by hand at
+  07:21. `creation_kit.run` then closed a CK quiet for `CK_QUIET` (15 min)
+  or with no first file after `CK_FIRST` (30 min), and `facegen.complete`
+  failed a stage whose export stopped early. All of it went with the CK run.
 - <a id="faces-stamp"></a>**Faces belong to one build of the plugin
   (2026-11-13).** A rebuild writes the plugin without the faces stage's
   slider patches, FaceGen or archives, and before this a base rebuild inside

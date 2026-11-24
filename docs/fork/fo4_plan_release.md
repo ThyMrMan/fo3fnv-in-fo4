@@ -49,12 +49,13 @@ machine):
 - **All animation data** without the Creation Kit (2026-11-11):
   `build_finish._anim_text` ([ours](research/anim_text_data.md#ours)).
 
-**What still needs the Creation Kit through MO2:**
-- `pipeline/creation_kit.py` fixes `MO2 = C:\Modlists\fo3fnv-in-fo4` and
-  runs `ModOrganizer.exe run -e "Creation Kit"` (`creation_kit.run`). The
+**What still reads MO2 directly:**
+- No step runs the Creation Kit since 2026-11-24 (the faces stage writes
+  only our FaceGen, [own stage](fo4_facegen_plan.md#own-stage)).
+- Our FaceGen reads the selected profile's mod order through
+  `pipeline/creation_kit.py`, whose `MO2` is `C:\Modlists\fo3fnv-in-fo4`
+  unless `F3NV_MO2` is set (`F3NV_MO2_PROFILE` picks another profile). The
   app's MO2 choice does not reach it.
-- `spike/facegen.run_ck` runs `-ExportFaceGenData` the same way. It is a
-  separate command after the build; neither the app nor the README runs it.
 - Face fits can be published and installed (`spike/face_fits.py` export,
   verify, install), but none has been published
   ([face fits](fo4_pipeline.md#published-face-fits)).
@@ -121,8 +122,8 @@ plus a profile, installed into the same MO2 instance). Mod builds are one
 more plugin in the same build plan and the same per-plugin mod folders.
 Build-only-what-changed is the engine of part 4.
 
-**Engine and tool mechanisms used:** MO2's `run -e <executable>` (already
-used by `creation_kit.run`), Fallout 4's loose files and plugins, and the
+**Engine and tool mechanisms used:** MO2's `run -e <executable>` (used by
+the CK runs until 2026-11-24), Fallout 4's loose files and plugins, and the
 existing Python tools. Nothing here needs new runtime code.
 
 ### <a id="dll-decisions"></a>DLL decisions

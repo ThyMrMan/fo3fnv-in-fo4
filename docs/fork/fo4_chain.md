@@ -15,9 +15,9 @@ py -3.14 -m tools.release.fo4_chain --fresh --kit <file.esl> --kit-mod "<MO2 mod
 
 - The Steam games moved to `D:\SteamLibrary`; the source registry still
   named the old folders and the base build broke after 136 s.
-- The CK hung before writing its first file (now `CK_FIRST` in
-  `creation_kit.run`), and a CK that stalls mid-export is closed after
-  `CK_QUIET` as if done.
+- The CK hung before writing its first file, and stalled mid-export
+  (handled by `CK_FIRST` and `CK_QUIET` until 2026-11-24, when the faces
+  stage stopped running the CK).
 - `build_plan --run` replayed a scratch build's stamp command and rebuilt
   Caravan Pack into `temp/` in a loop.
 - A base rebuild inside `build_plan --run` silently reset the faces.
@@ -38,7 +38,7 @@ In order, as the scratch chain ran them:
    mod folder (the folder `fo4_app.json` names for `falloutnv`), with
    `F3NV_PROFILE_STAGES=worlds,item WEAP` (`--profile-stages ''` turns it
    off).
-2. **faces**: `fo4_import.spike.facegen --own-facegen`.
+2. **faces**: `fo4_import.spike.facegen` (our own FaceGen only).
 3. **helpers**: `FalloutHelpers.esl`.
 4. **dll**: F3NV.dll into `F4SE/Plugins`.
 5. **plan**, then **others**: `build_plan` over the base and every built

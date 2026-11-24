@@ -76,7 +76,7 @@ Most of what is left is play-testing and fixing what testers find.
 |---|---|---|---|
 | Faces | Works | | [sculpt](fo4_spikes.md#spike-2-sculpt) |
 | Hair and eyes | Works | Long-hair stretch fix not checked | [hair](fo4_spikes.md#hair-styles) |
-| Our own FaceGen | Built, not played | Mods' own hairstyles; the Creation Kit stays as a fallback | [own stage](fo4_facegen_plan.md#own-stage) |
+| Our own FaceGen | Built, not played | Mods' own hairstyles; an NPC it fails on has no FaceGen (no Creation Kit fallback since 2026-11-24) | [own stage](fo4_facegen_plan.md#own-stage) |
 | DLC and mod faces | Built, not played | | [DLC and mods](fo4_facegen_plan.md#addon-faces) |
 | Outfits | Partial | 15 of 323 armors keep Fallout 4's worn models, 24 more its ground model; wrist seam; loose cloth | [clothing](fo4_build_next.md#human-clothing) |
 | Headgear | Works | | [headgear](fo4_spikes.md#spike-4-headgear) |
@@ -128,8 +128,8 @@ Most of what is left is play-testing and fixing what testers find.
 |---|---|---|---|
 | New game | Works | Two timing fixes at Doc Mitchell's not played | [seated](fo4_pipeline.md#furniture-seated) |
 | Quests | Partial | Played from Goodsprings to Primm only | [preflight](fo4_preflight.md#results-2026-11-07) |
-| Script converter | Partial | 659 calls do nothing; 177 of them have a Fallout 4 native ([audit](../audits/fo4_redo_audit_2026-11-23.md#natives)) | [scripts](fo4_spikes.md#spike-3-gate) |
-| Unconverted functions | Partial | Combat styles, package timers, renaming, music cues | [not built](script_markers.md#not-built) |
+| Script converter | Partial | 510 calls do nothing; most have no Fallout 4 counterpart ([decision table](fo4_plan_script_functions.md#decision-table)) | [scripts](fo4_spikes.md#spike-3-gate) |
+| Unconverted functions | Partial | Package timers, music cues, inventory resets, aimed UseWeapon shots | [decision table](fo4_plan_script_functions.md#decision-table) |
 | Condition reads, triggers, region tests | Built, not played | | [reads](script_markers.md#native-read-follow-ups) |
 | Companions | Partial | No companion wheel; hiring and gear return untested | [drift](fo4_drift.md#candidates) |
 | Terminals, message boxes | Works | | [terminals](fo4_pipeline.md#terminals) |
@@ -214,7 +214,7 @@ Most of what is left is play-testing and fixing what testers find.
 | Conversion app | Built, not played | First end-to-end run from a fresh download | [app](fo4_gui.md#convert-screen) |
 | Installing | Built, not played | README steps not yet followed on a clean setup | [install](../../README.md#install) |
 | Replacements | Partial | Named profiles and a Wabbajack list | [replacements](fo4_replacements.md#direction) |
-| Building without the Creation Kit | Partial | Fallbacks remain for faces, meshes and scripts; the face and mesh ones almost never fire ([audit](../audits/fo4_redo_audit_2026-11-23.md#elric)) | [CK replacements](fo4_ck_replacements.md) |
+| Building without the Creation Kit | Partial | Faces and collision are ours alone (Elric and the CK FaceGen fallback dropped 2026-11-24); scripts Caprica cannot compile still go to Fallout 4's compiler, and its script sources must be installed | [CK replacements](fo4_ck_replacements.md) |
 | Linux and macOS | Partial | Never tried; the pinned zlib and the script compile are Windows-only ([blockers](../audits/fo4_redo_audit_2026-11-23.md#off-windows)) | [Windows tools](fo4_gui.md#windows-tools) |
 
 ## <a id="known-bugs"></a>Known bugs a player will see
@@ -323,6 +323,8 @@ project. Their last status is in the [development log](dev_log.md#character).
 | [fo4_crafting_plan.md](fo4_crafting_plan.md) | Crafting |
 | [fo4_mod_builds.md](fo4_mod_builds.md) | Converting New Vegas mods |
 | [fo4_ck_replacements.md](fo4_ck_replacements.md) | The build without the Creation Kit |
+| [fo4_hknp_writer.md](fo4_hknp_writer.md) | Our own Fallout 4 physics writer, which replaced Elric |
+| [fo4_chain.md](fo4_chain.md) | The whole build chain, run and watched (`tools.release.fo4_chain`) |
 | [fo4_script_compile.md](fo4_script_compile.md) | Converted scripts that failed to compile, and why each now does |
 | [fo4_hotfix.md](fo4_hotfix.md) | Script hotfixes between builds |
 | [nvse_script_language.md](nvse_script_language.md) | NVSE's script language in converted scripts |

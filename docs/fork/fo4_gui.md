@@ -932,17 +932,16 @@ instance or game yet):
   `tes_runtime/dist/F3NV.dll` into the game output's `F4SE/Plugins`, so the
   output is a complete MO2 mod. The game target only; the DLC and mods use
   the game's.
-- **Faces** (`spike.facegen --own-facegen` on the built plugin, any target;
-  2026-11-15): our own FaceGen heads, the FNV face fits refined and baked
-  in, as the chain makes them (about 20 minutes for the base game). Ticked by
-  default and open on any OS, with or without MO2. The Creation Kit runs
-  only for NPCs our export fails on, through MO2: the stages run with
-  `F3NV_MO2` set to the MO2 mod source's instance, which
-  `pipeline.creation_kit` reads in place of the developer's
-  `C:\Modlists\fo3fnv-in-fo4` (the build's own Creation Kit steps follow it
-  too); without one, or off Windows, those NPCs are listed and the stage
-  exits 2. Until then it was the CK's FaceGen for every NPC, needing MO2 and
-  Windows, unticked as it took hours.
+- **Faces** (`spike.facegen` on the built plugin, any target; 2026-11-15):
+  our own FaceGen heads, the FNV face fits refined and baked in, as the
+  chain makes them (about 20 minutes for the base game). Ticked by default
+  and open on any OS, with or without MO2. The stages run with `F3NV_MO2`
+  set to the MO2 mod source's instance, which `pipeline.creation_kit` reads
+  for the profile's mod order in place of the developer's
+  `C:\Modlists\fo3fnv-in-fo4`. An NPC our export fails on is listed and has
+  no FaceGen; the stage still finishes (the Creation Kit fallback for those
+  went on 2026-11-24). Before 2026-11-15 it was the CK's FaceGen for every
+  NPC, needing MO2 and Windows, unticked as it took hours.
 
 ### <a id="rebuild"></a>Rebuild what changed (2026-11-15)
 

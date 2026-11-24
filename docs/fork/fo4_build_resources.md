@@ -29,8 +29,8 @@ starts. Every 0.5 s it reads:
 - the main process's committed memory (private bytes, `K32GetProcessMemoryInfo`);
 - the same for every other process in the build's job object
   (`QueryInformationJobObject`). These are the pool workers and the tools the
-  build starts (Caprica, Elric, LipGen). The Creation Kit breaks away from the
-  job and is not counted.
+  build starts (Caprica, LipGen). Elric and the Creation Kit, which broke
+  away from the job, no longer run (2026-11-24).
 
 Each reading goes to the innermost stage running at that moment, as stage
 times do. Per stage it keeps the main process's peak, the workers' summed
@@ -230,7 +230,7 @@ The app's Setup screen has it under Other, saved in `fo4_app.json` as
 | `base/ba2_pack.py` write_later | overlay texture writes | 512 MB |
 | `base/caprica.py` | one Caprica run | 512 MB (`CAPRICA_BYTES`) |
 | `spike/npcs.py` face_workers | face fits, at most half the cores | 1 GB |
-| `spike/facegen_skin.py` workers | own FaceGen faces (`--own-facegen`), at most half the cores | 2 GB ([Sources peaks at 1.84 GB](fo4_facegen_plan.md#own-stage-speed)) |
+| `spike/facegen_skin.py` workers | own FaceGen faces, at most half the cores | 2 GB ([Sources peaks at 1.84 GB](fo4_facegen_plan.md#own-stage-speed)) |
 | `base/ba2_textures.py` | threads (zlib frees the GIL): cores only | none |
 | `spike/script.py`, `tools/release/fo4_hotfix.py` | the compile's worker count, cores only (Caprica then applies its own `each`) | none |
 | `spike/voice.py` convert, `spike/terrain_lod.py`, `base/record_compression.py` | threads running tools or zlib: cores only | none |
@@ -570,9 +570,9 @@ for every mesh, which the cold model does not cover.
   later builds (with the animation and voices fixes in) can replace the
   overnight logs. The `--main-gb` the pool estimate assumes (9 GB, the game's
   [land step](fo4_build_speed.md#land-memory)) should come from those stamps.
-- **Elric's output varies run to run** ([byte check](#same-bytes)), so a
-  build with a cold `elric_finish` cache is not byte-reproducible in its
-  collision. Not looked into: whether Elric has a setting for one thread.
+- **Elric's output varied run to run** ([byte check](#same-bytes)). Gone
+  since 2026-11-24: Elric no longer runs, and our physics writer gives the
+  same bytes every run ([seam](fo4_hknp_writer.md#seam)).
 - **Cold gun clips in a mod build** are made mostly in the main process
   (700–833 s for Caravan Pack's 17 guns, one in the pool).
 - **A mod's first build** is estimated from a typical region. Its build scope

@@ -4,6 +4,8 @@ script's own.
 See: docs/fork/fo4_pipeline.md#caprica
 """
 
+from pathlib import Path
+
 from fo4_import.base import caprica as CP
 
 UNRESOLVED = "Unresolved identifier 'nGone'!"
@@ -55,11 +57,11 @@ def test_a_source_error_is_the_scripts_own_and_any_other_failure_is_left_to_fo4(
     assert runs == [['a', 'b', 'c', 'd', 'e'], ['c', 'd', 'e'], ['e']] and not (out / '_caprica').exists()
 
 
-def test_a_crash_a_timeout_or_an_unreadable_header_leaves_the_folder_to_fo4(tmp_path, monkeypatch):
-    """A run naming no script of the folder ends it after one run with no error recorded; a crash's and a
-    timeout's .pex are deleted, as one may be half written."""
+def test_a_timeout_or_an_unreadable_header_leaves_the_folder_to_fo4(tmp_path, monkeypatch):
+    """A run naming no script of the folder or the shared copy ends it after one run with no error recorded; a
+    timeout's .pex is deleted, as one may be half written."""
     files, out = _sources(tmp_path, 'ab', monkeypatch)
-    for code, text in ((0xC0000409, ''), (None, ''), (1, 'ObjectReference.psc (1212, 9:15): Fatal Error: Syntax error!')):
+    for code, text in ((None, ''), (1, 'ObjectReference.psc (1212, 9:15): Fatal Error: Syntax error!')):
         runs = []
 
         def fake_run(folder, out_dir, imports, code=code, text=text, runs=runs):
@@ -70,6 +72,47 @@ def test_a_crash_a_timeout_or_an_unreadable_header_leaves_the_folder_to_fo4(tmp_
         monkeypatch.setattr(CP, '_run', fake_run)
         assert CP.compile_files(files, out, 'headers') == (set(), {}, 1) and len(runs) == 1
         assert not (out / 'a.pex').exists()
+
+
+def test_a_crash_halves_the_folder_down_to_the_script_it_crashes_on(tmp_path, monkeypatch):
+    """Caprica crashes with no error line on any folder holding c: halving leaves only c to FO4's compiler, and
+    the half-written .pex of a crashed run is deleted."""
+    files, out = _sources(tmp_path, 'abcde', monkeypatch)
+    runs = []
+
+    def fake_run(folder, out_dir, imports):
+        """Write every .pex, or half of a's and crash when c is in the folder."""
+        names = sorted(p.stem for p in folder.glob('*.psc'))
+        runs.append(names)
+        if 'c' in names:
+            (out_dir / 'a.pex').write_bytes(b'half')
+            return 0xC0000005, 'Importing files...'
+        for name in names:
+            (out_dir / f'{name}.pex').write_bytes(b'pex')
+        return 0, ''
+    monkeypatch.setattr(CP, '_run', fake_run)
+    assert CP.compile_files(files, out, 'headers') == ({'a', 'b', 'd', 'e'}, {}, 5)
+    assert runs == [list('abcde'), ['c', 'd', 'e'], ['d', 'e'], ['c'], ['a', 'b']]
+
+
+def test_an_error_in_another_folders_script_drops_it_from_the_shared_copy(tmp_path, monkeypatch):
+    """Folder 0 (a, c) stops in b, which is folder 1's: b leaves the shared copy of the scripts' own folder and
+    folder 0 runs again; b's own folder records b's error."""
+    files, out = _sources(tmp_path, 'abc', monkeypatch)
+    shared = []
+
+    def fake_run(folder, out_dir, imports):
+        """Stop in b while the shared copy holds it, else compile as _stops_at does."""
+        own = Path(imports.split(';')[1])
+        shared.append((folder.name, sorted(p.stem for p in own.glob('*.psc'))))
+        if folder.name == '0' and (own / 'b.psc').is_file():
+            return 1, f'b.psc (2, 1:2): Error: {UNRESOLVED}'
+        return _stops_at({'b': UNRESOLVED}, [])(folder, out_dir, imports)
+    monkeypatch.setattr(CP, '_run', fake_run)
+    written, errors, count = CP.compile_files(files, out, f'{files[0].parent};headers', workers=2)
+    assert (written, errors) == ({'a', 'c'}, {'b': [UNRESOLVED]})
+    zero = [names for folder, names in shared if folder == '0']
+    assert zero[0] == ['a', 'b', 'c'] and zero[-1] == ['a', 'c'] and count == 3
 
 
 def test_the_scripts_are_dealt_into_folders_run_at_once(tmp_path, monkeypatch):
@@ -86,7 +129,8 @@ def test_the_scripts_are_dealt_into_folders_run_at_once(tmp_path, monkeypatch):
     written, errors, count = CP.compile_files(files, out, 'own;headers', workers=2)
     assert (written, set(errors), count) == ({'c', 'd', 'e'}, {'a', 'b'}, 4)
     assert sorted(runs) == [['a', 'c', 'e'], ['b', 'd'], ['c', 'e'], ['d']]
-    assert all(given[0].endswith(('0', '1')) and given[1:] == ['own', 'headers'] for given in imports)
+    assert all(given[0].endswith(('0', '1')) and given[1].endswith('own') and given[2:] == ['headers']
+               for given in imports)
 
 
 def test_source_errors_take_fo4s_wording_where_it_has_one():
@@ -110,19 +154,18 @@ def test_only_the_known_header_folders_are_swapped_for_patched_copies(monkeypatc
     assert CP.caprica_imports(f'{tmp_path / "mine"};{base}') == f'{tmp_path / "mine"};{tmp_path / "safe_Base"}'
 
 
-#: Caprica's own assembly of `If a < 10 && n <= 30` then `If Yes(a) == 1` (the compare reads ::temp0 twice), and
-#: of `If Yes(a) == 1` alone (the cast goes to its own temp; the result may be a source).
+#: Caprica's assembly of `If a < 10 && n <= 30` then `If Yes(a) == 1`: the compare reads ::temp0 twice.
 ALIASED = ('COMPARELTE ::temp0 ::n_var 30 ;@line 17\nASSIGN ::temp0 ::temp0 ;@line 17\nlabel0:\n'
            'CALLSTATIC clobberProbe Yes ::temp0 a ;@line 18\nCAST ::temp0 1 ;@line 18\n'
            'COMPAREEQ ::temp0 ::temp0 ::temp0 ;@line 18\n')
+#: Caprica's assembly of `If Yes(a) == 1` alone: the cast gets its own temp; a result slot may also be a source.
 SOUND = ('.local ::temp0 Bool\nCALLSTATIC clobberProbe Yes ::temp0 a ;@line 26\nCAST ::temp1 1 ;@line 26\n'
          'COMPAREEQ ::temp1 ::temp0 ::temp1 ;@line 26\nCALLMETHOD Absorbed self ::temp2 damage ::temp2\n'
          'ARRAYFINDELEMENT Rounds ::temp0 ::temp2 ::temp0\n')
 
 
 def test_an_instruction_reading_one_temp_twice_is_aliased_and_a_result_slot_does_not_count():
-    """The aliased compare is caught; a temp read once and written as the result, in any opcode's result slot,
-    is not."""
+    """The aliased compare is caught; a temp read once and written as result is not."""
     assert CP.aliased(ALIASED) and not CP.aliased(SOUND)
 
 

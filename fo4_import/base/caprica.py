@@ -9,10 +9,11 @@ PapyrusCompiler takes about 0.25 s a script. Three differences shape its use:
 - It stops at the first script that fails (serial; its parallel mode
   crashes there) and has no switch to go on. `compile_files` deals the
   scripts into folders run at once, drops each failing script and runs its
-  folder again. A script whose every message is a known source error
-  (`source_error`) keeps those as its errors; any other failure (a crash,
-  a timeout, a header or construct Caprica cannot read) is left to FO4's
-  compiler.
+  folder again; a script of another folder that stops a run leaves the
+  shared copy of the scripts' own folder, and a crash halves the folder. A
+  script whose every message is a known source error (`source_error`)
+  keeps those as its errors; any other failure (a timeout, a header or
+  construct Caprica cannot read) is left to FO4's compiler.
 - After an `&&` or `||` it can hand one temp to two live values, so an
   instruction reads the same temp twice (`If a && b` then `If Foo() == 1`
   compares True with True). Each run dumps its assembly; a script showing
@@ -21,11 +22,14 @@ PapyrusCompiler takes about 0.25 s a script. Three differences shape its use:
 See: docs/fork/fo4_pipeline.md#caprica
 """
 
+import contextlib
 import functools
 import hashlib
+import os
 import re
 import shutil
 import subprocess
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -186,24 +190,64 @@ def _errors(output: str, folder: Path) -> dict:
     return found
 
 
-def _drain(folder: Path, out_dir: Path, imports: str) -> tuple:
+def _shared(own: Path, root: Path) -> Path:
+    """`root`/own: hard links (copies where the drive has none) to folder `own`'s scripts, for _unshare to drop from."""
+    shared = root / 'own'
+    shared.mkdir(parents=True)
+    for path in own.glob('*.psc'):
+        try:
+            os.link(path, shared / path.name)
+        except OSError:
+            shutil.copy2(path, shared / path.name)
+    return shared
+
+
+def _unshare(output: str, shared: Path, dropped: set) -> bool:
+    """Rename to .gone each script of `shared` a run's `output` names an error in (another folder's run may have
+    done it); whether one not in `dropped` went, added to it.
+    See: docs/fork/fo4_pipeline.md#caprica-other-folder"""
+    new = {name for name, _, _ in ERROR.findall(output)} - dropped
+    for name in new:
+        with contextlib.suppress(OSError):
+            (shared / f'{name}.psc').replace(shared / f'{name}.gone')
+    gone = {name for name in new if (shared / f'{name}.gone').is_file()}
+    dropped |= gone
+    return bool(gone)
+
+
+def _split(folder: Path) -> Path:
+    """A new sibling of `folder` that the second half of its scripts (by name) moved into."""
+    paths = sorted(folder.glob('*.psc'))
+    half = Path(tempfile.mkdtemp(prefix=f'{folder.name}_', dir=folder.parent))
+    for path in paths[len(paths) // 2:]:
+        path.replace(half / path.name)
+    return half
+
+
+def _drain(folder: Path, out_dir: Path, imports: str, shared: Path) -> tuple:
     """Run Caprica over `folder` until it is empty: each run's compiled scripts and the one it stopped at leave
     it. (names compiled, {script: [its errors]} for those whose every message is a source_error, runs made).
-    A run naming no script of the folder (a crash, a timeout, a header Caprica cannot read) ends it; unless that
-    run ended cleanly, what it wrote is deleted (a .pex may be half written). An aliased script is in neither
-    result (_drop_aliased)."""
-    written, errors, runs = set(), {}, 0
+    A run stopped in a script of `shared` drops it there (_unshare) and runs again; a crash with no error line
+    halves the folder (_split); any other run naming neither ends it. A failed run's .pex are deleted.
+    See: docs/fork/fo4_pipeline.md#caprica-other-folder"""
+    written, errors, runs, dropped = set(), {}, 0, set()
     while any(folder.glob('*.psc')):
         (code, output), runs = _run(folder, out_dir, imports), runs + 1
         names = {p.stem.lower() for p in folder.glob('*.psc')}
         bad = _drop_aliased(names, out_dir)
         made = {n for n in names if (out_dir / f'{n}.pex').is_file()}
         found = _errors(output, folder)
-        if not found and made | bad != names:
+        if not found and made | bad != names and not _unshare(output, shared, dropped):
             for name in made if code != 0 else ():
                 (out_dir / f'{name}.pex').unlink()
-            written |= made if code == 0 else set()
-            break
+            if code in (0, None) or ERROR.search(output) or len(names) < 2:
+                written |= made if code == 0 else set()
+                break
+            half = _split(folder)
+            more = _drain(half, out_dir, f'{half};{imports.partition(";")[2]}', shared)
+            written, runs = written | more[0], runs + more[2]
+            errors.update(more[1])
+            continue
         written |= made
         errors.update({name: messages for name, messages in found.items() if None not in messages})
         for name in made | bad | set(found):
@@ -225,9 +269,11 @@ def compile_files(files: list, out_dir: Path, imports: str, workers: int = 1) ->
         folder.mkdir(parents=True)
     for i, path in enumerate(files):
         shutil.copy2(path, folders[i % len(folders)] / path.name)
-    rest = caprica_imports(imports)
+    own, _, others = imports.partition(';')
+    shared = _shared(Path(own), root)
+    rest = caprica_imports(f'{shared};{others}')
     with ThreadPoolExecutor(max_workers=len(folders)) as pool:
-        results = list(pool.map(lambda folder: _drain(folder, out_dir, f'{folder};{rest}'), folders))
+        results = list(pool.map(lambda folder: _drain(folder, out_dir, f'{folder};{rest}', shared), folders))
     shutil.rmtree(root, ignore_errors=True)
     return (set().union(*(r[0] for r in results)), {name: messages for r in results for name, messages in r[1].items()},
             sum(r[2] for r in results))
