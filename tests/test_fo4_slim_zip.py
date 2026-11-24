@@ -29,6 +29,14 @@ def test_trace_reaches_the_stages_not_the_skyrim_gui():
     assert 'gui.py' not in modules
 
 
+def test_zip_carries_the_helper_scripts():
+    """Every static helper script the script stage deploys (TES4Polyfill and the rest) is in the zip."""
+    files = Z.tracked()
+    static = {p for p in files if p.startswith('script_convert/static_scripts/') and p.endswith('.psc')}
+    assert 'script_convert/static_scripts/TES4Polyfill.psc' in static
+    assert static <= set(Z.slim_files(files, Z.traced()))
+
+
 def test_zip_has_one_top_folder_and_version(tmp_path, monkeypatch):
     """Every entry sits under fo3fnv-in-fo4-<version>/, VERSION holds the version, entries carry one timestamp."""
     monkeypatch.setattr(Z, 'ROOT', tmp_path)

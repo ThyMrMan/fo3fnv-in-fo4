@@ -31,6 +31,7 @@ from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base import lip
 from fo4_import.base.source import asset_dirs, plugin_name
 from fo4_import.pipeline.export_index import export_masters
+from fo4_import.pipeline.stage_timer import counted
 
 #: FNV voice file name: <quest>_<topic>_<INFO id>_<response number>.ogg.
 _FILE_RE = re.compile(r'_([0-9a-f]{8})_(\d+)\.ogg$', re.I)
@@ -297,4 +298,5 @@ def convert(job_list: list, lipgen_dir: Path) -> int:
         dests = shared.setdefault((source, text), [])
         dests += [] if dest in dests else [dest]
     with ThreadPoolExecutor(profile_cores()) as pool:
-        return sum(pool.map(lambda item: _convert_shared(*item, tools), shared.items()))
+        return sum(counted(pool.map(lambda item: _convert_shared(*item, tools), shared.items()), len(shared),
+                           'voice files'))

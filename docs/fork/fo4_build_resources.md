@@ -15,6 +15,7 @@ and during it. Raw speed on the build machine is not the goal.
 ## Contents
 
 - [Memory per stage](#stage-memory)
+- [The main process on a 16 GB PC](#lean-main)
 - [One resource setting](#profiles)
 - [Estimated time](#eta)
 - [The machine benchmark](#benchmark)
@@ -54,6 +55,136 @@ lines carry times only.
 **Measured** (CaravanPack scratch builds, cold cache) in
 [the byte check](#same-bytes). The worker figures count every other process
 in the job during the stage, including a pool that is still shutting down.
+
+## <a id="lean-main"></a>The main process on a 16 GB PC
+
+**The problem.** A whole FalloutNV.esm build (f3nv-0.3 code, desktop, 2026-11-23
+stamp) peaked at 10.95 GB in the main process. A 13.7 GB laptop thrashed in it.
+Main-process peaks by stage, highest first: animation data 10.95, plugin write
+9.51, the archives and ledger about 9.4, worlds 9.07, placed references 8.79,
+base STAT 8.74, item ARMO 8.67. The stamp keeps only peaks, and a stage nested
+in another shares its readings, so an item stage's peak may come from either.
+The floor rose from 1.05 GB (script conversion) to 4.51 GB at the mesh cache and
+never came back down.
+
+**What held it**, each measured in a probe process on the real FNV export and
+the built 0.3 plugin (commit over the probe's start):
+
+| Holder | Held |
+|---|---|
+| The parsed export, every type file, as `export_index` keeps it | 3.00 GB, LAND 2.17 and REFR 0.52 of it |
+| LAND, read by `Exterior.__init__` in `run.scope_models` (before the mesh cache) and cached to the end | 2.17 GB of the above, for the whole build |
+| The animation data stage: every offsets file (11,040 files, 1,389 MB) in one dict before the first write, and every clip's bytes (0.34 GB) at once to hash them | +2.30 GB held, 2.44 GB peak |
+
+<a id="lean-export"></a>**Fix 1: leaner records.** `text_reader.parse_record_block`
+interns each key (`Layer[0].VT[12].Pos` was a new string in every LAND
+record) and, per file, keeps one object per value text (`1.0`, `0`,
+`ALPHA`). The dicts are equal; a digest over every record of the FNV export
+is the same before and after. Parsing the whole export takes 12.3 s instead of
+8.5 s.
+
+**Fix 2: LAND only while it is used.** `Exterior.land` reads the land on
+first use: the people stage (an actor lifted onto the ground) or the worlds
+stage. Every worldspace shares one read (`exterior.land_of`), parsed by
+`export_index.fresh_records`, which no cache keeps. `cell._world_groups`
+calls `drop_land()` after the last worldspace. Nothing reads land after it,
+and a later read would only parse it again.
+
+| Same input, probe on WastelandNV | HEAD | Changed |
+|---|---|---|
+| Whole export parsed and held | 3.00 GB | 1.31 GB (LAND 0.97, REFR 0.21) |
+| After the scope step's `Exterior` (to the mesh cache and every item stage) | +3.01 GB | +0.49 GB |
+| While its land is in use (people to worlds) | +3.01 GB | +1.46 GB |
+| After the worlds stage | +3.01 GB | +0.49 GB |
+
+Every grid's land is the same (digest over the 16,396 cells' records).
+
+<a id="lean-anim-text"></a>**Fix 3: animation data one file at a time.**
+`anim_text.entry_files` gives each offsets file as a `functools.partial`.
+`anim_text.write` makes it as it writes it, so only one file's bytes exist at
+a time. The keys, the merge in `build_finish._made` and the sorted write order
+are unchanged. `compute` hashes each clip as it reads it and keeps the bytes
+only of a clip the records table lacks (a cold clip, sent to the pool).
+
+| Same input (the built 0.3 FalloutNV.esm, warm records table) | HEAD | Changed |
+|---|---|---|
+| Held after `entry_files` | +2.30 GB | +1.07 GB |
+| Peak commit of the stage's work | +2.44 GB | +1.08 GB |
+| Digest of every file made (11,156 files) | `8f87748faecc` | `8f87748faecc` |
+
+**Projected whole build** (the 0.3 stamp's peaks less what each stage no
+longer holds: 2.17 GB of LAND and 0.49 GB of other export records outside
+people-to-worlds, 1.2 + 0.49 GB inside it, 1.36 GB more in animation data):
+
+| Stage | 0.3 stamp | Projected |
+|---|---|---|
+| mesh cache | 4.51 | about 1.9 |
+| item ARMO / base STAT | 8.67 / 8.74 | about 6.0 / 6.1 |
+| people | 8.06 | about 6.4 |
+| worlds | 9.07 | about 7.4 |
+| animation data | 10.95 | about 6.9 |
+| plugin write, archives | 9.4–9.5 | about 6.8 |
+| **whole build** | **10.95** | **about 7.4 (worlds); about 6.9 with fix 4 below** |
+
+Not yet measured in a whole build: how much commit Windows gets back when the
+land is freed mid-build (other allocations between the LAND dicts can keep
+pymalloc arenas alive; in the probe all of it came back). The next whole build's
+stamp checks the projection.
+
+<a id="mapped-plugins"></a>**The item ARMO and base STAT peaks.** A probe ran the
+build's own setup (`cell._builder`, `cell._object_makers`) on the whole FNV
+export into a scratch data folder. It then made every ARMO through
+`Items.item` and every STAT through `CellBuilder.base`, sampled as the build
+samples. Neither stage has a large spike of its own:
+
+| Probe (whole export) | Before the stage | Stage peak | Held after |
+|---|---|---|---|
+| item ARMO, 389 armors | 2.10 GB | 2.62 GB | 2.52 GB |
+| base STAT, 6,785 statics | 2.10 GB | 2.51 GB | 2.51 GB |
+
+Their build peaks (8.67 and 8.74 GB) are what the build already held when the
+late armors and statics were made: items are made on demand, and most statics
+are made in the worlds stage, as `_world_groups` places each worldspace's
+references. So the LAND and export fixes above are most of their fix. What
+the stages add themselves:
+- **Fallout4.esm read whole again** (315 MB, +0.31 GB) by
+  `nif.addons._fo4_by_name`, while `CellBuilder.fo4` already held a copy
+  for the whole build.
+- **A fresh index of every game archive** (371,389 names, +0.17 GB) for each
+  body fit, head fit and hat field; one at a time, freed after.
+
+**Fix 4: plugins mapped, not read.** `install._read` maps a plugin file
+read-only (`mmap`) instead of reading it into memory. `fallout4_esm()` gives
+the same map to `CellBuilder.fo4`, `addons._fo4_by_name` and
+`script.fo4_editor_ids`, and the source plugin (FalloutNV.esm) is mapped
+too. A mapped file's pages are the file's, so they don't count as committed
+memory and Windows can drop them without writing them to the page file.
+`walk` only slices and unpacks a buffer, which a map supports, so the records
+are the same.
+
+Same probe on HEAD and on the changed code (all four fixes in), run one after
+the other:
+
+| Probe (whole export) | HEAD | Changed |
+|---|---|---|
+| After setup | 2.23 GB | 1.37 GB |
+| After the makers | 2.58 GB | 1.56 GB |
+| item ARMO peak (389 armors) | 2.95 GB | 1.99 GB |
+| base STAT peak (6,785 statics) | 2.91 GB | 1.94 GB |
+| base STAT time | 141.8 s | 132.6 s |
+| Records made, digest | ARMO 1,931 `0de12a3c19e1`, STAT 7,633 `47d6940ecc21` | the same |
+
+Of the 1.02 GB less after the makers, about 0.48 GB is the leaner export
+records and about 0.54 GB the two mapped plugins. That 0.54 GB is held for the
+whole build, so every stage's projected peak above drops by about as much: the
+whole build to about 6.9 GB (worlds), item ARMO to about 5.5 and base STAT
+(made during worlds) to about 6.9.
+
+**Leads not taken yet:**
+- The rest of the growth from about 4.5 to 8.7 GB: the plugin's records held in
+  the writer until `plugin write`, and `builder.fo4` (Fallout4.esm's bytes).
+- In animation data, the 0.33 GB index of every game archive (`Archives`)
+  and the records table's parsed clips.
 
 ## <a id="profiles"></a>One resource setting
 
@@ -189,14 +320,61 @@ the reference machine is assumed and the live correction does the rest.
 - The command line, per plugin and in total:
   `py -3.14 -m fo4_import.pipeline.eta <export folders or .build.json stamps>... [--resources low] [--benchmark FILE]`.
 
-**During a build:** `eta.Live` listens to every stage's end and ticks every
-30 s. It prints `estimate: about N min left, M min so far (an estimate, ...)`.
-- What is left: each group's plan times the pace of the groups already
-  passed (actual over planned, held between 0.5 and 3), less what each group
-  has spent, less the time since the last stage ended.
-- The plan is the cached one when the plugin has a finished build record,
-  else the cold one.
-- The app shows the latest line under the controls.
+**During a build:** see [live progress](#live-progress).
+
+### <a id="live-progress"></a>Live progress
+
+`eta.Live` hears every stage's end and checks every 10 s (`LIVE_SECONDS`).
+The plan is the cached one when the plugin has a finished build record, else
+the cold one. The estimate has to follow whatever else the machine is doing,
+so it leans on the live rate more than on the model.
+
+**The running stage counts as it runs.** Time since the last stage ended is
+charged to the group of the innermost running stage
+(`stage_timer.running()`), not held back until it ends.
+
+**Stage progress.** A stage's long loop wraps its items in
+`stage_timer.counted(items, total, unit)`. That records `done of total` on
+the running stage until the loop ends. The loops counted:
+
+| Stage | Loop | Unit |
+|---|---|---|
+| mesh cache | `mesh_cache.warm`'s pool | meshes |
+| people | `npcs.warm_faces`'s face fits | faces |
+| item WEAP | `gun_clip_pool.warm` | guns |
+| collision | `elric_cache._run` | meshes |
+| voice (and sounds) | `voice.convert` | voice files |
+| worlds | `Exterior.group`'s cells, per worldspace | cells |
+| script compile | `compile_papyrus._fo4_batches` | batches |
+
+**What is left** (`Live.left`):
+1. `first`: the pace of the groups not running (spent over planned, held
+   between 0.5 and 3; 1 until 60 s are planned).
+2. The running group: its plan times `first`, less what it has spent. Once
+   5% of its counted loop is done (`TRUSTED_SHARE`), the loop's own
+   remaining time at its rate so far (`step_left`) joins in. The plan's
+   figure moves toward it as the loop's share done grows, and the result is
+   never below it (`blended`).
+3. `overall`: the pace of every group, the running one counted at its spent
+   time plus step 2.
+4. Every other group: its plan times `overall`, less what it has spent.
+
+Why: on a laptop with no benchmark and 1.1 GB for workers, one stage ran
+about 50 minutes (12 to 63 min) with no stage ending. The old estimate only
+re-paced when a group ended, so it counted down to "about 1 min left" and
+then jumped to 85. Now the running stage's overrun raises the pace as it
+happens, and a counted loop gives its own rate.
+
+**What it prints.**
+- `estimate: about N min left, M min so far (...)` goes to the log only
+  when the expected finish has moved by at least 2 min and 15% of the time
+  left (`MOVED_SECONDS`, `MOVED_SHARE`), and on the first check.
+- The app sets `F3NV_PROGRESS_LINES` (`eta.PROGRESS_ENV`) for its stages,
+  and the build then prints a `progress:` line every check, for example
+  `progress: Worlds: 412 of 1,180 cells, about 12 min left in this step, about 40 min overall`.
+  "This step" is the running stage's group. The app's runner keeps
+  `progress:` lines out of the run log, and the Convert screen shows them
+  under the controls instead of in the scrollback.
 
 ## <a id="benchmark"></a>The machine benchmark
 
@@ -204,6 +382,11 @@ the reference machine is assumed and the live correction does the rest.
 about a minute. It writes `output/machine_benchmark.json` by default, which
 is where the build and `eta` look for it. Point `--dir` at the drive the
 build writes to. It needs only Python and numpy.
+
+The app runs it once: when a plan holds a build (`build` or `update`) and the
+work folder has no `output/machine_benchmark.json` (`eta.benchmark_path()`),
+`stages.plan` puts the benchmark before the first build, writing there with
+`--dir` the work folder.
 
 | Measure | How |
 |---|---|

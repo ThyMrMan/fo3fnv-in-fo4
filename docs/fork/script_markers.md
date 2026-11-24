@@ -144,11 +144,11 @@ has nothing to change on Fallout 4.
 | 12 | DamageObject (`do`) | Hoover Dam generators, Tesla chains and traps take no damage. 76 sites | Built |
 | 13 | IsImagespaceActive | Fade waits; already passing, now an explicit 0. 32 conditions | Built |
 | 14 | IsWeaponInList, GetIsAlerted, SendTrespassAlarm, ResetQuest | Gas traps, Goodsprings gecko checks, casino alarms, emergency-radio quest resets. 29 sites | Built |
-| 15 | IgnoreCrime | Fallout 4's IgnoreCrime is a stub ([R8](research/fo4_target.md)); 185 sites | Nothing to build |
+| 15 | IgnoreCrime | Fallout 4's own IgnoreCrime is a stub ([R8](research/fo4_target.md)); 185 sites | [Built](fo4_plan_script_functions.md#ignore-crime) through the crime faction |
 | 16 | SetObjectiveDisplayed/Completed | The source names objectives its quest never authors (47 sites); correct as inert | Nothing to build |
-| 17 | ShowCaravanMenu, Show*MenuParams | Caravan and casino games; need their own UI (41 sites) | Not built |
-| 18 | SetCombatStyle, SetPackDuration, GetCurrentAIProcedure, SetActorFullName, ResetInventory | No Papyrus counterpart on Fallout 4 (117 sites) | Not built |
-| 19 | SetBroadcastState, StartRadioConversation, PlayMusic | Radio and music cues (42 sites); need the F3NV radio helper to expose a switch | Not built |
+| 17 | ShowCaravanMenu, Show*MenuParams | Caravan and casino games (41 sites) | Built (`command_rows_fallout4.py`, [casino](fo4_casino_plan.md)) |
+| 18 | SetCombatStyle, SetPackDuration, GetCurrentAIProcedure, SetActorFullName, ResetInventory | 117 sites. GetCurrentAIProcedure is built ([reads](#native-read-follow-ups)); SetCombatStyle has a Fallout 4 native (`Actor.SetCombatStyle`) and SetActorFullName an F4SE one (`Form.SetName`); the others need remembered state or build data | Not built ([routes](fo4_plan_script_functions.md#decision-table)) |
+| 19 | SetBroadcastState, StartRadioConversation, PlayMusic | Radio and music cues (42 sites) | Radio calls built ([radio](fo4_radio.md)); PlayMusic not built |
 | 20 | AddAchievement, SetSecuritronExpression, setRumble, PCB, ForceTerminalBack | Achievements, face screens, controller rumble, cell buffers, terminal menus (204 sites) | Tier 3 |
 
 ## <a id="built"></a>Built
@@ -450,8 +450,11 @@ five are built 2026-11-06, not played:
 
 ## <a id="not-built"></a>Not built
 
-- **The rest** of tier 2 and 3 above have no vanilla Papyrus counterpart, or
-  need a UI or helper first.
+- **The rest** of tier 2 and 3 above. Each function's route (a Fallout 4
+  native, remembered state, build data, or nothing to do) is in the
+  [decision table](fo4_plan_script_functions.md#decision-table). On
+  2026-11-23, 659 markers were left, 177 of them on functions with a
+  Fallout 4 native ([audit](../audits/fo4_redo_audit_2026-11-23.md#natives)).
 
 ## <a id="measuring"></a>Measuring again
 

@@ -24,6 +24,7 @@ import numpy
 
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from core.heavy_lock import hold_heavy_lock
 from core.memory_budget import free_ram_bytes
 from core.process_job import total_memory
 
@@ -156,6 +157,7 @@ def main() -> None:
     ap.add_argument('--dir', type=Path, default=Path(tempfile.gettempdir()),
                     help="A folder on the drive the build writes to (default: the system's temporary folder)")
     args = ap.parse_args()
+    hold_heavy_lock('machine benchmark')
     result = measure(args.dir)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, indent=1) + '\n', encoding='utf-8')

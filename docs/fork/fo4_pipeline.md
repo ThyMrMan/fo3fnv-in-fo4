@@ -7913,7 +7913,11 @@ What we write:
    then `LODGenx64.exe` with `GameMode=FO4` through `lod_gen.run_lodgen`.
    The run is cached: its key is the list, the LOD meshes and materials
    they name, the atlas map and the worldspace's `.btr` (LODGen drops faces
-   under the land); a hit copies the kept `.bto` back.
+   under the land); a hit copies the kept `.bto` back. The log gets one
+   line per worldspace (`object LOD <world>: <outcome>, N tiles, Ns`).
+   LODGen's own output (its settings header and a line per tile, about 800
+   lines for New Vegas) is held (`quiet_lodgen`) and printed only when the
+   run fails; `run_lodgen`'s WARNING and ERROR lines always print.
 4. <a id="object-lod-masters"></a>**A master's LOD meshes** (2026-11-22).
    LODGen reads every mesh under its one `PathData`, the plugin's own
    folder, and a mesh it cannot find aborts the whole worldspace (exit

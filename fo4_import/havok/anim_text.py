@@ -132,16 +132,19 @@ def compute(paths: list, read, k: Known) -> None:
     See: docs/fork/research/anim_text_data.md#ours
     """
     todo = {key: path for path in paths if (key := path.lower()) not in k.computed}
-    if not todo:
-        return
-    raws = {key: raw for key, path in todo.items() if (raw := read(path + '.hkx'))}
-    keys = {key: (key, hashlib.sha1(raw).hexdigest()) for key, raw in raws.items()}
-    if k.table is None and keys:
-        k.table = work_cache.lookup(RECORDS_SITE, anim_offsets.__name__, _inputs(k), {})
+    keys, jobs = {}, []
+    for key, path in todo.items():
+        raw = read(path + '.hkx')
+        if not raw:
+            continue
+        keys[key] = key, hashlib.sha1(raw).hexdigest()
+        if k.table is None:
+            k.table = work_cache.lookup(RECORDS_SITE, anim_offsets.__name__, _inputs(k), {})
+        if keys[key] not in k.table:
+            jobs.append((keys[key], (path, raw)))
     table = k.table if k.table is not None else {}
-    missing = [key for key in keys if keys[key] not in table]
-    table.update(zip((keys[key] for key in missing), _records([(todo[key], raws[key]) for key in missing], k.spelled)))
-    k.unsaved |= bool(missing)
+    table.update(zip((made for made, _ in jobs), _records([job for _, job in jobs], k.spelled)))
+    k.unsaved |= bool(jobs)
     k.computed.update({key: table[keys[key]] if key in keys else k.records.get(key) for key in todo})
 
 
@@ -481,9 +484,11 @@ def file_data_names(text: str) -> dict:
 
 
 def entry_files(entries: dict, read, k: Known) -> dict:
-    """{Data path under AnimTextData: bytes}: each own_clips entry's offsets, from its file data, and an entry
-    without a template's dynamic idle data. Every entry's clips are compute()d at once, each spelled as the
-    first entry naming it spells it."""
+    """{Data path under AnimTextData: bytes, or what makes them (write)}: each own_clips entry's offsets, from its
+    file data, packed as written, and an entry without a template's dynamic idle data. Every entry's clips are
+    compute()d at once, each spelled as the first entry naming it spells it.
+    See: docs/fork/fo4_build_resources.md#lean-anim-text
+    """
     named, clips, out = {}, {}, {}
     for entry, (graph, template) in sorted(entries.items()):
         listed = read(f'AnimTextData\\AnimationFileData\\{entry}.txt')
@@ -493,7 +498,7 @@ def entry_files(entries: dict, read, k: Known) -> dict:
                 clips.setdefault(key, path)
     compute(list(clips.values()), read, k)
     for entry, (graph, template, names) in named.items():
-        out[f'AnimationOffsets\\{entry}.txt'] = offsets(graph, names, read, k)
+        out[f'AnimationOffsets\\{entry}.txt'] = functools.partial(offsets, graph, names, read, k)
         out.update({f'DynamicIdleData\\{entry}.txt': DYNAMIC_IDLE} if template is None else {})
     return out
 
@@ -538,11 +543,12 @@ def _posix(rel: str) -> str:
 
 
 def write(data_dir: Path, files: dict) -> list:
-    """Each {path under AnimTextData: bytes} into `data_dir` (unchanged files touched); their paths."""
+    """Each {path under AnimTextData: bytes, or a callable making them} into `data_dir` (unchanged files
+    touched), one made at a time; their paths."""
     out = []
     for rel, data in sorted(files.items()):
         out.append(data_dir / ANIM_TEXT / _posix(rel))
-        write_new(out[-1], data)
+        write_new(out[-1], data() if callable(data) else data)
     return out
 
 

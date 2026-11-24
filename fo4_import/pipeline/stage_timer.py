@@ -15,6 +15,7 @@ See: docs/fork/fo4_build_resources.md#stage-memory
 """
 
 import cProfile
+import dataclasses
 import functools
 import io
 import os
@@ -32,7 +33,7 @@ SAMPLE_SECONDS = 0.5
 OUTSIDE = 'outside stages'
 GB = 1 << 30
 _spent: dict = {}
-#: [stage name, seconds of the stages nested in it so far] of each running stage, innermost last.
+#: [stage name, seconds of the stages nested in it so far, its Progress or None] of each running stage, innermost last.
 _stack: list = []
 #: {stage name: [main process peak, workers' summed peak, largest worker, most worker processes]} in bytes.
 _peaks: dict = {}
@@ -60,7 +61,7 @@ def timed(name: str, part: 'str | None' = None):
         @functools.wraps(fn)
         def run(*args, **kwargs):
             """Call `fn`, charging its time less its nested stages' to `name`."""
-            _stack.append([name, 0.0])
+            _stack.append([name, 0.0, None])
             profiler = _profiler(name)
             started, was = time.perf_counter(), enter_part(part)
             try:
@@ -107,6 +108,41 @@ def _dump(name: str, profiler: 'cProfile.Profile | None') -> None:
     for key in ('tottime', 'cumulative'):
         pstats.Stats(str(stem.with_suffix('.prof')), stream=out).sort_stats(key).print_stats(PROFILE_LINES)
     stem.with_suffix('.txt').write_text(out.getvalue(), encoding='utf-8')
+
+
+@dataclasses.dataclass
+class Progress:
+    """How far a running stage's counted loop is: `done` of `total` `unit`, begun at `began` (time.time())."""
+    stage: str
+    done: int
+    total: int
+    unit: str
+    began: float
+
+
+def counted(items, total: 'int | None' = None, unit: str = 'items'):
+    """Yield `items`, `total` of them (default len(items)), noting each one done as the innermost running stage's
+    Progress (running()); the note is dropped when the loop ends.
+    See: docs/fork/fo4_build_resources.md#live-progress
+    """
+    entry = _stack[-1] if _stack else None
+    total = len(items) if total is None else total
+    if entry is None or not total:
+        yield from items
+        return
+    entry[2] = Progress(entry[0], 0, total, unit, time.time())
+    try:
+        for item in items:
+            yield item
+            entry[2] = dataclasses.replace(entry[2], done=entry[2].done + 1)
+    finally:
+        entry[2] = None
+
+
+def running() -> 'tuple | None':
+    """(innermost running stage, its Progress or None), or None."""
+    entry = _stack[-1] if _stack else None
+    return None if entry is None else (entry[0], entry[2])
 
 
 def charged(name: str, fn, *args, part: 'str | None' = None):

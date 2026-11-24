@@ -880,6 +880,20 @@ def test_painted_layers_become_shares_that_never_pass_one():
     assert shares == [{0: 0.5, 1: 0.5}, {0: 0.5}]
 
 
+def test_land_is_read_once_when_first_used_and_dropped_after_the_worlds(monkeypatch):
+    """Every Exterior of an export shares one land read on first use, by cell (the last record wins); after
+    drop_land() the next use reads it again."""
+    reads = []
+    lands = ({'ParentCELL': 'A', 'FormID': '1'}, {'ParentCELL': 'A', 'FormID': '2'}, {'ParentCELL': 'B', 'FormID': '3'})
+    monkeypatch.setattr(EX, 'fresh_records', lambda export_dir, sig: reads.append(sig) or lands)
+    first, second = EX.Exterior.__new__(EX.Exterior), EX.Exterior.__new__(EX.Exterior)
+    first.export_dir = second.export_dir = Path('export')
+    assert reads == [] and first.land['A']['FormID'] == '2' and second.land is first.land and reads == ['LAND']
+    EX.drop_land()
+    assert first.land['B']['FormID'] == '3' and reads == ['LAND', 'LAND']
+    EX.drop_land()
+
+
 def test_texture_zero_draws_fnvs_default_land_texture_not_fo4s():
     """FNV draws DirtWasteland01 for texture 0 and a quadrant without a base; FO4's own default is the pale,
     grassless CommonwealthDefault01. Texture 0 becomes the lowest FNV LTEX using FNV's default; a second

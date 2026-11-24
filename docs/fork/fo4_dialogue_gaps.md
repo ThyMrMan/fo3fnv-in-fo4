@@ -7,6 +7,18 @@ Closes the two ROADMAP rows "Dialogue lines" and "Choices with shared answers". 
 236 choices) came from the 2026-11-06 build; most were fixed since. This page counts what the 2026-11-12 19:29
 FalloutNV.esm build (whole map) still leaves out, by cause, and what this branch changes.
 
+## <a id="census-2026-11-23"></a>Census (2026-11-23 whole-world build)
+
+Built 22,182 of 23,247 INFOs; 1,065 not built (1,131 on 2026-11-12):
+- Topic not reached 521 (575): bark topics FO4 has no subtype for, companion status barks, the intro slides.
+- Quest not built 452 (473): the test and debug quests, `GenericPlayer`, `GenericIdleChatter`.
+- Left out by a condition 92 (83): GetIsID of an actor never placed 61 (40; the menu answers that used to drop
+  uncounted now land here), GetDisposition 14, and 17 single causes.
+
+Choices with no line: 13 (18). Left: V22Bohr 4, VStreetCasinoGuard 3, RL3Follower 2 (none ever placed); Mick 2
+(the Pimp-Boy item); The King 035 and Jean-Baptiste 027 (objectives). Weathers family and Boulder City are
+answered now.
+
 ## <a id="census"></a>Census (2026-11-12 19:29 build, before this branch)
 
 ```bash
@@ -65,6 +77,15 @@ FalloutNV.esm has 23,247 INFOs. The build makes 22,116 of them; 1,131 are not bu
 | VFSTheKingTopic035, VFSJeanBaptisteCuttingTopic027 (2) | Answers test objectives (VMS19 50, VMS29a 42) | Counted next build; VMS29a 42 is not authored, dead in FNV |
 
 ## Fixes
+
+### <a id="shared-menu-topics"></a>Shared menus kept their topics
+
+`spike/cell.py` `_greetings` handed the shared greetings quest (`FNV_Greetings`, Hub.home) a copy of its topic
+list but its live scene list. Shared steps that later quests build go into Hub.home, so their scenes were
+written and their menus' player and NPC topics were not. The 2026-11-23 whole-world FalloutNV.esm build had 11
+such scenes, each with a dangling PTOP and NPOT (22 unresolved references in `fo4_ref_check`); the
+Goodsprings test block had 6. The quest now writes the live list: 0 unresolved, 58 records more in the test
+block.
 
 ### <a id="empty-params"></a>An empty form parameter stays 0
 

@@ -22,7 +22,7 @@ from fo4_import.spike.plugin_rename import drop_old_plugins, is_master, move_ren
 from fo4_import.base.master_overrides import held_by, master_records
 from fo4_import.base.source_ids import SourceIds, built_plugins, dependent_masters, key_light, master_ledgers
 from fo4_import.base.ledger import ID, Ledger, LedgerWriter, ledger_path
-from fo4_import.base.install import FALLOUT4_ESM, masters_of, source_esm, source_walk, use_source
+from fo4_import.base.install import fallout4_esm, masters_of, source_esm, source_walk, use_source
 from fo4_import.base.source import plugin_stem
 from fo4_import.base.source_fault import without_fault
 from fo4_import.base.support_records import pack_gmst
@@ -55,7 +55,7 @@ from fo4_import.spike.conversation import Conversations, Hub, hub, opener_forms,
 from fo4_import.spike.furniture import enter_motions, furniture, furniture_idles, markers
 from fo4_import.spike.furniture_poses import FurniturePoses
 from fo4_import.spike.navmesh import navi, navmeshes
-from fo4_import.spike.exterior import Exterior
+from fo4_import.spike.exterior import Exterior, drop_land
 from fo4_import.spike.idles import Idles
 from fo4_import.spike.imods import ImageSpaces
 from fo4_import.spike.idle_markers import EMPTY, IdleMarkers
@@ -263,7 +263,7 @@ class CellBuilder:
         self.radio, self.land_textures, self.region_watch = None, {}, None
         self.type_keywords = TypeKeywords(self.writer)
         self.started = time.time()
-        self.fo4 = FALLOUT4_ESM.read_bytes()
+        self.fo4 = fallout4_esm()
         self.idle_markers = IdleMarkers(self.fo4, export_dir)
         self.keywords = {(first_sub(r.body, b'EDID') or b'').rstrip(b'\0').decode(): r.form_id
                          for r, _ in walk(self.fo4, b'KYWD')}
@@ -864,7 +864,8 @@ def _greetings(builder: CellBuilder, say: SayTopics, form_map: dict, shared: Hub
     builder.writer.add_record('GMST', pack_gmst(builder.new_id(f'GMST {PADDED_SETTING}'), PADDED_SETTING,
                                                 voice.SILENT_SECONDS))
     register_trace(builder.scripts)
-    own = ((fid, GREETINGS_EDID), talks.topics + [said] * bool(said), talks.scenes, [branch] if branch else [])
+    talks.topics += [said] * bool(said)
+    own = ((fid, GREETINGS_EDID), talks.topics, talks.scenes, [branch] if branch else [])
     return built, [own] + ([((home[0], home[2]), [opener], [], [])] if opener and home else [])
 
 
@@ -1079,6 +1080,7 @@ def _world_groups(builder: CellBuilder, worlds: list, placing: tuple) -> None:
         builder.counts['object LOD references'] += builder.object_lod.write(placing[1])
         builder.counts['terrain LOD tiles'] += terrain_lod.write(world.export_dir, placing[1], world.world['EditorID'],
                                                                  world.fo4_edid)
+    drop_land()
 
 
 @timed('renamed files')

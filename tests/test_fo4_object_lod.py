@@ -185,6 +185,23 @@ def test_unattended_run_returns_the_exit_code():
     assert code == 3 and not timed_out
 
 
+@pytest.mark.parametrize('ok', [True, False])
+def test_lodgen_output_is_held_but_for_its_warnings_unless_it_fails(monkeypatch, capsys, ok):
+    """A good run prints only its WARNING lines; a failed one prints everything, so the log shows why."""
+    def lodgen(_input, _out, _timeout):
+        """LODGen's header and tile lines, one warning, then `ok`."""
+        print('Game Mode: FO4')
+        print('Finished LOD level 4 coord [0, 0]')
+        print('  WARNING: LODGen could not process 1 model(s)')
+        return ok
+    monkeypatch.setattr(P, 'run_lodgen', lodgen)
+    assert P.quiet_lodgen(Path('in.txt'), Path('out')) is ok
+    printed = capsys.readouterr().out.splitlines()
+    assert printed == (['  WARNING: LODGen could not process 1 model(s)'] if ok else
+                       ['Game Mode: FO4', 'Finished LOD level 4 coord [0, 0]',
+                        '  WARNING: LODGen could not process 1 model(s)'])
+
+
 def test_a_dlc_build_leaves_a_master_worldspace_to_the_masters_lod(monkeypatch):
     """_world_groups: the plugin's own worldspace writes its LOD lists; a master's worldspace writes its group only."""
     log = []

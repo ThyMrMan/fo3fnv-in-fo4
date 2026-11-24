@@ -13,9 +13,14 @@ See: docs/fork/fo4_pipeline.md#object-lod
 
 import argparse
 import collections
+import contextlib
 import hashlib
+import io
 import shutil
 import struct
+import sys
+import threading
+import time
 from pathlib import Path
 
 from asset_convert.lod.lod_gen import LODGEN_EXE, run_lodgen
@@ -40,6 +45,8 @@ SPECULAR = 0x1
 ATLAS_DIFFUSE = '.objects.dds'
 #: In the work folder: the master files a bake copied into the Data folder, until it removes them (unstage).
 STAGED = 'staged_from_masters.txt'
+#: Marks of LODGen run lines printed even when it succeeds (run_lodgen's warnings).
+LOUD = ('WARNING', 'ERROR')
 
 
 def work_dir(data_dir: Path) -> Path:
@@ -158,7 +165,7 @@ def header(world: str, sw: tuple, data_dir: Path, atlas_map: 'Path | None') -> l
 
 def _baked(folder: Path, head: list, rows: list, key: str) -> 'Path | None':
     """The folder of the .bto LODGen writes for input header `head` and `rows`: kept under `folder` as `key`, run
-    when missing; None when the run fails. Other keys' runs are dropped."""
+    when missing (quiet_lodgen); None when the run fails. Other keys' runs are dropped."""
     kept = folder / key
     if kept.is_dir():
         return kept
@@ -167,10 +174,40 @@ def _baked(folder: Path, head: list, rows: list, key: str) -> 'Path | None':
     out, lodgen_input = folder / 'out', folder / 'LODGen.txt'
     out.mkdir()
     lodgen_input.write_text('\n'.join([*head, f'PathOutput={out}', *rows]) + '\n', encoding='utf-8')
-    if not run_lodgen(lodgen_input, out, TIMEOUT):
+    if not quiet_lodgen(lodgen_input, out):
         return None
     out.rename(kept)
     return kept
+
+
+class Held(io.StringIO):
+    """A stdout keeping what the thread that made it writes; other threads' writes go on to `real`."""
+
+    def __init__(self, real):
+        """Hold this thread's writes, passing the rest to `real`."""
+        super().__init__()
+        self.real, self.owner = real, threading.get_ident()
+
+    def write(self, text: str) -> int:
+        """Keep `text` from the owner thread, else write it on."""
+        return super().write(text) if threading.get_ident() == self.owner else self.real.write(text)
+
+    def flush(self) -> None:
+        """Flush the real stdout."""
+        self.real.flush()
+
+
+def quiet_lodgen(lodgen_input: Path, out: Path) -> bool:
+    """run_lodgen() with its output held: all of it printed when it fails, else only its WARNING and ERROR lines.
+    See: docs/fork/fo4_pipeline.md#object-lod
+    """
+    held = Held(sys.stdout)
+    with contextlib.redirect_stdout(held):
+        ok = run_lodgen(lodgen_input, out, TIMEOUT)
+    lines = held.getvalue().splitlines()
+    for line in lines if not ok else [x for x in lines if any(mark in x for mark in LOUD)]:
+        print(line)
+    return ok
 
 
 def install(kept: Path, data_dir: Path, world: str, levels: tuple) -> int:
@@ -220,8 +257,9 @@ def bake_all(export_dir: Path, data_dir: Path, worlds: list, master_dirs: list =
     removed first); counts per outcome."""
     counts = collections.Counter({'object LOD master files left by a killed run, removed': unstage(data_dir)})
     for world in worlds:
+        started = time.perf_counter()
         outcome, tiles = bake(export_dir, data_dir, world, master_dirs)
-        print(f'object LOD {world}: {outcome}, {tiles} tiles')
+        print(f'object LOD {world}: {outcome}, {tiles} tiles, {time.perf_counter() - started:.1f}s')
         counts[f'object LOD worldspaces {outcome}'] += 1
         counts['object LOD tiles'] += tiles
     return counts

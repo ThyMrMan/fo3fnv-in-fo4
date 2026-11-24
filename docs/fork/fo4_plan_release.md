@@ -241,7 +241,12 @@ the tests, and can't build without a Cleanroom UI checkout and the Flex SDK
   (`fo4_import/data`, the static scripts, `asset_convert/generated`, the
   `external/` tools), minus `SKIPPED`: Skyrim's Havok, collision, Papyrus
   and BSA tools, OpenMW's sources, Oblivion's SpeedTree harness and the
-  Skyrim converter's runtime DLLs.
+  Skyrim converter's runtime DLLs. A data folder must not hold an
+  `__init__.py` nothing imports: that makes it a code folder of its own, and
+  its data is left out. An empty one in `script_convert/static_scripts` kept
+  all 89 helper scripts (`TES4Polyfill` among them) out of releases up to
+  f3nv-0.4, so every converted script calling them failed in both compilers
+  (`test_zip_carries_the_helper_scripts`).
 - `native/dist` (the native extensions and pinned zlib), the three DLLs the
   output ships, both launchers, the README and the license.
 - What a download can't build, at the paths the code reads it from:

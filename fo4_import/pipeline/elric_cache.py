@@ -34,6 +34,7 @@ from fo4_import.nif import file as nif_file
 from fo4_import.pipeline import mesh_cache, work_cache
 from fo4_import.pipeline.code_tag import ROOT
 from fo4_import.pipeline.ran_code import ran_alone
+from fo4_import.pipeline.stage_timer import counted
 from fo4_import.pipeline.work_cache import UNUSED_DAYS, prune, store
 from asset_convert import paths as data_paths
 
@@ -192,7 +193,8 @@ def _run(todo: dict) -> list:
     (finished_each), then the ones needing a new Elric run in one batch; each result stored (but a source fault's),
     written and marked; the paths left without collision."""
     failed, waiting = [], {}
-    for path, ok, data, ran, faults in finished_each({path: data for path, (_, data) in todo.items()}):
+    each = finished_each({path: data for path, (_, data) in todo.items()})
+    for path, ok, data, ran, faults in counted(each, len(todo), 'meshes'):
         if ok is None:
             waiting[path] = todo[path][1]
         else:

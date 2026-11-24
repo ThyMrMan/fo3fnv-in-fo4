@@ -32,7 +32,8 @@ from fo4_import.spike.regions import imposters, regions_of
 from fo4_import.spike.weather_imagespace import world_imagespace
 from fo4_import.spike.weathers import climate
 from fo4_import.nif.convert_static import fo4_texture, smoothness, spec_map_path, texture_source
-from fo4_import.pipeline.export_index import export_file, export_records
+from fo4_import.pipeline.export_index import export_file, export_records, fresh_records
+from fo4_import.pipeline.stage_timer import counted
 from fo4_import.pipeline.work_cache import reframed_map, spec_map
 from fo4_import.spike.statics import copy_texture, stage_derived
 from tes5_import.base.tes5_reader import subrecords, walk
@@ -78,6 +79,24 @@ PERSISTENT = 0x400
 DEFAULT_WATER = 3.4028234663852886e+38
 #: Exterior group types: world children, cell block, sub-block, cell children, persistent, temporary.
 WORLD_CHILDREN, BLOCK, SUB_BLOCK, CELL_CHILDREN, PERSISTENT_CHILDREN, TEMPORARY_CHILDREN = 1, 4, 5, 6, 8, 9
+#: {export folder: {FNV CELL FormID: its LAND}}: land_of()'s, emptied by drop_land().
+_LAND = {}
+
+
+def land_of(export_dir) -> dict:
+    """{FNV CELL FormID: its LAND} of `export_dir` (the layered export, the last record of a cell winning), read
+    once and kept until drop_land().
+    See: docs/fork/fo4_build_resources.md#lean-export
+    """
+    key = str(export_dir)
+    if key not in _LAND:
+        _LAND[key] = {r['ParentCELL']: r for r in fresh_records(export_dir, 'LAND')}
+    return _LAND[key]
+
+
+def drop_land() -> None:
+    """Free the land land_of() read: after the last worldspace is built."""
+    _LAND.clear()
 
 
 class Exterior:
@@ -107,9 +126,13 @@ class Exterior:
             elif ref.get('ParentCELL') == self.persistent_cell and grid_of(ref) in self.cells:
                 self.persistent.append(ref)
         self.refs = self.persistent + [r for refs in self.by_cell.values() for r in refs]
-        self.land = {r['ParentCELL']: r for r in export_records(export_dir, 'LAND') if r['ParentCELL'] in own}
         self.textures, self.heights = {}, {}
         self.grasses = Grasses(export_dir)
+
+    @property
+    def land(self) -> dict:
+        """{FNV CELL FormID: its LAND} of the export (land_of), read on first use."""
+        return land_of(self.export_dir)
 
     @property
     def fo4_edid(self) -> str:
@@ -171,7 +194,7 @@ class Exterior:
         lands = {grid: self.land.get(self.cells[grid]['FormID']) for grid in sorted(self.cells)}
         grassy = frozenset(k for k, r in self._ltex_records().items() if _grass_count(r))
         mixes = land_textures(lands, grassy)
-        for grid in sorted(self.cells):
+        for grid in counted(sorted(self.cells), unit='cells'):
             persistent, temporary = place(self.by_cell[grid])
             people = actors.get(self.cells[grid]['FormID'], (b'', b''))
             kept, temporary = kept + persistent + people[0], temporary + people[1]

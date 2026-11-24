@@ -1,7 +1,8 @@
 """Estimated build time, cold and cached, per stage group: a linear model of the build's features (eta_inputs),
 fitted on recorded builds of the reference machine (tools/release/fit_build_eta.py writes DATA), scaled to another
 machine by its benchmark (tools/release/machine_benchmark.py) and the resource profile's worker count. During a
-build, Live prints how much is left, correcting the plan by how the finished groups went. Always an estimate.
+build, Live prints how much is left, correcting the plan by how the groups went so far and the running stage by
+its own progress (stage_timer.counted). Always an estimate.
 
     py -3.14 -m fo4_import.pipeline.eta <export folder or <plugin>.build.json>... [--resources low]
         [--benchmark machine_benchmark.json]
@@ -10,13 +11,14 @@ See: docs/fork/fo4_build_resources.md#eta
 """
 
 import argparse
+import dataclasses
 import json
 import threading
 import time
 from pathlib import Path
 
 from core import build_resources
-from fo4_import.pipeline import eta_inputs
+from fo4_import.pipeline import eta_inputs, stage_timer
 from fo4_import.pipeline.code_tag import ROOT
 from asset_convert import paths as data_paths
 
@@ -26,9 +28,18 @@ BENCHMARK = data_paths.OUTPUT / 'machine_benchmark.json'
 #: How each feature's work scales to another machine (the rest is the main process: one core's speed).
 KIND = {'faces_cold': 'pool', 'guns_cold': 'pool', 'meshes_cold': 'pool', 'scripts_changed': 'pool',
         'voices_cold': 'pool', 'packed': 'disk'}
-#: Seconds between Live's lines.
-LIVE_SECONDS = 30
+#: Seconds between Live's checks (each a progress line for the app's window).
+LIVE_SECONDS = 10
 NOTE = 'an estimate, from earlier builds; this run may differ'
+#: Live writes the time left again once the expected finish moves this many seconds and this share of the time left.
+MOVED_SECONDS, MOVED_SHARE = 120.0, 0.15
+#: The bounds of a build's pace against its plan, and the planned seconds before a pace counts.
+PACE, PACE_PLANNED = (0.5, 3.0), 60.0
+#: The share of a stage's counted loop done before its rate counts.
+TRUSTED_SHARE = 0.05
+#: Environment variable the app sets so a build prints a PROGRESS line each check, for its window only.
+PROGRESS_ENV = 'F3NV_PROGRESS_LINES'
+PROGRESS = 'progress: '
 
 
 def load(path: Path = DATA) -> dict:
@@ -36,10 +47,15 @@ def load(path: Path = DATA) -> dict:
     return json.loads(path.read_text(encoding='utf-8'))
 
 
+def benchmark_path() -> Path:
+    """This machine's benchmark file, in the work folder's output."""
+    return data_paths.data_root() / 'output' / BENCHMARK.name
+
+
 def benchmark(path: 'Path | None' = None) -> 'dict | None':
-    """A machine_benchmark.py result (default: BENCHMARK in today's data_root()), or None when there is none."""
+    """A machine_benchmark.py result (default: benchmark_path()), or None when there is none."""
     try:
-        return json.loads(Path(path or data_paths.data_root() / 'output' / BENCHMARK.name).read_text(encoding='utf-8'))
+        return json.loads(Path(path or benchmark_path()).read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return None
 
@@ -139,39 +155,90 @@ def summary(model: dict, feats: dict, bench: 'dict | None', profile: str) -> str
     return f'about {minutes(cached)} cached, {minutes(cold)} cold'
 
 
+def pace(spent: float, planned: float) -> float:
+    """`spent` over `planned` seconds within PACE; 1 below PACE_PLANNED planned."""
+    return min(PACE[1], max(PACE[0], spent / planned)) if planned > PACE_PLANNED else 1.0
+
+
+def step_left(progress, now: float) -> 'float | None':
+    """Seconds left of a Progress at its rate; None under TRUSTED_SHARE done."""
+    if progress is None or progress.done < max(1.0, progress.total * TRUSTED_SHARE):
+        return None
+    return (now - progress.began) * (progress.total - progress.done) / progress.done
+
+
+def blended(plan_left: float, step: 'float | None', share: float) -> float:
+    """Plan's time left moved toward `step` by `share`, never under `step`."""
+    if step is None:
+        return max(0.0, plan_left)
+    return max(step, (1.0 - share) * max(0.0, plan_left) + share * step)
+
+
+@dataclasses.dataclass
+class Left:
+    """Seconds left of the build and of the running stage's group (`step`), and that stage's name and Progress."""
+    build: float
+    step: float = 0.0
+    stage: 'str | None' = None
+    progress: 'stage_timer.Progress | None' = None
+
+    def text(self) -> str:
+        """'<Stage>: <done> of <total> <unit>, about N min left in this step, about M min overall'."""
+        overall = f'about {minutes(self.build)} overall'
+        if self.stage is None:
+            return overall
+        head = self.stage[:1].upper() + self.stage[1:]
+        if self.progress is None:
+            return f'{head}, {overall}'
+        p = self.progress
+        return f'{head}: {p.done:,} of {p.total:,} {p.unit}, about {minutes(self.step)} left in this step, {overall}'
+
+
 class Live:
-    """A stage_timer listener printing, every LIVE_SECONDS, the time left of a planned build ({group: seconds}): the
-    plan of the groups not done, scaled by how the started ones went against theirs, less the running stage's time
-    so far. start() also prints during a long stage."""
+    """A stage_timer listener checking, every LIVE_SECONDS, the time left of a planned build ({group: seconds}):
+    every group's plan scaled by the pace so far (the running group's time counted as it runs), the running group's
+    left from its stage's progress as that grows (blended). It writes an 'estimate:' line when the expected finish
+    moves (MOVED_SECONDS, MOVED_SHARE), and with `window` a PROGRESS line each check.
+    See: docs/fork/fo4_build_resources.md#live-progress
+    """
 
-    def __init__(self, plan: dict, out=print):
-        """Track `plan`, printing with `out`."""
-        self.plan, self.out, self.spent, self.order = plan, out, {}, []
-        self.started = self.last = self.event = time.time()
+    def __init__(self, plan: dict, out=print, window: bool = False):
+        """Track `plan`, printing with `out` (PROGRESS lines too when `window`)."""
+        self.plan, self.out, self.window, self.spent = plan, out, window, {}
+        self.started = self.event = time.time()
+        self.finish = None
 
-    def left(self) -> float:
-        """Seconds left: each group's plan times the pace so far, less what it has spent."""
-        done = self.order[:-1]
-        planned, spent = sum(self.plan.get(g, 0.0) for g in done), sum(self.spent[g] for g in done)
-        pace = min(3.0, max(0.5, spent / planned)) if planned > LIVE_SECONDS else 1.0
-        return sum(max(0.0, seconds * pace - self.spent.get(group, 0.0)) for group, seconds in self.plan.items())
+    def left(self, now: 'float | None' = None) -> Left:
+        """The time left at `now` (default: now)."""
+        now = time.time() if now is None else now
+        stage, progress = stage_timer.running() or (None, None)
+        group, spent = (eta_inputs.group_of(stage) if stage else None), dict(self.spent)
+        if group is not None:
+            spent[group] = spent.get(group, 0.0) + now - self.event
+        done = [g for g in spent if g != group]
+        first = pace(sum(spent[g] for g in done), sum(self.plan.get(g, 0.0) for g in done))
+        share = progress.done / progress.total if progress else 0.0
+        step = 0.0 if group is None else blended(self.plan.get(group, 0.0) * first - spent[group],
+                                                 step_left(progress, now), share)
+        overall = pace(sum(spent.values()) + step, sum(self.plan.get(g, 0.0) for g in [*done, group] if g))
+        rest = sum(max(0.0, seconds * overall - spent.get(g, 0.0)) for g, seconds in self.plan.items() if g != group)
+        return Left(rest + step, step, stage, progress)
 
     def __call__(self, stage: str, seconds: float) -> None:
-        """Count `seconds` of `stage`; print the time left when LIVE_SECONDS have passed since the last line."""
+        """Count `seconds` of `stage`."""
         group = eta_inputs.group_of(stage)
         self.spent[group] = self.spent.get(group, 0.0) + seconds
-        if group not in self.order:
-            self.order.append(group)
         self.event = time.time()
-        self.tick()
 
-    def tick(self) -> None:
-        """Print the time left (less the time since the last stage ended) if LIVE_SECONDS passed since the last line."""
-        now = time.time()
-        if now - self.last >= LIVE_SECONDS:
-            self.last = now
-            left = max(0.0, self.left() - (now - self.event))
-            self.out(f'estimate: about {minutes(left)} left, {minutes(now - self.started)} so far ({NOTE})')
+    def tick(self, now: 'float | None' = None) -> None:
+        """Print a PROGRESS line (with `window`), and the time left when the expected finish moved."""
+        now = time.time() if now is None else now
+        left = self.left(now)
+        if self.window:
+            self.out(PROGRESS + left.text())
+        if self.finish is None or abs(now + left.build - self.finish) >= max(MOVED_SECONDS, MOVED_SHARE * left.build):
+            self.finish = now + left.build
+            self.out(f'estimate: about {minutes(left.build)} left, {minutes(now - self.started)} so far ({NOTE})')
 
     def start(self) -> 'Live':
         """Tick every LIVE_SECONDS on a daemon thread for the life of the process; this listener."""

@@ -46,6 +46,10 @@ ORDER = (('import', 'Import the mod folder'), ('export', 'Export the plugin and 
          ('check', 'Check references (fast)'), ('fo4edit', "FO4Edit's full check (slow; may wait for a click)"))
 #: Stages left unticked unless the user ticks them: the Classic Look is a choice; FO4Edit waits.
 OPTIONAL = frozenset({'classic', 'fo4edit'})
+#: Stages that build, the first of them preceded by BENCHMARK when this machine has none (plan).
+BUILDS = frozenset({'build', 'update'})
+#: The key and label of the machine benchmark plan() runs once.
+BENCHMARK = ('benchmark', 'Measure this machine for the time estimate (once, about a minute)')
 #: Stages that need a Windows-only tool.
 WINDOWS_TOOLS = {'fo4edit': 'FO4Edit'}
 
@@ -323,6 +327,16 @@ def package(settings: dict, source: str) -> 'Path | None':
 
 
 def plan(settings: dict, source: str, chosen: list, scope: Scope, settings_file: Path) -> list:
-    """[(stage key, label, argv)] of the `chosen` stages that can run, in run order."""
-    return [(key, label, command(settings, source, key, scope, settings_file)) for key, label in ORDER
-            if key in chosen and not unavailable(settings, source, key)]
+    """[(stage key, label, argv)] of the `chosen` stages that can run, in run order; before the first build on a
+    machine with no benchmark (eta.benchmark), the benchmark, so the build's estimate fits this machine.
+    See: docs/fork/fo4_build_resources.md#benchmark
+    """
+    out = [(key, label, command(settings, source, key, scope, settings_file)) for key, label in ORDER
+           if key in chosen and not unavailable(settings, source, key)]
+    builds = [i for i, (key, _label, _argv) in enumerate(out) if key in BUILDS]
+    if builds and eta.benchmark() is None:
+        where = eta.benchmark_path()
+        argv = [sys.executable, str(REPO / 'tools' / 'release' / 'machine_benchmark.py'), '--out', str(where),
+                '--dir', str(where.parent.parent)]
+        out.insert(builds[0], (*BENCHMARK, argv))
+    return out

@@ -20,6 +20,7 @@ from fo4_import.base.source_fault import SourceFault
 from fo4_import.havok.gun_clips import GunClips, is_kept, keep
 from fo4_import.pipeline import mesh_cache, work_cache
 from fo4_import.pipeline.export_index import Layered
+from fo4_import.pipeline.stage_timer import counted
 
 #: What a gun clip worker commits, for the worker count (build_resources.pool_workers).
 WORKER_BYTES = 1 << 30
@@ -56,7 +57,8 @@ def warm(jobs: list, export_meshes, workers: int = 0) -> int:
         else ((export_meshes,), ())
     started = (meshes, (work_cache.CACHE, mesh_cache.CACHE))
     with concurrent.futures.ProcessPoolExecutor(workers, initializer=_start, initargs=started) as pool:
-        for (key, _), found in zip(todo, pool.map(_convert, [args for _, args in todo], chunksize=1)):
+        made = pool.map(_convert, [args for _, args in todo], chunksize=1)
+        for (key, _), found in zip(todo, counted(made, len(todo), 'guns')):
             if found is not None:
                 keep(key, found)
     return len(todo)

@@ -73,7 +73,7 @@ differs from the original games is in [fo4_drift.md](docs/fork/fo4_drift.md).
 
 | | |
 |---|---|
-| **Windows 10 or 11** | The tested setup. Linux and macOS may work, since the conversion no longer runs the Creation Kit for its main work, but nobody has tried them yet ([below](#other-systems)). |
+| **Windows 10 or 11** | The tested setup. Linux and macOS don't work yet: two parts of the build ship for Windows only ([below](#other-systems)). |
 | **Fallout 4** | The current Steam version, **1.11.240**. |
 | **Fallout 4 Creation Kit** | Free on [Steam](https://store.steampowered.com/app/1946160/). Install it, but you don't need to open it. Converted scripts compile against the Fallout 4 script sources it installs (`Data\Scripts\Source\Base\Base.zip`). The app also falls back on it for the few faces our own FaceGen can't make. |
 | **Fallout: New Vegas or Fallout 3** | Steam or GOG, with any DLC you want converted. For Fallout 3, the Game of the Year edition has all five DLC. |
@@ -97,7 +97,11 @@ then run `python3.14 -m pip install -r requirements.txt` and
 `python3.14 fo4_app.py` in the downloaded folder instead of the `.cmd`
 launcher. Install the Creation Kit through Steam anyway, for its script
 sources. The few faces our own FaceGen can't make fall back to running it,
-and it runs only on Windows. Please [report](#problems) how it goes.
+and it runs only on Windows. Known not to work yet: the release ships its
+pinned compression library and its script compiler for Windows only, so a
+build stops before writing the plugin. Voice and sounds need Wine and
+`xWMAEncode.exe`, and distant objects need Wine ([details](docs/audits/fo4_redo_audit_2026-11-23.md#off-windows)).
+Please [report](#problems) how it goes.
 
 ### 1. Download
 

@@ -37,6 +37,7 @@ from fo4_import.base import caprica
 from fo4_import.base.build_files import moved_in
 from fo4_import.base.file_stamps import Stamps
 from fo4_import.base.papyrus import compile_folder, header_dirs
+from fo4_import.pipeline.stage_timer import counted
 
 #: One FO4 compiler's peak memory: a fixed part, and a part per script in its batch (0.93 GB at 84, 1.02 at 300).
 COMPILER_BYTES, COMPILER_SCRIPT_BYTES = 1 << 30, 1 << 19
@@ -333,7 +334,7 @@ def _fo4_batches(files: list, out_dir: Path, imports: str, workers: int) -> dict
     print(f'Compiling {len(files)} files with FO4\'s compiler in {len(chunks)} batches{at_once}...')
     own = collections.defaultdict(list)
     with concurrent.futures.ThreadPoolExecutor(max_workers=running) as ex:
-        for text in ex.map(lambda c: compile_folder(c, out_dir, imports), chunks):
+        for text in counted(ex.map(lambda c: compile_folder(c, out_dir, imports), chunks), len(chunks), 'batches'):
             for m in _FO4_LINE.finditer(text):
                 if m.group(2) not in own[m.group(1)]:
                     own[m.group(1)].append(m.group(2))

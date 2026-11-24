@@ -155,10 +155,17 @@ def test_entry_files_compute_every_clip_once_with_one_table_read_and_store(monke
     out = T.entry_files({1: ('G.hkx', None), 2: ('G.hkx', 7)}, read, k)
     assert sorted(made) == ['A\\Jump', 'A\\Run', 'A\\Walk'] and calls == ['lookup']
     assert sorted(out) == ['AnimationOffsets\\1.txt', 'AnimationOffsets\\2.txt', 'DynamicIdleData\\1.txt']
+    assert callable(out['AnimationOffsets\\1.txt']) and isinstance(out['AnimationOffsets\\1.txt'](), bytes)
     T.save(k)
     T.save(k)
     T.entry_files({1: ('G.hkx', None)}, read, k)
     assert calls == ['lookup', 'store'] and len(made) == 3
+
+
+def test_write_makes_a_deferred_file_as_it_writes_it(tmp_path: Path):
+    """A file given as a callable is made when written, the same as one given as bytes."""
+    written = T.write(tmp_path, {'AnimationOffsets\\1.txt': lambda: b'made', 'DynamicIdleData\\1.txt': b'given'})
+    assert [p.read_bytes() for p in written] == [b'made', b'given']
 
 
 def test_prune_removes_what_this_run_did_not_write(tmp_path: Path):

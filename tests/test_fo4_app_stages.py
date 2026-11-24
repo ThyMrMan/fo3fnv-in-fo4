@@ -8,6 +8,7 @@ from core import run_log
 from fo4_import.app import settings as S
 from fo4_import.app import stages as ST
 from fo4_import.app.runner import Runner
+from fo4_import.pipeline import eta
 
 
 def _settings(tmp_path: Path) -> dict:
@@ -196,6 +197,32 @@ def test_runner_streams_logs_and_stops_at_a_failure(tmp_path, monkeypatch):
     assert runner.warnings == ['ERROR: bad']
     log = next(tmp_path.glob('run-*-FalloutNV.esm.log')).read_text(encoding='utf-8')
     assert 'ERROR: bad' in log and '=== Second: failed (3)' in log and 'stopped or failed' in log
+
+
+def test_progress_lines_reach_the_window_but_not_the_run_log(tmp_path, monkeypatch):
+    """The stage is told to print progress lines; they go to the window only."""
+    monkeypatch.setenv(run_log.LOGS_DIR_ENV_VAR, str(tmp_path))
+    code = f'import os; print("{eta.PROGRESS}" + os.environ["{eta.PROGRESS_ENV}"]); print("kept")'
+    lines = []
+    Runner([('a', 'First', [sys.executable, '-c', code])], name='FalloutNV.esm').run(lines.append)
+    assert f'{eta.PROGRESS}1' in lines and 'kept' in lines
+    log = next(tmp_path.glob('run-*-FalloutNV.esm.log')).read_text(encoding='utf-8')
+    assert 'kept' in log and eta.PROGRESS not in log
+
+
+def test_the_first_build_on_a_machine_is_preceded_by_its_benchmark(tmp_path, monkeypatch):
+    """No benchmark: it runs before the build, into the work folder's output; with one, or with no build, it doesn't."""
+    s = _settings(tmp_path)
+    monkeypatch.setattr(ST, 'unavailable', lambda *args: '')
+    monkeypatch.setattr(ST.eta, 'benchmark_path', lambda: tmp_path / 'work' / 'output' / 'machine_benchmark.json')
+    plan = ST.plan(s, 'falloutnv', ['helpers', 'build', 'check'], ST.Scope(), tmp_path / 'x.json')
+    assert [key for key, _, _ in plan] == ['helpers', 'benchmark', 'build', 'check']
+    argv = plan[1][2]
+    assert argv[argv.index('--out') + 1] == str(tmp_path / 'work' / 'output' / 'machine_benchmark.json')
+    assert argv[argv.index('--dir') + 1] == str(tmp_path / 'work')
+    assert 'benchmark' not in [k for k, _, _ in ST.plan(s, 'falloutnv', ['check'], ST.Scope(), tmp_path / 'x.json')]
+    monkeypatch.setattr(ST.eta, 'benchmark', lambda: {'version': 1})
+    assert 'benchmark' not in [k for k, _, _ in ST.plan(s, 'falloutnv', ['build'], ST.Scope(), tmp_path / 'x.json')]
 
 
 def test_the_estimate_reads_the_last_build_else_the_export_else_nothing(tmp_path, monkeypatch):

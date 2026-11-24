@@ -1,10 +1,11 @@
 # Plan sketch: the build without the Creation Kit (2026-11-11)
 
-Status (2026-11-12): 1 [built](#ba2), 2 [built](#caprica), 3
-[built](#anim-text) and in every build, 7 [built](#lips); 4 built behind
-`--own-facegen` with a per-NPC CK fallback; 5 built in four steps, a few
-shapes still go to Elric; 6 and 8 not started. Most of it is not played
-yet. Status lives in
+Status (2026-11-23): 1 [built](#ba2), 2 [built](#caprica), 3
+[built](#anim-text) and in every build, 7 [built](#lips); 4 the app's
+default, with a per-NPC CK fallback that fired once in 286 logged runs; 5
+built, with no FalloutNV.esm mesh left to Elric
+([audit](../audits/fo4_redo_audit_2026-11-23.md#elric)); 6 and 8 not
+started. Status lives in
 [ROADMAP.md](ROADMAP.md). Built on the [open-tools survey](research/fo4_open_landscape.md#tools)
 and the build's own docs; costs quoted are the docs' measurements.
 
@@ -24,8 +25,8 @@ reliability on Windows too.
 | BA2 packing (1) | none | Main, texture and voice archives written by us (`base/ba2_write.py`, `base/ba2_textures.py`; [texture BA2](#ba2)) | Play test |
 | Papyrus (2) | FO4's compiler, only as the fallback for mods' scripts | Every FalloutNV.esm script in our Caprica build ([Caprica](#caprica)) | Play test |
 | AnimTextData (3) | none | Every file, in every build since 2026-11-12 ([ours](research/anim_text_data.md#ours)) | — |
-| FaceGen (4) | The CK, per NPC, when ours fails; the CK's `texconv` (`Tools/Elric`) for the face textures | FaceGeom heads and `_d`/`_msn`/`_s` behind `--own-facegen`, 0.29 s a face ([own stage](fo4_facegen_plan.md#own-stage)) | Play test; make it the default and drop the CK fallback; hair up to 0.29 units off, cause unknown; replace `texconv` |
-| Collision and ragdolls (5) | Elric, only for what ours does not cover | Convex shapes, triangle meshes on still or keyframed bodies, spheres, capsules, lists, ragdoll and hinge constraints, creature ragdolls ([steps](fo4_hknp_writer.md#steps)) | Play test; triangle meshes on bodies with full motion; flat shapes; other constraint kinds; then drop Elric |
+| FaceGen (4) | The CK, per NPC, when ours fails: once in 286 logged face runs (5 Dead Money NPCs, 2026-11-21), and the CK failed them too ([audit](../audits/fo4_redo_audit_2026-11-23.md#faces)) | FaceGeom heads and `_d`/`_msn`/`_s`, the app's default (`--own-facegen`), 0.29 s a face ([own stage](fo4_facegen_plan.md#own-stage)); textures through our encoder ([encoder](fo4_facegen_plan.md#own-dds-encoder)) | Play test; drop the CK fallback; hair up to 0.29 units off, cause unknown |
+| Collision and ragdolls (5) | Elric, only for what ours does not cover: 0 of 6,188 FalloutNV.esm meshes, 2 of 2,066 in NVWillow, both of which Elric failed ([audit](../audits/fo4_redo_audit_2026-11-23.md#elric)) | Convex shapes, triangle meshes on still or keyframed bodies, spheres, capsules, lists, ragdoll and hinge constraints, creature ragdolls ([steps](fo4_hknp_writer.md#steps)) | Play test; triangle meshes on bodies with full motion; flat shapes; other constraint kinds; then drop Elric |
 | Lip files (7) | LipGenerator, when installed and it works | FNV's lips converted ([lips](research/lip_format.md#built)); the recording's loudness otherwise ([lips](#lips)) | Play test; decide whether to stop calling LipGenerator |
 | Voice audio (6) | xWMAEncode inside each `.fuz` | The `.fuz` itself | Not started: a spike on whether the game plays another codec |
 | Precombines and previs (8) | none yet (CK planned, [before](fo4_pipeline.md#before)) | Not built | Not started: the CK route first |

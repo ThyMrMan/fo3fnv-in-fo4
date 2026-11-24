@@ -54,12 +54,17 @@ def export_masters(export_dir: str) -> tuple:
 
 @functools.cache
 def _layered(export_dir: str, sig: str) -> tuple:
-    """Type `sig`'s records of `export_dir` and then of its masters, each FormID once (the newest); one the plugin
-    deletes is gone, but a master's placed reference stays, disabled (FO4 mishandles a deleted master reference).
+    """_layer() of the plugin's own records and its masters' (master_records)."""
+    return _layer(sig, (own_records(export_dir, sig), *(master_records(export_dir, f, sig)
+                                                         for f in reversed(export_masters(export_dir)))))
+
+
+def _layer(sig: str, layers: tuple) -> tuple:
+    """Type `sig`'s records of `layers` (the plugin's, then each master's in its numbering, the last master first),
+    each FormID once (the newest); one the plugin deletes is gone, but a master's placed reference stays, disabled
+    (FO4 mishandles a deleted master reference).
     See: docs/fork/fo4_plugin_layout.md#dlc-deleted
     """
-    layers = (own_records(export_dir, sig), *(master_records(export_dir, f, sig)
-                                              for f in reversed(export_masters(export_dir))))
     out, seen, deleted = [], set(), set()
     for depth, rec in ((depth, rec) for depth, layer in enumerate(layers) for rec in layer):
         fid = rec['FormID']
@@ -76,11 +81,29 @@ def _layered(export_dir: str, sig: str) -> tuple:
 
 @functools.cache
 def master_records(export_dir: str, folder: str, sig: str) -> tuple:
-    """own_records() of master export `folder` in `export_dir`'s FormID numbering (master_space)."""
-    mapping, recs = master_map(export_dir, folder), own_records(folder, sig)
+    """_renumbered() own_records() of master export `folder`."""
+    return _renumbered(export_dir, folder, own_records(folder, sig))
+
+
+def _renumbered(export_dir: str, folder: str, recs: tuple) -> tuple:
+    """Records `recs` of master export `folder` in `export_dir`'s FormID numbering (master_space)."""
+    mapping = master_map(export_dir, folder)
     if identity(mapping):
         return recs
     return tuple(renumber_record(rec, mapping, source_game(export_dir)) for rec in recs)
+
+
+def fresh_records(export_dir, sig: str) -> tuple:
+    """export_records(`export_dir`, `sig`) parsed now and kept by no cache, so they go when the caller drops them:
+    for a large type one stage reads (LAND).
+    See: docs/fork/fo4_build_resources.md#lean-export
+    """
+    folder = str(export_dir)
+    parse = lambda f: tuple(parse_export_file(str(Path(f) / f'{sig}.txt')))
+    if not export_masters(folder):
+        return parse(folder)
+    masters = (_renumbered(folder, f, parse(f)) for f in reversed(export_masters(folder)))
+    return _layer(sig, (parse(folder), *masters))
 
 
 @functools.cache

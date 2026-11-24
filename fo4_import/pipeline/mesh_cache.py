@@ -36,6 +36,7 @@ from fo4_import.nif.addons import addon_map
 from fo4_import.nif.convert_static import Converted, convert, texture_source
 from fo4_import.pipeline.code_tag import ROOT
 from fo4_import.pipeline.ran_code import ran_while
+from fo4_import.pipeline.stage_timer import counted
 from fo4_import.pipeline.work_cache import current_ran, lookup, ran_path, store, write_ran
 from fo4_import.pipeline.export_index import export_file
 from asset_convert import paths as data_paths
@@ -226,7 +227,7 @@ def warm(paths: list, texture_root, workers: int = 0) -> int:
     jobs = [(p, str(texture_root), None, True, addons) for p, done in zip(memos, kept) if not done]
     workers = pool_workers(WORKER_BYTES, len(jobs), workers)
     with concurrent.futures.ProcessPoolExecutor(max_workers=workers, initializer=_join_capped) as pool:
-        for job, (too_large, textures) in zip(jobs, pool.map(_warm, jobs, chunksize=1)):
+        for job, (too_large, textures) in zip(jobs, counted(pool.map(_warm, jobs, chunksize=1), len(jobs), 'meshes')):
             memos[job[0]]['textures'] = textures
             if too_large:
                 TOO_LARGE.add(_same(job[0]))

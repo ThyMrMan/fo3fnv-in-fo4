@@ -7,6 +7,7 @@ See: docs/fork/fo4_gui.md#cross-platform
 """
 
 import functools
+import mmap
 import re
 import struct
 from pathlib import Path
@@ -48,15 +49,23 @@ def use_source(plugin: Path, masters: tuple = ()) -> None:
     _SOURCE['plugin'], _SOURCE['masters'] = Path(plugin), tuple((Path(f), tuple(m), g) for f, m, g in masters)
 
 
-def source_esm() -> bytes:
-    """The bytes of the plugin the build converts (use_source), read once a run."""
+def source_esm() -> mmap.mmap:
+    """The bytes of the plugin the build converts (use_source), mapped (_read)."""
     return _read(_SOURCE['plugin'])
 
 
 @functools.cache
-def _read(path: Path) -> bytes:
-    """The bytes of the file at `path`, read once."""
-    return path.read_bytes()
+def _read(path: Path) -> mmap.mmap:
+    """The file at `path`, mapped read-only once (not committed memory).
+    See: docs/fork/fo4_build_resources.md#mapped-plugins
+    """
+    with open(path, 'rb') as f:
+        return mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+
+
+def fallout4_esm() -> mmap.mmap:
+    """Fallout4.esm's bytes, mapped once a run (_read)."""
+    return _read(FALLOUT4_ESM)
 
 
 def masters_of(data: bytes) -> list:

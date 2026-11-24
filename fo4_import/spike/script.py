@@ -28,7 +28,7 @@ from fo4_import.base.support_records import pack_script_quest
 from fo4_import.base.vmad import info_fragments, object_scripts, quest_fragments
 from fo4_import.helpers_plugin import actor_value_form, helper_forms
 from fo4_import.spike.items import ENGINE_IDS
-from fo4_import.base.install import FALLOUT4_ESM
+from fo4_import.base.install import fallout4_esm
 from tes5_import.base.tes5_reader import first_sub, walk, zstr
 from fo4_import.pipeline.code_tag import ROOT
 from output_layout import record_dir
@@ -83,7 +83,7 @@ def declared_properties(psc: str) -> list:
 def fo4_editor_ids() -> dict:
     """{record type: {editor ID: FormID}} of the install's Fallout4.esm records of EDITOR_ID_TYPES."""
     out = {sig: {} for sig in EDITOR_ID_TYPES}
-    for rec, _ in walk(FALLOUT4_ESM.read_bytes(), *(sig.encode() for sig in EDITOR_ID_TYPES)):
+    for rec, _ in walk(fallout4_esm(), *(sig.encode() for sig in EDITOR_ID_TYPES)):
         edid = first_sub(rec.body, b'EDID')
         if edid:
             out[rec.sig.decode()][zstr(edid)] = rec.form_id

@@ -52,33 +52,26 @@ def unescape_value(value: str) -> str:
     return ''.join(result)
 
 
-def parse_record_block(lines: list) -> dict:
-    """Parse a single record block (list of KEY=VALUE lines) into a dict.
-
-    Returns a dict where keys map to values. Duplicate keys get list values.
-    Special handling for indexed keys like Item[0].FormID — stored as nested lists.
+def parse_record_block(lines: list, shared: 'dict | None' = None) -> dict:
+    """A record block's KEY=VALUE lines as a dict; a repeated key's values as a list. Keys are interned, and
+    values are one object per text through `shared` ({text: text}, one per file) when given.
+    See: docs/fork/fo4_build_resources.md#lean-export
     """
     record = {}
     for line in lines:
         line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-        eq = line.find('=')
+        eq = line.find('=') if line and not line.startswith('#') else -1
         if eq < 0:
             continue
-        key = line[:eq]
-        value = unescape_value(line[eq + 1:])
-
-        if key in record:
-            # Convert to list if duplicate key
-            existing = record[key]
-            if isinstance(existing, list):
-                existing.append(value)
-            else:
-                record[key] = [existing, value]
-        else:
+        key, value = sys.intern(line[:eq]), unescape_value(line[eq + 1:])
+        if shared is not None:
+            value = shared.setdefault(value, value)
+        if key not in record:
             record[key] = value
-
+        elif isinstance(record[key], list):
+            record[key].append(value)
+        else:
+            record[key] = [record[key], value]
     return record
 
 
@@ -116,7 +109,7 @@ def parse_file_range(args: tuple) -> list:
     whole-file parse exactly.
     """
     filepath, start, end = args
-    records = []
+    records, shared = [], {}
     with open(filepath, 'rb') as f:
         try:
             mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
@@ -132,7 +125,7 @@ def parse_file_range(args: tuple) -> list:
                 if rec_end < 0:
                     break
                 block = mm[nl + 1:rec_end].decode('utf-8')
-                record = parse_record_block(block.splitlines())
+                record = parse_record_block(block.splitlines(), shared)
                 if record:
                     records.append(record)
                 begin = find_delim_line(mm, DELIM_BEGIN,

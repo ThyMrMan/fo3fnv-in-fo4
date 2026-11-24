@@ -138,15 +138,62 @@ def test_throughput_is_read_off_the_measured_worker_counts():
     assert [eta.throughput(bench, n) for n in (1, 3, 7, 20)] == [10.0, 30.0, 55.0, 60.0]
 
 
-def test_live_prints_the_time_left_scaled_by_the_pace_of_the_finished_groups(monkeypatch):
-    """The finished group ran twice its plan, so the rest is planned at twice too."""
-    lines = []
-    live = eta.Live({'people': 100.0, 'weapons': 100.0}, lines.append)
-    monkeypatch.setattr(eta, 'LIVE_SECONDS', 0)
+def test_live_scales_the_plan_by_the_pace_of_the_ended_groups():
+    """No stage runs: people ran twice its plan and weapons half, so the plan runs at 1.25: weapons has 75 s left."""
+    live = eta.Live({'people': 100.0, 'weapons': 100.0}, [].append)
     live('people', 200.0)
     live('item WEAP', 50.0)
-    assert live.left() == 150.0
-    assert lines[-1].startswith('estimate: about 2 min left')
+    assert live.left().build == 75.0
+
+
+def _inside(stage: str, fn):
+    """`fn()` called while stage `stage` runs."""
+    return stage_timer.timed(stage)(fn)()
+
+
+def test_a_running_stage_past_its_plan_raises_the_estimate_as_it_runs():
+    """People, planned at 100 s, runs on with no stage ending: the time left grows with it, never counting down to
+    nothing first (the laptop's 1 min, then 85 min)."""
+    live = eta.Live({'people': 100.0, 'weapons': 100.0, 'mesh cache': 100.0}, [].append)
+    t0 = live.event
+    left = _inside('people', lambda: [live.left(t0 + s).build for s in (50, 150, 300)])
+    assert left == [250.0, 300.0, 600.0]
+
+
+def test_a_counted_loop_sets_the_floor_and_its_rate_takes_over():
+    """10 of 100 faces done in 100 s: 900 s left in the step at that rate, though its plan says 100 s."""
+    live = eta.Live({'people': 100.0, 'weapons': 100.0}, [].append)
+
+    def run():
+        """Count 10 of 100 faces, begun 100 s before the reading, then read the time left."""
+        for done, _ in enumerate(stage_timer.counted(range(100), unit='faces'), 1):
+            if done == 11:
+                return live.left(stage_timer.running()[1].began + 100.0)
+    left = _inside('people', run)
+    assert left.step == 900.0 and left.build >= 900.0
+    assert left.text().startswith('People: 10 of 100 faces, about 15 min left in this step, about ')
+    assert stage_timer.running() is None
+
+
+def test_counted_notes_progress_only_inside_a_stage_and_drops_it_after():
+    """Outside a stage items pass through; inside, the note ends with the loop."""
+    assert list(stage_timer.counted([1, 2])) == [1, 2]
+    seen = _inside('worlds', lambda: [stage_timer.running()[1].done for _ in stage_timer.counted('abc', unit='cells')])
+    assert seen == [0, 1, 2]
+
+
+def test_the_log_line_is_written_only_when_the_finish_moves():
+    """Every check makes a progress line for the window; the estimate line comes first, then only when the expected
+    finish moves by MOVED_SECONDS and MOVED_SHARE."""
+    lines = []
+    live = eta.Live({'people': 1000.0}, lines.append, window=True)
+    t0 = live.event
+    for s in (0, 10, 20):
+        live.tick(t0 + s)
+    assert [line.split(':')[0] for line in lines] == ['progress', 'estimate', 'progress', 'progress']
+    live.plan['people'] = 2000.0
+    live.tick(t0 + 30)
+    assert lines[-1].startswith('estimate: about 33 min left')
 
 
 def test_the_fit_recovers_known_coefficients():

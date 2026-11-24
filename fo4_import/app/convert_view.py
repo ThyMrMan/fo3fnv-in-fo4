@@ -19,6 +19,7 @@ from fo4_import.app import stages
 from fo4_import.app.mo2_setup import environment
 from fo4_import.app.runner import Runner
 from fo4_import.app.target_box import TargetBox
+from fo4_import.pipeline import eta
 
 #: Lines the log keeps.
 LOG_LINES = 20000
@@ -210,16 +211,20 @@ class ConvertView(QWidget):
             return
         self.log.clear()
         self.thread = StageThread(plan, settings, settings['source'])
-        self.thread.line.connect(self.log.appendPlainText)
-        self.thread.line.connect(self._estimate_line)
+        self.thread.line.connect(self._line)
         self.thread.done.connect(self._done)
         self.start.setEnabled(False)
         self.stop.setEnabled(True)
         self.status.setText(f'Running {len(plan)} stage(s)...')
         self.thread.start()
 
-    def _estimate_line(self, line: str) -> None:
-        """Show a build's 'estimate:' line under the controls."""
+    def _line(self, line: str) -> None:
+        """A build's progress line under the controls; any other line to the log, an 'estimate:' one under the
+        controls too."""
+        if line.startswith(eta.PROGRESS):
+            self.estimate.setText(line.removeprefix(eta.PROGRESS))
+            return
+        self.log.appendPlainText(line)
         if line.startswith('estimate: '):
             self.estimate.setText('Estimated: ' + line.removeprefix('estimate: '))
 

@@ -215,7 +215,7 @@ behavior match is not yet read against the GECK wiki. Markers are from the
 | GetFriendHit | 2 | 2 | An `OnHit` counter in the script's own variables |
 | IsIdlePlaying | 1 | 2 | Phase 5's PlayGroup record, as IsAnimPlaying |
 | ResetInventory | 17 | 3 | `RemoveAllItems`, then a build-written list of the base's inventory |
-| SetActorFullName | 17 | 3 | A reference alias with a display name; unverified on a forced reference, a DLL candidate |
+| SetActorFullName | 17 | 1 | F4SE's `Form.SetName` on the actor's base (FNV renames the base too); F4SE is already required |
 | SetQuestObject | 7 | 3 | The holding alias's Quest Object flag, written at build |
 | ShowRecipeMenu | 5 | 3 | A build-placed hidden workbench of the recipe list's kind, activated for the player |
 | sgtm, SetGlobalTimeMultiplier | 5, 2 | 3 | A build-made slow-time spell cast on the player (sgtm is the short name) |
@@ -250,13 +250,14 @@ Return 13, undeclared var 6.
 
 | Route | Functions | Markers |
 |---|---:|---:|
-| 1 native | 33 | 184 |
+| 1 native | 34 | 201 |
 | 2 remembered state | 10 | 220 |
-| 3 build data | 6 | 53 |
+| 3 build data | 5 | 36 |
 | 4 nothing to do | 44 | 312 |
 
-No function needs route 5 outright; SetActorFullName and ResetInventory
-keep a DLL candidate below. Phase 2 grows from the 111
+SetActorFullName moved from route 3 to 1 on 2026-11-23 (F4SE's
+`Form.SetName`). No function needs route 5 outright; ResetInventory keeps
+a DLL candidate below. Phase 2 grows from the 111
 markers it first counted to route 1's 184, and loses the objective reads.
 
 ### <a id="dll-decisions"></a>DLL decisions
@@ -266,7 +267,6 @@ Each needs the user's approval; none is in the phases unless approved.
 | Candidate | Need | Alternative without a DLL |
 |---|---|---|
 | IsAnimPlaying | A NIF sequence's real end | A flag timed from the sequence's authored length (phase 4) |
-| SetActorFullName (17) | Rename a reference | A reference alias with a display name, if Fallout 4's alias name field works on a forced reference (unverified) |
 | ResetInventory (17) | Restore the base inventory | `RemoveAllItems`, then add a converter-built list of the base's inventory |
 
 ## <a id="phases"></a>4. Phases
@@ -280,6 +280,10 @@ Each needs the user's approval; none is in the phases unless approved.
 | 5 | M | `IsAnimPlaying` (route 3 plus 2): the PlayGroup handler records the reference, group and end time; the end time comes from the mesh's sequence length, which the build writes as a table the script stage reads | All 71 source matches convert to the read; in game, the Vault 11 gear door, the Lucky 38 lights and a Hoover Dam vertibird | 4 |
 | 6 | S | Companion barks: `Poisoned` and `OnFire` from the follower's active effects, `UsedDoctorBag` from the Doctor's Bag effect writing `F3NV_State`, `WeaponBroke` from `GetEquippedWeaponHealth` | `tests/test_fo4_companion_barks.py`; in game, a companion poisoned by a cazador barks once | 4 |
 | 7 | M | Crime infamy: the route the play test picks (crime gold values on converted crime factions, or infamy from the standings alias and witness). IgnoreCrime is **built** ([below](#ignore-crime)) | In game, a witnessed theft in Goodsprings raises Goodsprings infamy; an `IgnoreCrime` actor (the Pit fighters' triggers, Butch at the G.O.A.T.) does not report | 4, play test |
+| 8 | L | The remaining rows, one function at a time, by gameplay effect (`ResetInventory`, `SetPackDuration`, `GetFurnitureMarkerID`, `HasBeenEaten`, then the rest); DLL rows only if approved | One test per function; census count per batch | 2, 4 |
+
+Phase 2 is still unbuilt on 2026-11-23: its route-1 rows hold 177 of the
+659 markers left ([audit](../audits/fo4_redo_audit_2026-11-23.md#natives)).
 
 ### <a id="ignore-crime"></a>Built: IgnoreCrime and SetInCharGen
 
@@ -313,7 +317,6 @@ HonestHearts 6, OldWorldBlues 11, LonesomeRoad 4, and mods (The Frontier
 49, YUP 44, NVWillow 15, Bounties II 14). In the scripts read, only the
 `;NE:` lines became calls, and one guard that always read false
 (`CrucifiedVictimScript`'s `If GetIgnoreCrime != 1`) now runs.
-| 8 | L | The remaining rows, one function at a time, by gameplay effect (`ResetInventory`, `SetPackDuration`, `GetFurnitureMarkerID`, `HasBeenEaten`, then the rest); DLL rows only if approved | One test per function; census count per batch | 2, 4 |
 
 ## <a id="play-test"></a>5. What the play test should tell us first
 

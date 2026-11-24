@@ -15,7 +15,7 @@ import functools
 import struct
 from pathlib import Path
 
-from fo4_import.base.install import FALLOUT4_ESM
+from fo4_import.base.install import fallout4_esm
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import first_sub, walk
 
@@ -28,7 +28,7 @@ STAND_INS = {'MPSSmokeMed01': 'MPSSmokeFireMed01', 'MPSSmokeSmall01': 'MPSSmokeF
 def _fo4_by_name() -> dict:
     """{EditorID: DATA index} of Fallout4.esm's ADDN records."""
     out = {}
-    for rec, _ in walk(FALLOUT4_ESM.read_bytes(), b'ADDN'):
+    for rec, _ in walk(fallout4_esm(), b'ADDN'):
         data, edid = first_sub(rec.body, b'DATA'), first_sub(rec.body, b'EDID')
         if data and edid:
             out.setdefault(edid.rstrip(b'\0').decode(), struct.unpack('<i', data[:4])[0])

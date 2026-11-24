@@ -4,10 +4,13 @@ See: docs/fork/fo4_pipeline.md#skeleton
 """
 
 import json
+import mmap
 import os
+import struct
 import time
 from types import SimpleNamespace
 
+from fo4_import.base import install
 from fo4_import.nif.convert_static import Converted
 from fo4_import.nif.file import NifFile
 from fo4_import.pipeline import build_steps as BS
@@ -31,6 +34,34 @@ def test_an_export_file_is_parsed_once_and_shared(tmp_path):
     first = EI.export_records(tmp_path, 'MISC')
     assert first is EI.export_records(tmp_path, 'MISC') and first[0]['FormID'] == '00000801'
     assert EI.export_records(tmp_path, 'NOTE') == ()
+
+
+def test_parsed_records_share_keys_and_values_and_keep_repeats(tmp_path):
+    """One file's records share each key and each value text; a key repeated with the same text keeps both."""
+    block = '---RECORD_BEGIN---\nSignature=LAND\nFormID={}\nPos=1\nPos=1\nOpacity=1.0\n---RECORD_END---\n'
+    (tmp_path / 'LAND.txt').write_text(block.format('00000801') + block.format('00000802'), encoding='utf-8')
+    first, second = EI.export_records(tmp_path, 'LAND')
+    assert first['Pos'] == ['1', '1'] and first['Opacity'] is second['Opacity']
+    assert next(k for k in first if k == 'Opacity') is next(k for k in second if k == 'Opacity')
+
+
+def test_a_plugin_is_mapped_not_read(tmp_path, monkeypatch):
+    """fallout4_esm() is a read-only map of the plugin's bytes, made once, that the plugin readers take as bytes."""
+    body = b'MAST' + struct.pack('<H', 6) + b'A.esm\0'
+    plugin = tmp_path / 'P.esm'
+    plugin.write_bytes(b'TES4' + struct.pack('<I', len(body)) + bytes(16) + body)
+    monkeypatch.setattr(install, 'FALLOUT4_ESM', plugin)
+    mapped = install.fallout4_esm()
+    assert isinstance(mapped, mmap.mmap) and mapped is install.fallout4_esm() and mapped[:] == plugin.read_bytes()
+    assert install.masters_of(mapped) == ['A.esm']
+
+
+def test_fresh_records_match_the_shared_ones_but_are_kept_by_no_cache(tmp_path):
+    """fresh_records() gives export_records()'s records, a new parse each call."""
+    (tmp_path / 'LAND.txt').write_text('---RECORD_BEGIN---\nSignature=LAND\nFormID=00000801\n---RECORD_END---\n',
+                                       encoding='utf-8')
+    fresh = EI.fresh_records(tmp_path, 'LAND')
+    assert fresh == EI.export_records(tmp_path, 'LAND') and fresh is not EI.fresh_records(tmp_path, 'LAND')
 
 
 def test_relative_and_from_imports_name_their_modules(tmp_path):

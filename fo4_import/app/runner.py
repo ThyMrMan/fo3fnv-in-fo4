@@ -16,6 +16,7 @@ from core import run_log
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.app.stages import REPO
 from fo4_import.base import release
+from fo4_import.pipeline import eta
 
 #: Output lines worth repeating on the Finished screen: replacement fallbacks and errors.
 WARNING_MARKS = ('replacements:', 'Traceback', 'Error', 'ERROR', 'FAILED')
@@ -52,12 +53,13 @@ class Runner:
         """Run each stage in order, calling `on_line(text)` per output line and writing it to the run log; the
         Results, up to a failure."""
         log = open_log(self.name, self.env.get(data_paths.DATA_ENV))
+        self.env = {**self.env, eta.PROGRESS_ENV: '1'}
         if log is not None:
             self.env = {**self.env, run_log.RUN_LOG_ENV_VAR: str(log.path)}
 
         def line(text: str) -> None:
-            """One line to the log and the window."""
-            if log is not None:
+            """One line to the window, and to the log unless it is a build's eta.PROGRESS line."""
+            if log is not None and not text.startswith(eta.PROGRESS):
                 log.write_line(text)
             on_line(text)
         results = []

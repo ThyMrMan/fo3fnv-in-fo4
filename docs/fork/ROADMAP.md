@@ -6,12 +6,18 @@ what is next. Dates, counts and history are in the
 
 ## <a id="fo4-state"></a><a id="alpha"></a>Where it stands
 
-**Release:** [f3nv-0.4](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases/tag/f3nv-0.4),
+**Release:** [f3nv-0.5](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases/tag/f3nv-0.5),
 an alpha (prerelease, 2026-11-23). A fresh download converts, NPC faces
 included (measured on the user's PC since 0.3, without the Creation Kit).
-0.4 keeps the export and caches in a work folder beside the app, so a new
-release unzips beside the old one and upgrades cleanly
-([work folder](fo4_gui.md#work-folder)).
+Since 0.4 the export and caches live in a work folder beside the app, so a
+new release unzips beside the old one and upgrades cleanly
+([work folder](fo4_gui.md#work-folder)). 0.5 ships the helper scripts every
+earlier zip left out ([slim zip](fo4_plan_release.md#slim-zip)), so scripts
+compile in Caprica again instead of FO4's slow compiler. Shared
+conversation menus keep their topics ([fix](fo4_dialogue_gaps.md#shared-menu-topics)),
+so a build's reference check passes. It also lowers the
+build's memory peak, and gives a quieter log with a steadier time estimate
+([build resources](fo4_build_resources.md)).
 
 - **New Vegas** is playable from Doc Mitchell's house onward, with its four
   story DLC, five add-on packs and about 20 mods. Nearly every system is
@@ -65,7 +71,7 @@ Most of what is left is play-testing and fixing what testers find.
 | Hair and eyes | Works | Long-hair stretch fix not checked | [hair](fo4_spikes.md#hair-styles) |
 | Our own FaceGen | Built, not played | Mods' own hairstyles; the Creation Kit stays as a fallback | [own stage](fo4_facegen_plan.md#own-stage) |
 | DLC and mod faces | Built, not played | | [DLC and mods](fo4_facegen_plan.md#addon-faces) |
-| Outfits | Partial | 21 of 98 armors use stand-ins; wrist seam; loose cloth | [clothing](fo4_build_next.md#human-clothing) |
+| Outfits | Partial | 15 of 323 armors keep Fallout 4's worn models, 24 more its ground model; wrist seam; loose cloth | [clothing](fo4_build_next.md#human-clothing) |
 | Headgear | Works | | [headgear](fo4_spikes.md#spike-4-headgear) |
 | Race looks (raider grime, tribal paint, burns) | Partial | FNV's raiders work; the other look races not played | [plan](fo4_look_races_plan.md#body) |
 | Body choice (CBBE, BodySlide) | Partial | Researched; only the vanilla body is built | [body plan](fo4_bodies_cbbe.md) |
@@ -99,8 +105,8 @@ Most of what is left is play-testing and fixing what testers find.
 | Feature | State | What's left | Doc |
 |---|---|---|---|
 | Conversation menu | Works | Cleanroom UI's dialogue menu; Extended Dialogue Interface must be off | [menu](dialogue_menu_mod.md) |
-| Dialogue lines | Partial | 83 lines left out by a condition, about 50 dead in New Vegas too | [census](fo4_dialogue_gaps.md#census) |
-| Shared-answer choices | Partial | 18 choices without a line | [census](fo4_dialogue_gaps.md#census) |
+| Dialogue lines | Partial | 92 lines left out by a condition (61 a GetIsID of an actor never placed) | [census](fo4_dialogue_gaps.md#census-2026-11-23) |
+| Shared-answer choices | Partial | 13 choices without a line, 9 for actors never placed | [census](fo4_dialogue_gaps.md#census-2026-11-23) |
 | Say Once, skill checks, voices | Works | | [voice types](fo4_pipeline.md#voice-types) |
 | Silent player, lip sync, greetings | Built, not played | | [lips](research/lip_format.md#built) |
 | Force greets | Partial | Only Ringo and the Primm trooper tested | [greet trigger](fo4_pipeline.md#greet-trigger) |
@@ -115,7 +121,7 @@ Most of what is left is play-testing and fixing what testers find.
 |---|---|---|---|
 | New game | Works | Two timing fixes at Doc Mitchell's not played | [seated](fo4_pipeline.md#furniture-seated) |
 | Quests | Partial | Played from Goodsprings to Primm only | [preflight](fo4_preflight.md#results-2026-11-07) |
-| Script converter | Partial | About 1,276 calls do nothing | [scripts](fo4_spikes.md#spike-3-gate) |
+| Script converter | Partial | 659 calls do nothing; 177 of them have a Fallout 4 native ([audit](../audits/fo4_redo_audit_2026-11-23.md#natives)) | [scripts](fo4_spikes.md#spike-3-gate) |
 | Unconverted functions | Partial | Combat styles, package timers, renaming, music cues | [not built](script_markers.md#not-built) |
 | Condition reads, triggers, region tests | Built, not played | | [reads](script_markers.md#native-read-follow-ups) |
 | Companions | Partial | No companion wheel; hiring and gear return untested | [drift](fo4_drift.md#candidates) |
@@ -152,7 +158,7 @@ Most of what is left is play-testing and fixing what testers find.
 
 | Feature | State | What's left | Doc |
 |---|---|---|---|
-| Guns | Partial | Third-person animations are Fallout 4's | [guns](fo4_gun_animation.md#order) |
+| Guns | Partial | New Vegas's third-person clips built, not played; 14 guns have no third-person entry | [guns](fo4_gun_animation.md#order) |
 | Ammo types, scopes, jams, criticals, sneak attacks | Works | | [ammo](fo4_pipeline.md#ammo-switch) |
 | Weapon mods | Partial | Not played; 9 do nothing | [mods](fo4_pipeline.md#weapon-mods) |
 | Condition and repair | Works | Vendor repair not played | [condition](fo4_condition.md#built) |
@@ -201,8 +207,8 @@ Most of what is left is play-testing and fixing what testers find.
 | Conversion app | Built, not played | First end-to-end run from a fresh download | [app](fo4_gui.md#convert-screen) |
 | Installing | Built, not played | README steps not yet followed on a clean setup | [install](../../README.md#install) |
 | Replacements | Partial | Named profiles and a Wabbajack list | [replacements](fo4_replacements.md#direction) |
-| Building without the Creation Kit | Partial | Fallbacks remain for some faces, meshes and scripts | [CK replacements](fo4_ck_replacements.md) |
-| Linux and macOS | Built, not played | Never tried | [Windows tools](fo4_gui.md#windows-tools) |
+| Building without the Creation Kit | Partial | Fallbacks remain for faces, meshes and scripts; the face and mesh ones almost never fire ([audit](../audits/fo4_redo_audit_2026-11-23.md#elric)) | [CK replacements](fo4_ck_replacements.md) |
+| Linux and macOS | Partial | Never tried; the pinned zlib and the script compile are Windows-only ([blockers](../audits/fo4_redo_audit_2026-11-23.md#off-windows)) | [Windows tools](fo4_gui.md#windows-tools) |
 
 ## <a id="known-bugs"></a>Known bugs a player will see
 
@@ -241,7 +247,7 @@ In rough order. The [issue plan](fo4_issue_plan.md) sizes and orders the fixes.
 5. **Fallout 3:** finish the opening's story runs, then the Capital
    Wasteland and the child player ([next](fo4_fo3_plan.md#next)).
 6. **Known bugs** above ([issue plan](fo4_issue_plan.md)).
-7. **Gun animation:** New Vegas's third-person clips and grip ([plan](fo4_gun_animation.md#order)).
+7. **Gun animation:** play the third-person clips; a third-person entry for the 14 guns without one ([plan](fo4_gun_animation.md#order)).
 8. **Creatures:** staggers and sounds for own rigs ([own rig](fo4_own_rig.md#hit-reactions)).
 9. **The look:** grass, neon, glow, tone, distant trees and water ([plan](fo4_look.md)).
 10. **Distant terrain of our own** ([plan](fo4_terrain_lod_plan.md)).

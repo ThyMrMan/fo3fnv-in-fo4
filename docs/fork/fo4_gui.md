@@ -41,9 +41,11 @@ what exists. Not played in game yet.
   melee types, which were code dicts before phase 2. No profile ships. The
   user's own file is written by the Replacements screen
   (`replacements/<source>.json` beside the app by default; gitignored).
-- **Still hard-coded:** `fo4_import/spike/facegen.py` `MO2` (the CK FaceGen
-  step). `install.FALLOUT4_DIR` is now detected (`core/game_dirs.py`) with
-  Steam's folder as the fallback.
+- **MO2 and Fallout 4 found, not hard-coded:** `pipeline/creation_kit.MO2`
+  reads `F3NV_MO2`, which the app sets from its MO2 mod source
+  (`app/mo2_setup.py`); a developer checkout falls back to a fixed folder.
+  `install.FALLOUT4_DIR` is detected (`core/game_dirs.py`) with Steam's
+  folder as the fallback.
 - **The inherited GUI** (`gui.py`, `core/gui/`, tkinter) is untouched and
   still converts to Skyrim only.
 - **The whole map** builds from the command line
@@ -338,24 +340,30 @@ passes `--light` ([the policy](research/fo4_light_plugins.md#policy)).
   `install.FALLOUT4_DIR` becomes a Windows fallback only.
 - **Libraries:** PySide6, moderngl (OpenGL 3.3 core; macOS supports up to 4.1
   core), Pillow, numpy and lz4 all ship wheels for all three OSes.
-- <a id="windows-tools"></a>**Windows-only tools.** Build and Rebuild run on
-  any OS (2026-11-23, untested off Windows). The Creation Kit tools they
-  once needed are now fallbacks, and each is skipped when it is not
-  installed. Only FO4Edit's check is still marked unavailable off Windows
-  (`stages.WINDOWS_TOOLS`).
+- <a id="windows-tools"></a>**Windows-only tools.** No stage but FO4Edit's
+  check is marked unavailable off Windows (`stages.WINDOWS_TOOLS`), and the
+  Creation Kit tools the build once needed are now fallbacks, each skipped
+  when it is not installed. Off Windows, Build still stops at the pinned
+  zlib and compiles no script (below; [blockers](../audits/fo4_redo_audit_2026-11-23.md#off-windows)).
+  Untested off Windows.
 
   | Tool | Used by | Without it |
   |---|---|---|
+  | Caprica (`external/caprica/Caprica.exe`, ours) | Build: every converted script | run directly, not under Wine (`base/caprica.py`): off Windows no script compiles |
   | FO4 Papyrus compiler (Creation Kit) | Build: the scripts Caprica fails on | those scripts stay uncompiled (`papyrus.compile_folder` returns nothing) |
-  | Elric (Creation Kit) | Build: meshes our physics writer (`hknp_write`) doesn't cover | those meshes have no collision (`elric._run` finishes none) |
-  | Creation Kit FaceGen | Faces: NPCs our own FaceGen fails on | not checked |
+  | Elric (Creation Kit) | Build: meshes our physics writer (`hknp_write`) doesn't cover; 0 in the 2026-11-21 FalloutNV.esm build ([audit](../audits/fo4_redo_audit_2026-11-23.md#elric)) | those meshes have no collision (`elric._run` finishes none) |
+  | Creation Kit FaceGen | Faces: NPCs our own FaceGen fails on | those NPCs have no FaceGen |
+  | `xWMAEncode.exe` (DirectX SDK; the `.cmd` launcher downloads it) | Build: every voice and sound file (`audio_converter.convert_file_to_xwm`, under Wine off Windows) | no voice or sound files |
+  | LipGenerator (Creation Kit) | Build: a voice line with no FNV `.lip`, when installed | the lip comes from the recording's loudness (`voice.loudness_lip`) |
+  | `LODGenx64.exe` (bundled) | Build: object LOD, under Wine off Windows | no object LOD |
   | `texconv.exe` (Elric folder) | no longer used: our own encoder writes face and terrain LOD textures ([encoder](fo4_facegen_plan.md#own-dds-encoder)) | — |
   | FO4Edit 4.1.5f | FO4Edit's check | stage unavailable |
 
-  LipGen is no longer used: `base/lip.py` writes the lip files.
-
-- **Native speedups:** the `.pyd` modules are built for Windows today. They
-  need builds for the other OSes, or the code must fall back to pure Python.
+- **Pinned zlib:** `native/dist` holds `f3_zlib.dll` only. Elsewhere
+  `base/pinned_zlib.py` raises without `libf3_zlib.so` / `.dylib`, so no
+  plugin is written until those are built (`tools/generators/gen_f3_zlib.py`).
+- **Native speedups:** the `.pyd` modules are built for Windows today; the
+  NIF geometry reader falls back to pure Python without its module.
 
 ## <a id="choices"></a>Choices: where things live
 
@@ -373,9 +381,10 @@ sets them and Setup edits them later.
 | External tools | Wine or Proton prefix (macOS, Linux); NifSkope path (optional) |
 | How much of the PC a build uses | Low, Balanced (default) or Full ([resources](fo4_build_resources.md#profiles)) |
 
-`run.py` reads these settings instead of its constants. `spike/facegen.py`
-should too, but its MO2 path is still hard-coded
-([where things stand](#where-it-stands)).
+`run.py` reads these settings instead of its constants, and the CK and
+FaceGen steps find MO2 through `F3NV_MO2` ([where things stand](#where-it-stands)).
+Nothing reads the Wine setting yet: bundled exes run under the `wine` on
+`PATH` (`core.subprocess_flags.windows_cmd`).
 
 ### <a id="work-folder"></a>The work folder: an app folder of code only
 

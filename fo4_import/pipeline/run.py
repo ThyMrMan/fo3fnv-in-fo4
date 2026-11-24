@@ -242,7 +242,8 @@ def estimate(args: argparse.Namespace) -> eta.Live:
         feats = eta_inputs.export_features(own, bool(export_masters(str(args.export))), model)
         source = 'its export, as a whole-plugin build'
     print(f'estimate: {eta.summary(model, feats, bench, profile)} (from {source}; {eta.NOTE})')
-    return eta.Live(eta.predict(model, feats, None if found else True, bench, profile)).start()
+    plan = eta.predict(model, feats, None if found else True, bench, profile)
+    return eta.Live(plan, window=bool(os.environ.get(eta.PROGRESS_ENV))).start()
 
 
 def profile_stamp(counts: dict) -> dict:

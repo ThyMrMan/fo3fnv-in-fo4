@@ -32,6 +32,7 @@ from fo4_import.base.writer import pack_fo4_record
 from fo4_import.face import calibration, hair, presets, sculpt, tint
 from fo4_import.face.sculpt import FACE_FIELDS
 from fo4_import.pipeline.export_index import export_records
+from fo4_import.pipeline.stage_timer import counted
 from fo4_import.spike.face_fits import FIT_SITES, basis_hash, fit_key, fitted, keep, kept, take
 from fo4_import.spike import records as R
 from fo4_import.spike.classes import Classes
@@ -726,7 +727,7 @@ class Npcs:
         workers = min(len(jobs), workers) or face_workers(len(jobs))
         with _blas_threads(WORKER_BLAS_THREADS), ProcessPoolExecutor(max_workers=workers,
                                                                      initializer=_start_face_worker) as pool:
-            for key, made in zip(keys, pool.map(_fit_in_worker, jobs, chunksize=1)):
+            for key, made in zip(keys, counted(pool.map(_fit_in_worker, jobs, chunksize=1), len(jobs), 'faces')):
                 for i, value in (made or {}).items():
                     keep(i, key, value)
         self.builder.counts['faces fitted in worker processes'] += len(jobs)
