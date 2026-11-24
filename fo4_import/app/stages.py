@@ -40,7 +40,7 @@ GAMES = {
 ORDER = (('import', 'Import the mod folder'), ('export', 'Export the plugin and its archives'),
          ('helpers', 'Helper plugin'), ('build', 'Build the plugin and assets (whole build)'),
          ('update', 'Rebuild what changed (code-only changes replayed; the mods built on it follow)'),
-         ('faces', 'Faces (our own FaceGen; the Creation Kit, through MO2, only for NPCs that fail)'),
+         ('faces', 'Faces (our own FaceGen)'),
          ('runtime', 'Install the F4SE plugin (F3NV.dll)'),
          ('classic', 'Classic Look plugin (flat FNV lights and tone)'),
          ('check', 'Check references (fast)'), ('fo4edit', "FO4Edit's full check (slow; may wait for a click)"))
@@ -251,7 +251,7 @@ def command(settings: dict, source: str, stage: str, scope: Scope, settings_file
         return [py, '-m', 'fo4_import.helpers_plugin', '--out', str(out / FALLOUT4_HELPER_PLUGIN)]
     if stage == 'faces':
         return [py, '-m', 'fo4_import.spike.facegen', '--export', str(export_dir(settings, source)), '--data',
-                str(out), '--own-facegen', plugin_path(settings, source).name]
+                str(out), plugin_path(settings, source).name]
     if stage == 'update':
         return lambda: [py, '-m', 'fo4_import.pipeline.build_plan', '--run', *map(str, rebuilt(settings, source))]
     if stage == 'runtime':

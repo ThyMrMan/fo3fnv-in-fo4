@@ -7,17 +7,13 @@ See: docs/fork/fo4_build_speed.md#faults
 
 import collections
 import pickle
-import struct
 from types import SimpleNamespace
 
 import pytest
 
 from fo4_import.base import source_fault as SF
 from fo4_import.nif import collision as CO
-from fo4_import.nif import elric as E
-from fo4_import.nif import file as F
-from fo4_import.nif.blocks import NONE
-from fo4_import.nif.convert_static import IDENTITY, Converted
+from fo4_import.nif.convert_static import Converted
 from fo4_import.nif.file import NifFile
 from fo4_import.pipeline import elric_cache as EC
 from fo4_import.pipeline import export_index as X
@@ -101,48 +97,18 @@ def test_a_fault_crosses_a_process_pool_and_takes_its_file_once():
     assert str(fault.at('a.nif')) == 'a.nif: why' and fault.at('a.nif').at('b.nif').file == 'a.nif'
 
 
-def _node(nif: NifFile, name: str, collision: int = NONE) -> dict:
-    """A NiNode dict named `name` with collision object `collision`."""
-    return {'name': nif.string(name), 'extra': [], 'controller': NONE, 'flags': 0, 'translation': (0.0,) * 3,
-            'rotation': IDENTITY, 'scale': 1.0, 'collision': collision, 'children': []}
-
-
-def test_a_collision_node_matching_no_node_names_the_mesh_and_leaves_it_without_collision(tmp_path):
-    """Elric's body on a node our mesh lacks: the mesh is written without its Havok, failed, and the fault is
-    counted under the name the caller gave it."""
-    ours = NifFile()
-    ours.blocks = [('NiNode', _node(ours, 'Root', 1)), ('bhkCollisionObject', b'raw')]
-    processed = NifFile()
-    processed.blocks = [('NiNode', _node(processed, 'Elsewhere')), ('bhkPhysicsSystem', b'sys'),
-                        ('bhkNPCollisionObject', struct.pack('<iHiI', 0, 0, 1, 0))]
-    path = tmp_path / '00000.nif'
-    path.write_bytes(F.write(ours))
-    out = F.write(processed)
-    assert E.finish([path], lambda sources: {name: out for name in sources}, ['meshes/tld/rock.nif']) == [path]
-    assert [k for k, _ in F.read(path.read_bytes()).blocks] == ['NiNode']
-    assert list(SF.FAULTS) == [('meshes/tld/rock.nif', "collision node 'elsewhere' matches no node of the mesh")]
-    assert SF.faulted('meshes/tld/rock.nif')
-
-
-def test_a_faulted_finish_is_not_cached_so_the_next_build_lists_it_again(tmp_path, monkeypatch):
-    """elric_cache.finish(): a mesh whose graft faulted is written without collision but not kept in the work
-    cache; Elric's step meets it again next build, under the mesh's own path."""
+def test_a_faulted_mesh_is_not_cached_so_the_next_build_finishes_it_again(tmp_path, monkeypatch):
+    """elric_cache.finish(): a mesh with a fault counted this run (its conversion's) is written but not kept in
+    the work cache, so the next build finishes it again."""
     runs = []
-
-    def fake(paths, run, names):
-        """Stand in for elric.finish: every mesh's graft faults, under its name in `names`."""
-        runs.append(names)
-        for name in names:
-            SF.count(SF.SourceFault(name, 'no node'))
-        return list(paths)
     monkeypatch.setattr(WC, 'CACHE', tmp_path / 'cache')
-    monkeypatch.setattr(EC, 'elric_tag', lambda: b'tag')
-    monkeypatch.setattr(EC.elric, 'finish', fake)
+    monkeypatch.setattr(EC, 'finished', lambda data: runs.append(data) or (False, data))
     path = tmp_path / 'rock.nif'
+    SF.count(SF.SourceFault(str(path), 'motion system 205'))
     for _ in range(2):
         path.write_bytes(b'rock')
         assert EC.finish([path]) == [path]
-    assert runs == [[path], [path]] and list(SF.FAULTS) == [(str(path), 'no node')]
+    assert runs == [b'rock', b'rock']
 
 
 def _faulty(*_, **__):

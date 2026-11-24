@@ -465,7 +465,7 @@ def collision_nodes(nif: NifFile, fnv_root, root_index: int, node_flags: int, ke
     """Give the FO4 root FNV's collision: the root's own, and a NiNode per child node that has one; a `kept`
     node ({id(FNV node): FO4 index}, an animated one) carries its own.
 
-    NiNodes first, every Havok block after them (elric.graft swaps that tail).
+    NiNodes first, every Havok block after them (our physics writer swaps that tail).
     Elric ignores a node's scale, so the node gets 1.0 and its shapes the scale. Rigid bodies and trigger
     phantoms (a trap's volume) convert; water phantoms are left out.
     See: docs/fork/fo4_spikes.md#spike-4-exterior

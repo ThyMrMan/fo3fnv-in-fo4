@@ -3,7 +3,7 @@
     py -3.14 -m fo4_import.spike.step_map --out <StepTest.esp> --data <Data> [--export <FalloutNV.esm export>]
 
 Each station is one static whose visible mesh is its collision (game units),
-written through Elric as is (collision.mesh_collision: no winding repair, no
+written through our physics writer as is (collision.mesh_collision: no winding repair, no
 stairs pass), so what the player sees is what FO4 walks on. Its reference is
 named Step<code> and its base StepTest_<code>; `coc StepTest` lands at the
 south-west corner facing north. The build prints the legend (stations()).
@@ -26,7 +26,7 @@ from fo4_import.nif import file as nif_file
 from fo4_import.nif.blocks import NONE
 from fo4_import.nif.convert_static import DESC_PLAIN, IDENTITY, NODE_FLAGS, TEXTURE_SLOTS, SLOT_SPECULAR
 from fo4_import.nif.convert_static import lighting_shader, vertices
-from fo4_import.nif.elric import finish
+from fo4_import.pipeline.elric_cache import finish
 from fo4_import.nif.file import NifFile
 from fo4_import.spike import records as R
 from fo4_import.spike.dialogue import vanilla_cell
@@ -249,7 +249,7 @@ def _template(export_dir: Path):
 
 
 def write_meshes(export_dir: Path, data_dir: Path) -> list:
-    """Write every station's NIF (and the floor's) under <data_dir>/Meshes and run Elric; [(code, note, model, OBND,
+    """Write every station's NIF (and the floor's) under <data_dir>/Meshes and finish their physics; [(code, note, model, OBND,
     X tilt)], the floor first."""
     template, materials = _template(export_dir), Archives(FALLOUT4_DIR / 'Data', 'Fallout4 - Materials.ba2')
     floor = [(_block(-500, 3700, -500, FLOOR_NORTH, -32, 0, 0), PLAIN)]
@@ -264,7 +264,7 @@ def write_meshes(export_dir: Path, data_dir: Path) -> list:
         made.append((code, note, model, mesh_bounds(nif), tilt))
     failed = finish([data_dir / 'Meshes' / m for _, _, m, _, _ in made])
     if failed:
-        raise SystemExit(f'Elric failed on {failed}')
+        raise SystemExit(f'our physics writer does not cover {failed}')
     return made
 
 

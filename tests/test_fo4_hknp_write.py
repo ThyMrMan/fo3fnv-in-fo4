@@ -10,7 +10,7 @@ import pytest
 
 from fo4_import.havok import packfile, packfile_write
 from fo4_import.nif import file as nif_file
-from fo4_import.nif import hknp_convex, hknp_hull, hknp_write
+from fo4_import.nif import elric, hknp_convex, hknp_hull, hknp_write
 from fo4_import.nif.blocks import NONE
 from fo4_import.nif.convert_static import IDENTITY
 from fo4_import.nif.file import NifFile
@@ -181,43 +181,21 @@ def _box_nif(*extra) -> bytes:
     return nif_file.write(nif)
 
 
-def test_elric_cache_finishes_a_convex_nif_itself_and_sends_only_the_rest_to_elric(tmp_path, monkeypatch):
-    """A box body is finished by our writer, never reaching Elric or its cache; a constraint we do not write still goes to Elric.
+def test_finish_writes_our_physics_and_leaves_a_mesh_we_do_not_cover_without_collision(tmp_path, monkeypatch):
+    """finish(): a box body gets our physics; a constraint we do not write leaves its mesh without Havok, failed.
 
     See: docs/fork/fo4_hknp_writer.md#seam
     """
-    sent = []
-    monkeypatch.setattr(elric_cache, 'CACHE', tmp_path)
-    monkeypatch.setattr(elric_cache, 'elric_tag', lambda: b'tag')
-    monkeypatch.setattr(elric_cache.elric, 'process', lambda todo: sent.append(set(todo)) or {})
-    listed = _box_nif(('bhkStiffSpringConstraint', bytes(8)))
-    done = elric_cache.process({'box.nif': _box_nif(), 'list.nif': listed})
-    assert sent == [{'list.nif'}] and list(done) == ['box.nif']
-    kinds = [k for k, _ in nif_file.read(done['box.nif']).blocks]
-    assert kinds == ['NiNode', 'bhkPhysicsSystem', 'bhkNPCollisionObject']
-    assert elric_cache.entry(listed, tmp_path).read_bytes() == b''
-    assert [p.name for p in tmp_path.rglob('*') if p.is_file()] == [elric_cache.entry(listed, tmp_path).name]
-
-
-def test_meshes_needing_elric_wait_for_one_run_and_the_rest_finish_alone(tmp_path, monkeypatch):
-    """finish(): a box is finished alone by our writer; two constraint meshes Elric's cache lacks share one run.
-
-    See: docs/fork/fo4_build_speed.md#collision-pool
-    """
-    sent = []
-    monkeypatch.setattr(elric_cache, 'CACHE', tmp_path / 'elric')
     monkeypatch.setattr(elric_cache.work_cache, 'CACHE', tmp_path / 'work')
     monkeypatch.setattr(elric_cache, 'MARKS', {})
-    monkeypatch.setattr(elric_cache, 'elric_tag', lambda: b'tag')
-    monkeypatch.setattr(elric_cache.elric, 'process', lambda todo: sent.append(sorted(todo)) or {})
     listed = _box_nif(('bhkStiffSpringConstraint', bytes(8)))
-    meshes = {tmp_path / 'box.nif': _box_nif(), tmp_path / 'a.nif': listed, tmp_path / 'b.nif': listed}
+    meshes = {tmp_path / 'box.nif': _box_nif(), tmp_path / 'a.nif': listed}
     for path, data in meshes.items():
         path.write_bytes(data)
-    assert elric_cache.finish(list(meshes)) == [tmp_path / 'a.nif', tmp_path / 'b.nif']
-    assert sent == [['00000.nif', '00001.nif']]
+    assert elric_cache.finish(list(meshes)) == [tmp_path / 'a.nif']
     kinds = [k for k, _ in nif_file.read((tmp_path / 'box.nif').read_bytes()).blocks]
     assert kinds == ['NiNode', 'bhkPhysicsSystem', 'bhkNPCollisionObject']
+    assert not elric.has_havok((tmp_path / 'a.nif').read_bytes())
 
 
 def test_the_pool_finishes_meshes_as_one_process_does(tmp_path):
@@ -232,8 +210,24 @@ def test_the_pool_finishes_meshes_as_one_process_does(tmp_path):
         assert not [k for k in record if k.startswith(('fo4_import/nif/hknp_ragdoll', 'fo4_import/nif/hknp_round'))]
 
 
-def test_a_flat_box_is_ours_when_fixed_and_elrics_when_it_moves():
-    """A box with no height is a flat convex shape; on a dynamic body (Elric's mass for that unread) Elric gets it.
+def test_a_point_box_weighs_a_sphere_of_its_radius_and_a_one_point_hull_is_a_sphere():
+    """A zero-size box keeps its 8 copies of the point, weighing a sphere of the convex radius there; a convex
+    shape of one point is an hknpSphereShape.
+
+    See: docs/fork/fo4_hknp_writer.md#flat
+    """
+    objects, mass = hknp_convex.flat('#s0', np.zeros((8, 3)), 0.01, 7)
+    props = objects[2]['fields']['compressedMassProperties']
+    assert objects[0]['class'] == 'hknpConvexShape' and objects[0]['fields']['vertices'][0] == 8
+    assert props['mass'] == props['volume'] == pytest.approx(4.18879e-06, rel=1e-5)
+    assert mass.inertia == pytest.approx([2.51327e-10] * 3, rel=1e-5)
+    one = struct.pack('<If24xI4fI', 7, 0.01, 1, 0.5, 0.0, 0.0, 0.0, 0)
+    maker = hknp_write.convex([('bhkConvexVerticesShape', one)], 0)
+    assert maker('#s0')[0][0]['class'] == 'hknpSphereShape'
+
+
+def test_a_flat_box_is_ours_when_fixed_and_refused_when_it_moves():
+    """A box with no height is a flat convex shape; on a dynamic body (Elric's mass for that unread) it is refused.
 
     See: docs/fork/fo4_hknp_writer.md#flat
     """

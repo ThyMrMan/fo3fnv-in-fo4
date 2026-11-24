@@ -8,7 +8,7 @@ scaled by DENSITY_SCALE (the two games' grass grids; at least 1); the model is F
 other, then copied to where every
 vanilla grass model lives (all 71: directly in Landscape/Grass; Skyrim has the
 same contract, asset_convert/nif/grass_profile.py) as FNV_<name>.nif. FNV's
-grass has no collision, so the copy needs no Elric pass. A GRAS's FormID is
+grass has no collision, so the copy needs no physics pass. A GRAS's FormID is
 hashed from FNV's (SITE), so no other record's id moves.
 
 See: docs/fork/fo4_spikes.md#spike-4-exterior

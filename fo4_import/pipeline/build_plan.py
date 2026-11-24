@@ -552,8 +552,7 @@ def faces_due(plugin: Path, plugins: list) -> 'tuple | None':
         export = stamp_options(plugin).get('--export')
         if not export or facegen.base_build(plugin) is None or not facegen.fitted(plugin):
             return None
-        return 'its faces never ran', ['--export', export[0], '--data', str(plugin.parent), '--own-facegen',
-                                       plugin.name], ROOT
+        return 'its faces never ran', ['--export', export[0], '--data', str(plugin.parent), plugin.name], ROOT
     names = {m.lower() for m in file_masters(plugin)}
     later = [m.name for m in map(Path, plugins) if m.name.lower() in names
              and ((facegen.faces_stamp(m) or {}).get('ended') or '') > (kept.get('ended') or '')]

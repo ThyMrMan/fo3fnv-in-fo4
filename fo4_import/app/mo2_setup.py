@@ -52,7 +52,7 @@ def instance(settings: dict) -> 'Instance | None':
 
 
 def environment(settings: dict) -> dict:
-    """The stages' environment: the work folder and the Creation Kit's MO2 instance."""
+    """The stages' environment: the work folder and the MO2 instance."""
     found = instance(settings)
     return {data_paths.DATA_ENV: str(S.work_dir(settings)), **({'F3NV_MO2': str(found.folder)} if found else {})}
 

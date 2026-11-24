@@ -73,6 +73,15 @@ IsSpellTarget, ShowAllMapMarkers 1 each: **177 markers**.
 
 ## <a id="elric"></a>2. Drop Elric
 
+**Built 2026-11-24.** Elric no longer runs. NVWillow's two meshes were
+never Elric's to fail: Elric renamed their `Scene Root` root after its
+input file, so grafting by name matched nothing. Our writer now covers
+both: `cakeplate.nif` holds point shapes (a zero-size box and a one-vertex
+hull) on fixed bodies, not a flat moving body, and `reloadingbench_tool_02a.nif`
+is a moving triangle mesh given its box's mass. The 13 own-rig skeletons
+are all `hknp_ragdoll`'s. Details:
+[fo4_hknp_writer.md](../fork/fo4_hknp_writer.md#seam).
+
 **How measured.** Each build keeps every pre-Elric NIF it finished
 (`elric_cache.keep_input`), listed in `<plugin>.replay.json` under
 `pre_elric`. Running `hknp_write.finish` over each, as
@@ -103,6 +112,11 @@ the 12 own-rig races before removing it. The two NVWillow shapes would be
 left without collision, as Elric leaves them today.
 
 ## <a id="faces"></a>3. Drop the CK FaceGen fallback
+
+**Built 2026-11-24.** The faces stage writes only our FaceGen; a face it
+fails on is listed and left without FaceGen. The CK export, the fallback,
+`--collected`, `creation_kit.run` and the MO2 "Creation Kit" executable
+check are gone ([own stage](../fork/fo4_facegen_plan.md#own-stage)).
 
 - **App:** the Faces stage passes `--own-facegen` (`app/stages.py:250`);
   the CK runs only for NPCs our FaceGen fails on (`spike/facegen.py`

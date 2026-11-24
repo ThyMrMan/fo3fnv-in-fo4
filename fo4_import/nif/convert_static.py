@@ -5,7 +5,7 @@ NiNode, its transform baked in; its textures and alpha become a material
 `materials\\fnv\\<diffuse path>.bgsm`, shared by every shape with the same
 contents: every field a material or derived map holds is in its path (a tag
 for each field off its usual value). Collision becomes pre-Elric Havok blocks
-(collision.py; elric.finish makes them FO4 physics). Textures keep their FNV
+(collision.py; elric_cache.finish makes them FO4 physics). Textures keep their FNV
 paths under `textures\\fnv\\`.
 
 See: docs/fork/fo4_spikes.md#spike-2-static

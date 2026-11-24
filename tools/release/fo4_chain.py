@@ -1,4 +1,4 @@
-"""The FO4 build chain, watched: base FalloutNV.esm, its faces (--own-facegen), the helpers plugin, F3NV.dll, then
+"""The FO4 build chain, watched: base FalloutNV.esm, its faces, the helpers plugin, F3NV.dll, then
 every other built plugin through build_plan --run (The Frontier left out), then the preflight and, when asked, a test
 plugin copied into its own mod folder. Each step's output goes to the console and the chain log.
 
@@ -284,7 +284,7 @@ def chain_steps(cfg: Config, args: argparse.Namespace) -> list:
     """The chain's steps in order (the scratch chain's order and arguments).
     See: docs/fork/fo4_chain.md#steps
     """
-    py, nv, ck_out = [sys.executable], cfg.nv, _ck_output()
+    py, nv = [sys.executable], cfg.nv
     plugins = [cfg.base, *others(nv)]
     plan = py + ['-m', 'fo4_import.pipeline.build_plan', *map(str, plugins)]
     env = dict(os.environ, **({'F3NV_PROFILE_STAGES': args.profile_stages} if args.profile_stages else {}))
@@ -295,17 +295,17 @@ def chain_steps(cfg: Config, args: argparse.Namespace) -> list:
     helpers, dll = nv / 'FalloutHelpers.esl', nv / 'F4SE' / 'Plugins' / 'F3NV.dll'
     steps = [
         Step('base replay', py + ['-m', build_plan.REPLAY, cfg.base], no_file=None),
-        Step('base', base_argv, env=env, watch=[nv, cfg.root / 'temp' / 'fo4_scripts', *ck_out],
+        Step('base', base_argv, env=env, watch=[nv, cfg.root / 'temp' / 'fo4_scripts'],
              key=lambda: base_key(cfg), estimate=lambda: build_estimate(stamp_path(cfg.base)),
              stamp=stamp_path(cfg.base)),
-        Step('faces', py + ['-m', 'fo4_import.spike.facegen', '--export', cfg.export, '--data', nv, '--own-facegen',
-                            BASE], watch=[nv, *ck_out], key=lambda: faces_key(cfg)),
+        Step('faces', py + ['-m', 'fo4_import.spike.facegen', '--export', cfg.export, '--data', nv, BASE],
+             watch=[nv], key=lambda: faces_key(cfg)),
         Step('helpers', py + ['-m', 'fo4_import.helpers_plugin', '--out', helpers], watch=[nv],
              key=lambda: f'{code_key(cfg.root)} {_stat(helpers)}' if helpers.is_file() else None),
         Step('dll', py + ['-m', 'fo4_import.app.runtime_dll', '--out', nv], watch=[nv],
              key=lambda: f'{_stat(cfg.tools.get("F3NV.dll", ""))} {_stat(dll)}' if dll.is_file() else None),
         Step('plan', plan, no_file=None),
-        Step('others', plan + ['--run'], watch=[nv.parent, cfg.root / 'temp' / 'fo4_scripts', *ck_out],
+        Step('others', plan + ['--run'], watch=[nv.parent, cfg.root / 'temp' / 'fo4_scripts'],
              estimate=lambda: others_estimate(plugins)),
         Step('faces check', call=lambda: faces_check(cfg)),
         Step('preflight', py + ['-m', 'tools.validate.preflight', '--fo4', cfg.base], fatal=False, no_file=None),
@@ -313,14 +313,6 @@ def chain_steps(cfg: Config, args: argparse.Namespace) -> list:
     if args.kit and args.kit_mod:
         steps.append(Step('test plugin', call=lambda: copy_kit(args.kit, args.kit_mod)))
     return steps
-
-
-def _ck_output() -> list:
-    """MO2's folder for the CK's new files, when MO2's settings can be read."""
-    try:
-        return [creation_kit.output_dir()]
-    except (OSError, ValueError, KeyError):
-        return []
 
 
 def _entries(folder: str) -> list:
@@ -364,12 +356,6 @@ def kill_tree(proc) -> None:
     subprocess.run(['taskkill', '/F', '/T', '/PID', str(proc.pid)], capture_output=True, **POPEN_FLAGS)
 
 
-def close_ck() -> None:
-    """Close the CK if a stalled step left it running."""
-    if creation_kit.running():
-        creation_kit.close()
-
-
 def toast(title: str, text: str) -> None:
     """A Windows desktop notification; nothing when PowerShell cannot show one."""
     env = dict(os.environ, F3NV_TOAST_TITLE=title, F3NV_TOAST_TEXT=text)
@@ -388,7 +374,6 @@ class Hooks:
     spawn: object = spawn
     newest: object = newest
     kill: object = kill_tree
-    close_ck: object = close_ck
     notify: object = None
     out: object = None
 
@@ -569,10 +554,9 @@ class Runner:
                 self.emit(line)
 
     def _stall(self, proc, step: Step, name: str, message: str) -> None:
-        """End the stalled step's process (and a CK it left), notify, raise."""
+        """End the stalled step's process, notify, raise."""
         self.emit(f'{name}: {message}; ending it')
         self.hooks.kill(proc)
-        self.hooks.close_ck()
         raise ChainError(name, message, EXIT_STALL)
 
     def slow_advice(self, step: Step, groups: 'dict | None') -> None:

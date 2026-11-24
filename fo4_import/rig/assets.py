@@ -1,5 +1,5 @@
 """An FNV creature's own rig as FO4 files: skeleton.hkx (the animation skeleton only), clips with root motion,
-skeleton.nif (FNV's ragdoll and a character controller through hknp_ragdoll, else Elric) and the skinned body.
+skeleton.nif (FNV's ragdoll and a character controller through hknp_ragdoll) and the skinned body.
 
 Bone names are FNV's except the accumulation root `Bip01`, which is `Root` (vanilla FO4's bone 0) everywhere.
 The ragdoll lives only in skeleton.nif: a ragdoll and mappers in skeleton.hkx beside it freeze plain deaths.
@@ -21,7 +21,6 @@ from external.pynifly_hkx.anim_fo4 import BonePose, Skeleton, write_fo4_animatio
 from fo4_import.havok import packfile
 from fo4_import.havok.kf_cache import decoded
 from fo4_import.nif import convert_static as CS
-from fo4_import.nif import elric
 from fo4_import.nif import file as F
 from fo4_import.nif import hknp_ragdoll
 from fo4_import.nif.animation import add_nodes
@@ -182,8 +181,7 @@ def bound(fnv_skeleton: Path) -> tuple:
 
 
 def write_skeleton_nif(fnv_skeleton: Path, path: Path, fires: dict = None) -> dict:
-    """skeleton.nif: every FNV bone (Bip01 as Root), FNV's ragdoll and a CharacterController/Bumper (hknp_ragdoll,
-    else Elric); BSXFlags 0xC6 and FNV's BSBound; each equip slot's gun node on its FNV fire node, turned (`fires`
+    """skeleton.nif: every FNV bone (Bip01 as Root), FNV's ragdoll and a CharacterController/Bumper (hknp_ragdoll); BSXFlags 0xC6 and FNV's BSBound; each equip slot's gun node on its FNV fire node, turned (`fires`
     {slot: (node, turn)}, add_fire_node), its ragdoll in node order (ragdoll_order). {bone name: ragdoll bone
     index}, which the graph takes its ragdoll indices from."""
     pre = CS.convert(str(fnv_skeleton), animated=False, every_bone=True).nif
@@ -192,12 +190,10 @@ def write_skeleton_nif(fnv_skeleton: Path, path: Path, fires: dict = None) -> di
         add_fire_node(pre, under, weapon_node(slot), turn)
     center, half = bound(fnv_skeleton)
     character_controller(pre, center, half, CS.NODE_FLAGS)
-    data = F.write(pre)
-    ours = hknp_ragdoll.finish(F.read(data))
-    out = F.write(ours) if ours else elric.process({'skeleton.nif': data}).get('skeleton.nif')
-    if not out:
-        raise RuntimeError(f'Elric made no skeleton.nif from {fnv_skeleton}')
-    nif = finish_skeleton(in_node_order(F.read(out)), center, half)
+    ours = hknp_ragdoll.finish(F.read(F.write(pre)))
+    if not ours:
+        raise RuntimeError(f'our ragdoll writer does not cover {fnv_skeleton}')
+    nif = finish_skeleton(in_node_order(ours), center, half)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(F.write(nif))
     return ragdoll_bones(nif)
@@ -262,7 +258,7 @@ def ragdoll_bones(nif) -> dict:
 
 
 def finish_skeleton(nif, center: tuple, half: tuple):
-    """Vanilla creature skeleton extras on Elric's output: BSXFlags 0xC6 and a BSBound on the root."""
+    """Vanilla creature skeleton extras on our ragdoll writer's output: BSXFlags 0xC6 and a BSBound on the root."""
     root = nif.blocks[0][1]
     for i in root['extra']:
         if nif.blocks[i][0] == 'BSXFlags':

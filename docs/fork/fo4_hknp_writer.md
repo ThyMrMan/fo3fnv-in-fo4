@@ -38,12 +38,25 @@ folder, so it blocks the [cross-platform app](fo4_gui.md).
 ## <a id="seam"></a>Where it goes
 
 `nif/hknp_write.py` takes a pre-Elric NIF and returns the NIF Elric would
-have made, or None for input it does not cover yet. `elric_cache.process`
-asks it first and sends only the rest to Elric, so each step ships on its
-own and `elric.finish`'s graft is unchanged (it grafts our finished NIF
-as it would Elric's). Our output is not put in the Elric cache, and the
-finished-NIF work cache (`elric_finish`) records `hknp_write` among the code
-that ran, so a writer change refinishes the meshes it covers.
+have made, or None for input it does not cover. `elric_cache.finished`
+writes that NIF, or the mesh without its Havok input (no collision) where
+the writer does not cover it. The finished-NIF work cache (`elric_finish`)
+records `hknp_write` among the code that ran, so a writer change
+refinishes the meshes.
+
+**Elric no longer runs (2026-11-24).** Before, a mesh our writer declined
+went to Elric and its physics was grafted onto our mesh by node name. In
+every built plugin (40, both games and their add-ons) only NVWillow's
+`cakeplate.nif` and `reloadingbench_tool_02a.nif` still went to Elric,
+and the graft failed on both: Elric renames a root node called
+`Scene Root` after its input file (`00019.nif`), so the name matched
+nothing (72 of 10,817 root bodies in the Elric cache carry a staged name,
+and no root kept the name `Scene Root`). That was the "collision node
+matches no node of the mesh" fault. Our writer now covers both
+([point](#flat), [moving mesh](#moving-mesh)); the own-rig skeletons'
+fallback to Elric never ran (all 13 rigs are `hknp_ragdoll`'s). The
+Elric cache (`output/fo4_cache/elric`) stays on disk, unpruned, as
+`tools/nif/hknp_compare.py`'s answer key.
 
 ## <a id="steps"></a>Steps
 
@@ -70,7 +83,7 @@ build queue runs); reading and scratch work don't.
 4. ~~**Step 2, triangle meshes:**~~ built (`nif/hknp_mesh.py`) and wired
    in ahead of Elric ([mesh writer](#mesh-writer)); the main session runs
    the play test. A mesh on a body with a full motion (dynamic, or
-   keyframed with mass) still goes to Elric.
+   keyframed with mass) is ours since 2026-11-24 ([moving mesh](#moving-mesh)).
 5. **Step 3:** ~~spheres and capsules~~ built (`nif/hknp_round.py`) and
    wired in ([round](#round)); ~~compounds (`bhkListShape`)~~ built
    (`nif/hknp_compound.py`) and wired in ([compound](#compound)).
@@ -693,8 +706,17 @@ number finite.
     the points' axis-aligned box grown by the convex radius, density 1,
     inertia × 1.5, as a solid box (fence, corridor floor, sign post, automat
     slats, vault window: all exact).
-  - A flat or thin shape on a body with a full motion goes to Elric: none
-    exist in FNV, and Elric's mass for one is unread.
+  - *A single point* (NVWillow's `cakeplate.nif`: a zero-size box, and a
+    convex shape of one vertex, both on fixed bodies). The box keeps its
+    8 copies of the point as an `hknpConvexShape` (flags 1) whose mass
+    properties are a sphere of the convex radius at the point, density 1,
+    inertia × 1.5, its `mass` the sphere's volume (4.18879e-06 for radius
+    0.01); a convex shape whose points are all one point is an
+    `hknpSphereShape` there (`hknp_round.sphere`). Both match Elric in
+    every field.
+  - A flat or thin shape on a body with a full motion is refused: none
+    exist in either game or the built mods, and Elric's mass for one is
+    unread.
 
 On FNV `clutter` plus `architecture/barrier` none of the 724 pairs both
 runs could compare differs in a field it matched before (643 more no longer
@@ -706,6 +728,23 @@ not occur. Four meshes used to fail conversion before any physics (the
 sentry turret skeletons and two explosions: `collision.py` read their Havok
 actions as constraints, [fixed](fo4_pipeline.md#ragdolls)); all four now
 convert and are ours. FO3 was not censused.
+
+## <a id="moving-mesh"></a>A triangle mesh on a moving body
+
+One in every built plugin: NVWillow's `reloadingbench_tool_02a.nif`, a
+`bhkNiTriStripsShape` on a dynamic body (motion 3, mass 1). Elric writes
+the same `hknpCompressedMeshShape` a fixed body gets, with no mass
+properties on the shape; the motion takes the mass of the mesh's
+axis-aligned box, density 1, inertia × 1.5 (`hknp_convex.box_mass`, the
+stand-in thin hulls already use). On Elric's own triangles that rule gives
+its massFactor (571.788), inverse inertia (65.199, 57.222, 403.351) and
+centre of mass exactly.
+
+Two differences are left, each from one sample: Elric simplifies the mesh
+first (42 of our 160 triangles, every corner one of ours; the dropped ones
+are smaller but not by a threshold), and its max angular speed is 31.57
+where ours is 31.41. We keep every authored triangle and take the box of
+those, so our box (and mass) is larger than Elric's.
 
 ## <a id="check"></a>How each step is checked
 

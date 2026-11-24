@@ -22,6 +22,7 @@ from fo4_import.base.install import game_language
 from fo4_import.nif import convert_static as C
 from fo4_import.nif import elric as E
 from fo4_import.nif import file as F
+from fo4_import.nif import hknp_write as W
 from fo4_import.nif.blocks import NONE
 from fo4_import.nif.file import NifFile
 from fo4_import.pipeline import code_tag as CT
@@ -117,38 +118,31 @@ def test_a_text_tag_after_the_havok_is_read_and_kept():
     assert read.blocks[1] == ('NiStringExtraData', tag) and read.blocks[0][1]['extra'] == [1]
 
 
-def test_graft_points_elric_physics_at_a_collision_node_after_the_havok():
+def test_replace_points_our_physics_at_a_collision_node_after_the_havok():
     """A node added after the Havok input (a terminal's moved root collision) moves up; its new collision object
     names it where it now is."""
     ours = NifFile()
     ours.blocks = [('NiNode', _node(ours)), ('bhkCollisionObject', b'raw'), ('NiNode', _node(ours, 1))]
     ours.blocks[0][1]['children'] = [2]
-    elric = NifFile()
-    elric.blocks = [('NiNode', _node(elric)), ('bhkPhysicsSystem', b'sys'),
-                    ('bhkNPCollisionObject', struct.pack('<iHiI', 0, 1, 1, 0))]
-    E.graft(ours, elric)
+    W.replace(ours, [('bhkPhysicsSystem', b'sys', [2])])
     assert [k for k, _ in ours.blocks] == ['NiNode', 'NiNode', 'bhkPhysicsSystem', 'bhkNPCollisionObject']
     assert ours.blocks[1][1]['collision'] == 3 and struct.unpack('<iHiI', ours.blocks[3][1])[0] == 1
 
 
-def test_finish_gives_elric_each_file_rewritten_and_writes_a_failed_one_without_havok(tmp_path):
-    """Elric gets every Havok NIF's bytes as written again; one it returns nothing for loses its Havok and fails."""
+def test_finished_writes_a_mesh_our_writer_declines_without_havok_and_leaves_a_plain_one(monkeypatch):
+    """A Havok NIF our writer does not cover loses its Havok and is not covered; one without Havok is kept as is."""
+    monkeypatch.setattr(EC.hknp_write, 'finish', lambda nif: None)
     nif = NifFile()
     nif.blocks = [('NiNode', _node(nif, 1)), ('bhkCollisionObject', b'raw')]
-    path, plain = tmp_path / 'a.nif', tmp_path / 'b.nif'
-    path.write_bytes(F.write(nif))
-    plain.write_bytes(F.write(NifFile(blocks=[('NiNode', _node(NifFile()))])))
-    seen = []
-    assert E.finish([path, plain], lambda sources: seen.append(dict(sources)) or {}) == [path]
-    assert list(seen[0].values()) == [F.write(F.read(F.write(nif)))]
-    assert [k for k, _ in F.read(path.read_bytes()).blocks] == ['NiNode']
+    ok, out = EC.finished(F.write(nif))
+    assert not ok and [k for k, _ in F.read(out).blocks] == ['NiNode']
+    plain = F.write(NifFile(blocks=[('NiNode', _node(NifFile()))]))
+    assert EC.finished(plain) == (True, plain)
 
 
-def test_without_elric_or_fo4s_compiler_their_fallbacks_do_nothing(tmp_path, monkeypatch):
-    """With Elric and FO4's Papyrus compiler absent (off Windows), Elric finishes no mesh and the compiler none."""
-    monkeypatch.setattr(E, 'ELRIC', tmp_path / 'no_elric')
+def test_without_fo4s_compiler_its_fallback_does_nothing(tmp_path, monkeypatch):
+    """With FO4's Papyrus compiler absent (off Windows), it compiles nothing."""
     monkeypatch.setattr(papyrus, 'FO4_COMPILER', tmp_path / 'PapyrusCompiler.exe')
-    assert E.process({'a.nif': b'x'}) == {}
     assert papyrus.compile_folder(tmp_path, tmp_path, '') == ''
 
 
@@ -467,10 +461,8 @@ def test_a_havok_nif_reaches_disk_only_finished_and_an_unchanged_one_is_not_rewr
     """write_mesh() holds a Havok NIF (mesh_bytes() gives it back) and writes nothing; finish() writes it finished;
     a rebuild of the same NIF does not rewrite the file, only touches it; a NIF without Havok is written at once."""
     monkeypatch.setattr(WC, 'CACHE', tmp_path / 'cache')
-    monkeypatch.setattr(EC, 'elric_tag', lambda: b'tag')
     monkeypatch.setattr(EC.elric, 'has_havok', lambda data: data != b'plain')
-    monkeypatch.setattr(EC.elric, 'finish', lambda paths, run, names: [p.write_bytes(p.read_bytes() + b'+')
-                                                                       for p in paths] and [])
+    monkeypatch.setattr(EC, 'finished', lambda data: (True, data + b'+'))
     path, plain = tmp_path / 'a.nif', tmp_path / 'b.nif'
     EC.write_mesh(path, b'one')
     assert not path.exists() and EC.mesh_bytes(path) == b'one'

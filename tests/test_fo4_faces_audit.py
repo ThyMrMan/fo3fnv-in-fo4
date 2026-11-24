@@ -5,7 +5,6 @@ See: docs/fork/fo4_tool_audit.md#rebuild
 """
 
 import collections
-import shutil
 import struct
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,14 +17,12 @@ from scipy.spatial import cKDTree
 
 from fo4_import.base import ba2_pack
 from fo4_import.base import ba2
-from fo4_import.base.ba2 import Archives
-from fo4_import.base.install import FALLOUT4_ESM, FALLOUTNV_ESM, use_source
+from fo4_import.base.install import FALLOUTNV_ESM, use_source
 from fo4_import.base.writer import pack_fo4_header, pack_fo4_record
 from fo4_import.face import memo, tint
 from fo4_import.face import texture as TX
 from fo4_import.face.bake import align, surface
 from fo4_import.face.fnv_head import FnvHead, head
-from fo4_import.nif import file as nif_file
 from fo4_import.pipeline import stage_timer, work_cache
 from fo4_import.pipeline.export_index import asset_root
 from fo4_import.spike import facegen as FG
@@ -37,9 +34,6 @@ from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_group, pack_subrecord
 
 EXPORT = Path(__file__).resolve().parents[1] / 'export' / 'FalloutNV.esm'
-VANILLA_MESHES = FALLOUT4_ESM.parent / 'Fallout4 - Meshes.ba2'
-#: Vanilla Scarlett's FaceGen: HairFemale04, a hair with cloth physics.
-SCARLETT_FACEGEN = 'meshes/Actors/Character/FaceGenData/FaceGeom/Fallout4.esm/0004B240.nif'
 
 
 def _plugin(*records: tuple) -> bytes:
@@ -181,82 +175,6 @@ def test_face_workers_follow_the_faces_the_cores_and_free_memory(monkeypatch):
     assert N.face_workers(10 ** 6) == 4
 
 
-def test_ck_timeout_scales_with_the_plugins_npcs(tmp_path):
-    """The CK gets CK_FACE_SECONDS per NPC_ record in the plugin, never under the CK_TIMEOUT floor."""
-    plugin = tmp_path / 'Faces.esp'
-    plugin.write_bytes(_plugin(*[('NPC_', 0x800 + i, b'') for i in range(3)], ('RACE', 0x900, b'')))
-    assert FG.npc_count(plugin) == 3
-    assert FG.ck_timeout(3) == FG.CK_TIMEOUT
-    assert FG.ck_timeout(2247) == 2247 * FG.CK_FACE_SECONDS > FG.CK_TIMEOUT
-
-
-def test_ck_exports_facegen_for_64_bit_pc(monkeypatch):
-    """The CK is asked for the X64 target: W32 writes hair cloth physics with 4-byte pointers."""
-    calls = []
-    monkeypatch.setattr(FG.creation_kit.subprocess, 'Popen', lambda args, **_: calls.append(args))
-    monkeypatch.setattr(FG.creation_kit, 'running', lambda: False)
-    monkeypatch.setattr(FG.creation_kit.time, 'sleep', lambda _: None)
-    monkeypatch.setattr(FG.creation_kit, 'output_dir', lambda: FG.creation_kit.MO2 / 'overwrite')
-    FG.run_ck('Spike.esp')
-    assert calls[0][-1] == '-ExportFaceGenData:Spike.esp X64'
-
-
-def test_ck_closed_once_quiet_after_writing(monkeypatch, tmp_path):
-    """A CK that wrote files and then nothing for CK_QUIET seconds is closed and counts as done; one that never
-    wrote runs to its timeout, is closed, and raises."""
-    CK, clock, closed = FG.creation_kit, [1000.0], []
-    monkeypatch.setattr(CK.subprocess, 'Popen', lambda *_, **__: None)
-    monkeypatch.setattr(CK, 'running', lambda: True)
-    monkeypatch.setattr(CK, 'close', lambda: closed.append(clock[0]))
-    monkeypatch.setattr(CK, 'output_dir', lambda: tmp_path)
-    monkeypatch.setattr(CK.time, 'time', lambda: clock[0])
-    monkeypatch.setattr(CK.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s))
-    monkeypatch.setattr(CK, 'newest_file', lambda _: 1010.0)
-    CK.run('-x', 10 * CK.CK_QUIET, 'testing')
-    assert closed == [pytest.approx(1010.0 + CK.CK_QUIET, abs=CK.CK_POLL)]
-    monkeypatch.setattr(CK, 'newest_file', lambda _: 0.0)
-    with pytest.raises(SystemExit, match='did not finish'):
-        CK.run('-x', 100, 'testing')
-    assert len(closed) == 2
-
-
-def test_ck_closed_when_it_writes_nothing_in_ck_first(monkeypatch, tmp_path):
-    """A CK that writes no file within CK_FIRST seconds is closed then, not at its (hours long) timeout, and raises."""
-    CK, clock, closed = FG.creation_kit, [1000.0], []
-    monkeypatch.setattr(CK.subprocess, 'Popen', lambda *_, **__: None)
-    monkeypatch.setattr(CK, 'running', lambda: True)
-    monkeypatch.setattr(CK, 'close', lambda: closed.append(clock[0]))
-    monkeypatch.setattr(CK, 'output_dir', lambda: tmp_path)
-    monkeypatch.setattr(CK, 'newest_file', lambda _: 0.0)
-    monkeypatch.setattr(CK.time, 'time', lambda: clock[0])
-    monkeypatch.setattr(CK.time, 'sleep', lambda s: clock.__setitem__(0, clock[0] + s))
-    with pytest.raises(SystemExit, match='no file written'):
-        CK.run('-x', 20 * CK.CK_FIRST, 'testing')
-    assert closed == [pytest.approx(1000.0 + CK.CK_FIRST, abs=CK.CK_POLL)]
-
-
-@pytest.mark.skipif(not VANILLA_MESHES.exists(), reason='needs Fallout 4')
-def test_export_refuses_facegen_with_32_bit_cloth_physics(monkeypatch, tmp_path):
-    """Vanilla FaceGen with cloth hair (Scarlett's) passes; the same with its packfile's pointer size set to 4, as
-    the CK's W32 target writes it, stops the export."""
-    vanilla = Archives(VANILLA_MESHES.parent, VANILLA_MESHES.name).read(SCARLETT_FACEGEN)
-    assert FG.cloth_pointer_sizes(vanilla) == [8]
-    nif = nif_file.read(vanilla)
-    at = next(i for i, (kind, _) in enumerate(nif.blocks) if kind == 'BSClothExtraData')
-    raw = bytearray(nif.blocks[at][1])
-    raw[FG.CLOTH_POINTER_SIZE_AT] = 4
-    nif.blocks[at] = ('BSClothExtraData', bytes(raw))
-    face = tmp_path / '00000801.NIF'
-    monkeypatch.setattr(FG, 'run_ck', lambda *_: None)
-    monkeypatch.setattr(FG, 'collect', lambda *_: [face])
-    monkeypatch.setattr(FG, 'complete', lambda *_: 1)
-    face.write_bytes(vanilla)
-    assert FG.export('Spike.esp', tmp_path) == 1
-    face.write_bytes(nif_file.write(nif))
-    with pytest.raises(SystemExit, match='00000801.NIF'):
-        FG.export('Spike.esp', tmp_path)
-
-
 def test_each_faces_step_is_charged_to_its_stage(tmp_path, monkeypatch):
     """steps() runs heads, refit, the refitted heads, skin, overrides and pack, each timed under its own stage."""
     esm = tmp_path / 'Fallout4.esm'
@@ -272,9 +190,8 @@ def test_each_faces_step_is_charged_to_its_stage(tmp_path, monkeypatch):
     monkeypatch.setattr(FG.facegen_skin_cache, 'skin', lambda *_: ['skinned'])
     monkeypatch.setattr(FG.facegen_inherit, 'inherit', lambda *_: ['inherited'])
     monkeypatch.setattr(FG, 'override_faces', lambda *_: ['override heads'])
-    args = SimpleNamespace(plugin='Spike.esp', own_facegen=True, collected=False, keep_loose=False,
-                           overrides_only=False)
-    assert FG.steps(args, tmp_path, tmp_path)
+    args = SimpleNamespace(plugin='Spike.esp', keep_loose=False, overrides_only=False)
+    FG.steps(args, tmp_path, tmp_path)
     timed = set(stage_timer.records())
     assert {'faces restore', 'faces heads', 'faces refit', 'faces heads refitted', 'faces skin',
             'faces override heads', 'faces overrides', 'faces pack'} <= timed
@@ -315,19 +232,12 @@ def _dds_shape(data: bytes) -> tuple:
     return width, mips, data[84:88]
 
 
-def test_face_textures_become_vanilla_sizes_with_mips(tmp_path):
-    """_d and _msn become 1024 BC1 with 11 mips, _s 512 BC5 with 10; another suffix is left alone."""
+def test_face_textures_take_vanilla_sizes_with_mips():
+    """_d and _msn are 1024 BC1 with 11 mips, _s 512 BC5 with 10."""
     rgba = np.random.default_rng(0).integers(0, 256, (256, 256, 4), dtype=np.uint8)
     rgba[..., 3] = 255
-    folder = tmp_path / FG.FACEGEN_DIRS[1] / 'Faces.esp'
-    folder.mkdir(parents=True)
-    for suffix in ('d', 'msn', 's'):
-        TX.write_dds(rgba, folder / f'00000800_{suffix}.dds')
-    shutil.copyfile(folder / '00000800_d.dds', folder / '00000800_x.dds')
-    assert FG.vanilla_textures('Faces.esp', tmp_path) == 3
-    assert {p.stem: _dds_shape(p.read_bytes()) for p in folder.glob('*.dds')} == {
-        '00000800_d': (1024, 11, b'DXT1'), '00000800_msn': (1024, 11, b'DXT1'), '00000800_s': (512, 10, b'BC5U'),
-        '00000800_x': (256, 1, b'DXT5')}
+    shapes = {kind: _dds_shape(TX.vanilla_dds(rgba, kind)) for kind in ('d', 'msn', 's')}
+    assert shapes == {'d': (1024, 11, b'DXT1'), 'msn': (1024, 11, b'DXT1'), 's': (512, 10, b'BC5U')}
 
 
 def _fake_tools(monkeypatch, write, cache: Path):

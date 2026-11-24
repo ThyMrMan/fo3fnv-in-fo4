@@ -296,18 +296,6 @@ def face_texture(fo4_rgba: np.ndarray, fo4: tuple, fnv: FnvHead, pieces: tuple, 
     return np.clip(out, 0, 255).astype(np.uint8), tone
 
 
-def vanilla_face_texture(path: Path) -> bool:
-    """Re-encode the CK face texture at `path` in place as vanilla's for its suffix (VANILLA_FACE: format, size,
-    full mips); False for another suffix."""
-    kind = path.stem.rpartition('_')[2].lower()
-    if kind not in VANILLA_FACE:
-        return False
-    with Image.open(path) as image:
-        rgba = np.asarray(image.convert('RGBA'))
-    path.write_bytes(vanilla_dds(rgba, kind))
-    return True
-
-
 def vanilla_dds(rgba: np.ndarray, kind: str) -> bytes:
     """`rgba` as DDS in vanilla's format and size for `kind`, full mips."""
     fmt, size = VANILLA_FACE[kind]

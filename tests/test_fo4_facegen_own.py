@@ -92,21 +92,6 @@ def test_a_face_a_later_plugin_overrides_is_not_refitted(monkeypatch):
     assert facegen_skin.refit_face(facegen_skin.Face(0x800, 'x', False, False)) is None
 
 
-def test_collect_keeps_only_the_named_npcs(tmp_path, monkeypatch):
-    """With `only`, the named NPCs' files move into the mod; the CK's others are deleted from overwrite."""
-    overwrite, data = tmp_path / 'overwrite', tmp_path / 'mod'
-    monkeypatch.setattr(facegen.creation_kit, 'output_dir', lambda: overwrite)
-    geom, tex = overwrite / facegen.FACEGEN_DIRS[0] / 'p.esp', overwrite / facegen.FACEGEN_DIRS[1] / 'p.esp'
-    for folder, names in ((geom, ('00000800.nif', '00000801.nif')), (tex, ('00000800_d.dds', '00000801_s.dds'))):
-        folder.mkdir(parents=True)
-        for name in names:
-            (folder / name).write_bytes(b'x')
-    nifs = facegen.collect('p.esp', data, {'00000801'})
-    assert [p.name for p in nifs] == ['00000801.nif']
-    assert sorted(p.name for p in data.rglob('*') if p.is_file()) == ['00000801.nif', '00000801_s.dds']
-    assert not [p for p in overwrite.rglob('*') if p.is_file()]
-
-
 def test_a_failing_npc_is_reported_not_raised(monkeypatch):
     """own_face returns the error of a face that fails; a broken pool fails every face."""
     monkeypatch.setattr(facegen_skin, 'shared', lambda: {'src': None, 'plugin': 'p.esp', 'data': None})
@@ -227,8 +212,8 @@ def test_the_second_pass_writes_head_meshes_only(tmp_path, monkeypatch):
     monkeypatch.setattr(facegen_own, 'own_npcs', lambda path: [0x801, 0x802])
     monkeypatch.setattr(facegen, 'clear', lambda plugin, data_dir: None)
     job = (None, tmp_path, 'p.esp', None)
-    facegen.heads(job, True)
-    facegen.heads(job, True, [0x800])
+    facegen.heads(job)
+    facegen.heads(job, [0x800])
     assert asked == [('d', 'msn', 's'), ('msn', 's'), ()]
 
 
@@ -240,24 +225,6 @@ def test_a_mesh_only_face_keeps_its_own_entry(tmp_path, monkeypatch):
     for _ in range(2):
         assert facegen_own.cached_files(src, 'p.esp', 0x800, ('d', 'msn', 's'))[0] == {'f': bytes([3])}
         assert facegen_own.cached_files(src, 'p.esp', 0x800, ())[0] == {'f': bytes([0])}
-
-
-def test_a_failed_ck_fallback_is_reported_and_our_heads_kept(tmp_path, monkeypatch):
-    """Our FaceGen leaves MO2's view while the CK runs and comes back; a CK failure is a report line."""
-    data = tmp_path / 'mod'
-    ours = data / facegen.FACEGEN_DIRS[0] / 'p.esp' / '00000800.nif'
-    ours.parent.mkdir(parents=True)
-    ours.write_bytes(b'ours')
-    seen = []
-
-    def ck(plugin, data_dir):
-        """A CK that checks ours is out of view, then fails."""
-        seen.append(ours.exists())
-        raise SystemExit('the Creation Kit crashed')
-    monkeypatch.setattr(facegen, 'run_ck', ck)
-    lines = facegen.fallback('p.esp', data, {0x801: 'ValueError: x'})
-    assert seen == [False] and ours.read_bytes() == b'ours'
-    assert lines == ['CK fallback failed, 1 NPCs have no FaceGen: the Creation Kit crashed']
 
 
 def _overriding_mod(tmp_path) -> None:

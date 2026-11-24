@@ -7,7 +7,7 @@ wind-animated ones (blastedforestfungaltreelarge01) have a BSLeafAnimNode
 root, BSXFlags 130, vertex-coloured shapes, the leaves alpha-tested,
 two-sided and on a tree-flagged material (shader flags2 Tree Anim). The
 collision is the generated mesh on the source game's own tree body (FNV's
-nvgreybirch01, FO3's treedead01: fixed), finished by Elric as the statics' is.
+nvgreybirch01, FO3's treedead01: fixed), finished as the statics' is.
 
 See: docs/fork/fo4_spikes.md#spike-4-trees
 """

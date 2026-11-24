@@ -22,7 +22,7 @@ from fo4_import.app import settings as S
 from fo4_import.base.build_files import all_moved_in
 from fo4_import.base.source import GAME_PLUGINS
 from fo4_import.pipeline.build_steps import STAMP_SUFFIX, stamp_path
-from fo4_import.pipeline.creation_kit import CK_EXECUTABLE, MO2
+from fo4_import.pipeline.creation_kit import MO2
 from fo4_import.base import release
 
 GAME_VERSION = (1, 11, 240)
@@ -48,7 +48,7 @@ CONFLICTING_MODS = (('Extended Dialogue Interface', 'F4SE/Plugins/XDI.dll'),)
 #: Statuses that need nothing done; RECOMMENDED names an optional tool that is missing.
 PASSING = ('OK', 'NOT YET', 'RECOMMENDED')
 #: Why the Creation Kit is recommended, not required.
-CK_FALLBACK = 'the faces our own FaceGen cannot make fall back to it'
+CK_FALLBACK = 'the scripts Caprica cannot compile and voice lines without an FNV .lip fall back to its tools'
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +167,7 @@ def executables(instance: Path) -> dict:
 
 
 def mo2_checks(m: Machine) -> list:
-    """The MO2 instance, its profile, its game folder, and its Creation Kit and F4SE executables."""
+    """The MO2 instance, its profile, its game folder, and its F4SE executable."""
     if not has_mo2(m):
         where = f' at {m.mo2}' if m.mo2 else ''
         return [Check('Mod Organizer 2', 'MISSING', f'no MO2 instance (a folder holding ModOrganizer.ini){where}; '
@@ -181,10 +181,6 @@ def mo2_checks(m: Machine) -> list:
     if m.fallout4 and game and os.path.normcase(Path(game).resolve()) != os.path.normcase(m.fallout4.resolve()):
         out.append(Check('MO2 game folder', 'WRONG', f'MO2 manages {game}, not {m.fallout4}'))
     exes = executables(m.mo2)
-    ck = exes.get(CK_EXECUTABLE)
-    out.append(Check(f'MO2 "{CK_EXECUTABLE}" executable', 'OK', str(ck)) if ck and ck.is_file() else
-               Check(f'MO2 "{CK_EXECUTABLE}" executable', 'RECOMMENDED', f'add an MO2 executable titled '
-                     f'"{CK_EXECUTABLE}" running CreationKit.exe; {CK_FALLBACK}, through it'))
     f4se = next((title for title, binary in exes.items() if binary.name.lower() == F4SE_LOADER), None)
     out.append(Check('MO2 F4SE executable', 'OK', f'"{f4se}" (play through it)') if f4se else
                Check('MO2 F4SE executable', 'MISSING', f'add an MO2 executable running {F4SE_LOADER}'))

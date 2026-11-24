@@ -1417,8 +1417,14 @@ layers (99th percentile 32–45, so the miss is local). Not chased further.
 
 ### <a id="own-stage"></a>The faces stage writing its own FaceGen (`--own-facegen`, 2026-11-12)
 
-`python -m fo4_import.spike.facegen ... --own-facegen` writes the heads
-itself. The CK route stays the default and the fallback.
+`python -m fo4_import.spike.facegen ...` writes the heads itself. Since
+2026-11-24 it is the only route: the CK export, its fallback for failed
+NPCs and `--collected` are gone, and `--own-facegen` is accepted with no
+effect (faces stamps of older builds replay it). Before that, the one run
+with failures in 286 logged face runs (`temp/facetest/dm_run2.log`, a
+2026-11-21 Dead Money dev run: 5 KeyErrors on face textures the master's
+build writes) left the CK fallback failing on the same 5 NPCs; the next
+real Dead Money build wrote all 64 faces.
 
 - **Which NPCs:** the ones the CK exports. An NPC gets FaceGen when it
   takes no traits from a template (TPLT plus ACBS template flag Use Traits,
@@ -1440,10 +1446,8 @@ itself. The CK route stays the default and the fallback.
   setting hooks in.
 - **Failures:** each NPC's error is caught in its worker and listed;
   texconv has a 120 s timeout, and a broken pool fails every NPC instead
-  of hanging. Failed NPCs get the CK's export: our FaceGen is moved out of
-  MO2's view, the CK runs, only the failed NPCs' files are kept and
-  re-encoded, and ours goes back. If the CK fails too, those NPCs are
-  reported without FaceGen.
+  of hanging. A failed NPC is listed with its error and left without
+  FaceGen; the stage still finishes.
 
 **Proof (2026-11-12):** `facegen_own.write_face` over all 3,602
 FalloutNV.esm NPCs on a scratch copy against tonight's CK reference, 8

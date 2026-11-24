@@ -59,7 +59,7 @@ def write_assets(export_dir: Path, model: str, data_dir: Path, pose: dict = None
 
 def prop_assets(export_dir: Path, model: str, data_dir: Path, pose: dict, bone: str) -> tuple:
     """write_assets() of FNV idle prop `model` in `pose`, unanimated, as `<name>_prop.nif` hung from FO4 bone `bone`
-    (`Prn`); one with Havok input gets its collision from Elric at once."""
+    (`Prn`); one with Havok input gets its collision at once."""
     rel = model.replace('/', '\\').lower()
     files = cached_files(export_file(export_dir, 'meshes', rel), export_dir, pose, False)
     nif = nif_file.read(files.nif)

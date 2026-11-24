@@ -1,7 +1,7 @@
 """The install status dialog: tools.validate.fo4_install_check's lines for the app's settings, problems in red.
 
-What the README's "What you need" lists (the game and its version, F4SE, the Creation Kit, MO2 and its F4SE and
-Creation Kit executables, each required mod where the game sees it) and, after a conversion, each converted plugin
+What the README's "What you need" lists (the game and its version, F4SE, the Creation Kit, MO2 and its F4SE
+executable, each required mod where the game sees it) and, after a conversion, each converted plugin
 in its own enabled MO2 mod with F3NV.dll beside the game's.
 
 See: docs/fork/fo4_gui.md#install-status

@@ -14,7 +14,7 @@ import struct
 import numpy as np
 
 from fo4_import.havok.packfile import classes
-from fo4_import.nif.hknp_convex import DISPATCH_CONVEX, INERTIA_SCALE, VERTEX_TAG, Mass, principal, tail
+from fo4_import.nif.hknp_convex import DISPATCH_CONVEX, INERTIA_SCALE, VERTEX_TAG, Mass, point_mass, principal, tail
 
 #: Shape flags Elric writes on a sphere and on a capsule.
 SPHERE_FLAGS, CAPSULE_FLAGS = 273, 451
@@ -35,14 +35,11 @@ SPARE_PLANE = struct.pack('<4f', 0.0, 0.0, 0.0, -3.402820018375656e+38)
 
 def sphere(name: str, center, radius: float, material: int) -> tuple:
     """([the shape], Mass) of a sphere of `radius` at `center` (Havok units), material CRC `material`."""
-    volume = 4 / 3 * math.pi * radius ** 3
-    moment = INERTIA_SCALE * 2 / 5 * radius * radius * volume
     data = struct.pack('<3fI', *center, VERTEX_TAG) * 4
     shape = {'flags': SPHERE_FLAGS, 'numShapeKeyBits': 0, 'dispatchType': DISPATCH_CONVEX, 'convexRadius': radius,
              'userData': material, 'properties': None, 'vertices': (4, _vertices_at('hknpSphereShape')),
              '__tail__': data}
-    return [{'#': name, 'class': 'hknpSphereShape', 'fields': shape}], \
-        Mass(volume, np.array(center, float), np.full(3, moment), (0.0, 0.0, 0.0, 1.0))
+    return [{'#': name, 'class': 'hknpSphereShape', 'fields': shape}], point_mass(center, radius)
 
 
 def _vertices_at(cls: str) -> int:

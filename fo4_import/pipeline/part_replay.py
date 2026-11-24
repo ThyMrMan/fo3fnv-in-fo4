@@ -65,7 +65,7 @@ def meshes(data_dir: Path, manifest: dict, masters: list) -> 'dict | None':
                      part=MESHES)
     counts = dict(charged('object LOD', object_lod.bake_all, Path(manifest['export']), data_dir,
                           manifest['lod_worlds'], masters, part=MESHES))
-    return {**counts, 'meshes without collision (Elric failed)': len(failed)}
+    return {**counts, 'meshes without collision (our writer does not cover them)': len(failed)}
 
 
 def after_meshes(plugin: Path, rec: dict, manifest: dict) -> dict:

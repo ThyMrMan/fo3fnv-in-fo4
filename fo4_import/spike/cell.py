@@ -5,7 +5,7 @@ doors, misc items, containers, furniture and activators with their
 converted scripts (other types are statics for now). Every interior a door
 leads into is built too (interiors.py); a door that led out of the build
 leads to a stand-in door in QASmoke, and back. Engine objects FO4
-shares keep their base. Meshes get FNV's collision through Elric.
+shares keep their base. Meshes get FNV's collision through our physics writer.
 
 See: docs/fork/fo4_spikes.md#spike-2-cell
 """
@@ -343,7 +343,7 @@ class CellBuilder:
 
     def weapon_mesh(self, model: str, pose: dict) -> tuple:
         """mesh() of an FNV weapon model in its held `pose` as its own `<name>_weapon.nif`, dressed as a weapon after
-        Elric (nif.weapon); the model placed as a static keeps its own file."""
+        its physics (nif.weapon); the model placed as a static keeps its own file."""
         made = self._asset(f'{model}#weapon', write_assets, self.export_dir, model, self.data_dir, pose,
                            animated=False, suffix='_weapon')
         self.weapons.update({made[0]} - {''})

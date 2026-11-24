@@ -1,33 +1,13 @@
-"""Fallout 4's Elric turns pre-Elric Havok blocks into FO4 physics; only that physics is kept.
+"""Pre-Elric Havok input: the bhk blocks collision.py writes, which FO4 cannot load until our physics writer
+(nif/hknp_write.py, through pipeline/elric_cache.py) puts FO4 physics in their place; finding and removing them.
 
-`finish(paths)` runs Elric once over a temporary copy of every NIF that has
-Havok input blocks (collision.py), then puts each output's bhkPhysicsSystem
-and bhkNPCollisionObject in place of the input blocks, keeping our own
-render blocks (Elric also changes a shader flag). Elric crashes on some
-input; after a crash the files it had not done run one at a time, and one
-it still crashes on is written without collision. Only the files' bytes are
-held across the run; each is parsed again when its physics is grafted.
-
-See: docs/fork/fo4_spikes.md#spike-2-collision
-See: docs/fork/fo4_tool_audit.md#meshes
+See: docs/fork/fo4_hknp_writer.md#seam
 """
 
-import shutil
-import struct
-import subprocess
-import tempfile
-from pathlib import Path
-
-from core.subprocess_flags import POPEN_FLAGS
-from fo4_import.base.install import FALLOUT4_DIR
-from fo4_import.base.source_fault import SourceFault, count
 from fo4_import.nif import file as nif_file
 from fo4_import.nif.blocks import BLOCKS, NONE
 from fo4_import.nif.file import NifFile
 
-ELRIC = FALLOUT4_DIR / 'Tools' / 'Elric'
-#: Seconds one Elric run may take before it counts as hung.
-TIMEOUT = 600
 #: Keys of parsed blocks (nif.blocks) holding a block reference or a list of them.
 REF_KEYS = frozenset({'shader', 'alpha_property', 'skin', 'texture_set', 'controller', 'collision', 'children',
                       'extra', 'target'})
@@ -77,92 +57,3 @@ def _renumber(block: dict, start: int, moved: dict) -> None:
         return ref if ref < start else moved.get(ref, NONE)
     for key in REF_KEYS & block.keys():
         block[key] = [at(r) for r in block[key]] if isinstance(block[key], list) else at(block[key])
-
-
-def graft(ours: NifFile, processed: NifFile) -> NifFile:
-    """`ours` with its Havok input replaced by Elric's FO4 physics, matched to our nodes by name, in order
-    (ignoring case: Elric writes a node named Head as HEAD); SourceFault for a body on a node `ours` lacks.
-
-    Each node keeps its transform: Elric's body holds local vertices, and FO4 places it by the node (its
-    body position only copies the node's). Every collision object shares Elric's one bhkPhysicsSystem,
-    as vanilla's do.
-    See: docs/fork/fo4_pipeline.md#collision-nodes
-    """
-    owners = [b for _, b in ours.blocks if isinstance(b, dict) and b.get('collision', NONE) != NONE]
-    names = [ours.strings[b['name']].lower() for b in owners]
-    without_havok(ours)
-    index, systems = {id(b): i for i, (_, b) in enumerate(ours.blocks)}, {}
-    for kind, raw in processed.blocks:
-        if kind != 'bhkNPCollisionObject':
-            continue
-        target, flags, data, body_id = struct.unpack('<iHiI', raw)
-        name = processed.strings[processed.blocks[target][1]['name']].lower()
-        if name not in names:
-            raise SourceFault(None, f'collision node {name!r} matches no node of the mesh')
-        owner = owners.pop(names.index(name))
-        names.remove(name)
-        if data not in systems:
-            ours.blocks.append(('bhkPhysicsSystem', processed.blocks[data][1]))
-            systems[data] = len(ours.blocks) - 1
-        ours.blocks.append(('bhkNPCollisionObject', struct.pack('<iHiI', index[id(owner)], flags, systems[data], body_id)))
-        owner['collision'] = len(ours.blocks) - 1
-    return ours
-
-
-def _run(sources: dict, work: Path) -> tuple:
-    """One Elric run over {name: bytes}; (return code, {name: output bytes}); (1, {}) without Elric installed."""
-    if not (ELRIC / 'Elrich.exe').is_file():
-        return 1, {}
-    shutil.rmtree(work, ignore_errors=True)
-    src, out = work / 'Meshes', work / 'Out'
-    src.mkdir(parents=True)
-    for name, data in sources.items():
-        (src / name).write_bytes(data)
-    cmd = [str(ELRIC / 'Elrich.exe'), str(ELRIC / 'Settings' / 'PCMeshes.esf'),
-           f'-ElricOptions.ConvertTarget={src}', f'-ElricOptions.OutputDirectory={out}',
-           '-ElricOptions.CloseWhenFinished=true']
-    rc = subprocess.run(cmd, cwd=ELRIC, timeout=TIMEOUT, capture_output=True, **POPEN_FLAGS).returncode
-    return rc, {name: (out / name).read_bytes() for name in sources if (out / name).exists()}
-
-
-def process(sources: dict) -> dict:
-    """Elric's output for {name: pre-Elric NIF bytes}; a file Elric crashes on alone is left out."""
-    with tempfile.TemporaryDirectory() as tmp:
-        rc, done = _run(sources, Path(tmp) / 'batch')
-        if rc == 0:
-            return done
-        for name in sorted(set(sources) - set(done)):
-            _, single = _run({name: sources[name]}, Path(tmp) / 'one')
-            done.update(single)
-    return done
-
-
-def finish(paths: list, run=None, names: list = None) -> list:
-    """Replace the Havok input in each NIF at `paths` with Elric's physics (from `run`, process() by default),
-    one file at a time; the paths left without collision. One whose physics cannot be grafted (a SourceFault) is
-    left without it and its fault counted under its name in `names` (default: `paths`)."""
-    inputs, sources = {}, {}
-    for i, path in enumerate(paths):
-        raw = Path(path).read_bytes()
-        nif = nif_file.read(raw)
-        if havok_start(nif) is not None:
-            inputs[f'{i:05d}.nif'] = Path(path), raw, (names or paths)[i]
-            sources[f'{i:05d}.nif'] = nif_file.write(nif)
-    done = (run or process)(sources)
-    sources.clear()
-    failed = []
-    for name, (path, raw, shown) in inputs.items():
-        out = done.pop(name, None)
-        grafted = _grafted(raw, out, shown) if out else None
-        path.write_bytes(nif_file.write(without_havok(nif_file.read(raw)) if grafted is None else grafted))
-        failed += [path] if grafted is None else []
-    return failed
-
-
-def _grafted(raw: bytes, out: bytes, shown) -> 'NifFile | None':
-    """graft() of NIF `raw` with Elric's `out`; None after counting its SourceFault as `shown`'s."""
-    try:
-        return graft(nif_file.read(raw), nif_file.read(out))
-    except SourceFault as fault:
-        count(fault.at(shown))
-        return None

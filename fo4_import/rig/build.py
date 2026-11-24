@@ -208,7 +208,7 @@ class Rigs:
 
     def skeleton_nif(self, fnv_dir, rig, fires: dict) -> dict:
         """assets.write_skeleton_nif's skeleton.nif and ragdoll bones, kept in the work cache by the FNV skeleton and
-        `fires` (Elric runs only when they change)."""
+        `fires` (written again only when they change)."""
         target = self.out(rig, 'CharacterAssets', 'skeleton.nif')
         inputs = (Path(str(fnv_dir / 'skeleton.nif')).read_bytes(), repr(sorted(fires.items())))
         nif, ragdoll = cached(SKELETON_SITE, assets.__name__, inputs, lambda: self._skeleton(fnv_dir, target, fires))

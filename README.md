@@ -75,7 +75,7 @@ differs from the original games is in [fo4_drift.md](docs/fork/fo4_drift.md).
 |---|---|
 | **Windows 10 or 11** | The tested setup. Linux and macOS don't work yet: two parts of the build ship for Windows only ([below](#other-systems)). |
 | **Fallout 4** | The current Steam version, **1.11.240**. |
-| **Fallout 4 Creation Kit** | Free on [Steam](https://store.steampowered.com/app/1946160/). Install it, but you don't need to open it. Converted scripts compile against the Fallout 4 script sources it installs (`Data\Scripts\Source\Base\Base.zip`). The app also falls back on it for the few faces our own FaceGen can't make. |
+| **Fallout 4 Creation Kit** | Free on [Steam](https://store.steampowered.com/app/1946160/). Install it, but you don't need to open it. Converted scripts compile against the Fallout 4 script sources it installs (`Data\Scripts\Source\Base\Base.zip`). |
 | **Fallout: New Vegas or Fallout 3** | Steam or GOG, with any DLC you want converted. For Fallout 3, the Game of the Year edition has all five DLC. |
 | **[Mod Organizer 2](https://github.com/ModOrganizer2/modorganizer)** | Set up for Fallout 4. The steps below assume it. |
 | **[F4SE](https://f4se.silverlock.org/)** | For 1.11.240, installed into your Fallout 4 folder, its `Data` folder included (converted scripts compile against its script sources). |
@@ -96,8 +96,7 @@ differs from the original games is in [fo4_drift.md](docs/fork/fo4_drift.md).
 then run `python3.14 -m pip install -r requirements.txt` and
 `python3.14 fo4_app.py` in the downloaded folder instead of the `.cmd`
 launcher. Install the Creation Kit through Steam anyway, for its script
-sources. The few faces our own FaceGen can't make fall back to running it,
-and it runs only on Windows. Known not to work yet: the release ships its
+sources. Known not to work yet: the release ships its
 pinned compression library and its script compiler for Windows only, so a
 build stops before writing the plugin. Voice and sounds need a Linux build
 of our encoder, and distant objects need Wine ([details](docs/audits/fo4_redo_audit_2026-11-23.md#off-windows)).
@@ -350,7 +349,7 @@ cover them.
 | [595554963github — Xwma-Codec](https://github.com/595554963github/Xwma-Codec) | Its WMA v2 encoder, changed so Fallout 4 plays its files, in `native/src/xwma/`; built into `native/dist/xwma_enc.exe`, which compresses every voice line and sound | **GPL-3.0**; redistributed, source in `native/src/xwma/` |
 | [Apache Flex SDK](https://flex.apache.org/) | Compiling our own menus' ActionScript into Flash movies | **Apache-2.0**; a build tool, not shipped (the release download carries the movies it built). Adobe's `playerglobal.swc` is never shipped or committed |
 | [Dear-Modding-FO4 — CommonLibF4](https://github.com/Dear-Modding-FO4/commonlibf4) | `F3NVTest.dll`, the automated test runs' control channel | **GPL-3.0**; test-only, never shipped |
-| Bethesda — Fallout 4 Creation Kit | The Fallout 4 script sources converted scripts compile against, unpacked from your install; the fallback for faces our own FaceGen can't make | Bethesda's terms; installed by you from Steam, not redistributed |
+| Bethesda — Fallout 4 Creation Kit | The Fallout 4 script sources converted scripts compile against, unpacked from your install | Bethesda's terms; installed by you from Steam, not redistributed |
 | xNVSE, JIP LN NVSE and FOSE sources; the GECK, Fallout and Fallout 4 Creation Kit wikis; [NifSkope](https://github.com/niftools/nifskope); Neanka's LevelUpMenuEx and HUDFramework | What the old games' functions, records and meshes really do, and how Fallout 4's menus are built | Reference only, not redistributed |
 
 ### Inherited from the Skyrim converter

@@ -152,7 +152,7 @@ class FakeRun:
         self.now = self.start = 1_000_000.0
         self.lines_at, self.files_at, self.exit_at, self.code = list(lines_at), list(files_at), exit_at, code
         self.stdout, self.returncode, self.pid = Feed(), None, 1
-        self.killed = self.ck_closed = 0
+        self.killed = 0
         self.notes, self.out = [], []
 
     def poll(self):
@@ -182,12 +182,8 @@ class FakeRun:
     def hooks(self) -> FC.Hooks:
         """Hooks driving this fake."""
         return FC.Hooks(clock=lambda: self.now, sleep=self.sleep, spawn=lambda argv, env, cwd: self,
-                        newest=self.newest, kill=self.kill, close_ck=self._close_ck,
+                        newest=self.newest, kill=self.kill,
                         notify=lambda title, text: self.notes.append(title), out=self.out.append)
-
-    def _close_ck(self) -> None:
-        """Count a CK close."""
-        self.ck_closed += 1
 
 
 def _runner(tmp_path, fake: FakeRun, fresh=True) -> FC.Runner:
@@ -201,7 +197,7 @@ def test_a_step_that_prints_nothing_is_ended_with_a_named_error(tmp_path):
     fake = FakeRun(files_at=range(0, 10_000, 30))
     step = FC.Step('base', ['py', 'build'], watch=[tmp_path], no_output=600, no_file=600)
     assert _runner(tmp_path, fake).run([step]) == FC.EXIT_STALL
-    assert fake.killed == 1 and fake.ck_closed == 1 and fake.notes == ['F3NV build chain stopped']
+    assert fake.killed == 1 and fake.notes == ['F3NV build chain stopped']
     assert any(line.startswith('===== chain stopped: STALL_NO_OUTPUT: base printed nothing for 10 min')
                for line in fake.out)
     assert json.loads((tmp_path / 'chain' / 'state.json').read_text())['steps']['base']['status'] == 'stalled'
@@ -300,34 +296,6 @@ def test_the_chain_reruns_faces_on_another_base_build(tmp_path, monkeypatch):
     with pytest.raises(FC.ChainError) as stopped:
         FC.faces_check(cfg)
     assert stopped.value.name == FC.FACES_STALE
-
-
-def _nif(data: Path, stem: str) -> None:
-    """A FaceGeom NIF for `stem`."""
-    path = data / facegen.FACEGEN_DIRS[0] / 'p.esp' / f'{stem}.nif'
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(b'nif')
-
-
-def test_a_ck_export_missing_an_npc_fails(tmp_path, monkeypatch):
-    """A CK closed after CK_QUIET mid-export: the NPCs it left without a FaceGeom are named and the stage fails."""
-    monkeypatch.setattr(facegen, 'expected_faces', lambda plugin, data: {'00000800', '00000801', '00000802'})
-    monkeypatch.setattr(facegen, 'collect', lambda plugin, data: [])
-    _nif(tmp_path, '00000800')
-    with pytest.raises(SystemExit, match=r'incomplete: 2 of 3 NPCs have no FaceGeom NIF \(00000801, 00000802\)'):
-        facegen.export('p.esp', tmp_path, ck=False)
-    _nif(tmp_path, '00000801')
-    _nif(tmp_path, '00000802')
-    assert facegen.export('p.esp', tmp_path, ck=False) == 0
-
-
-def test_a_ck_fallback_missing_an_npc_fails_the_stage(tmp_path, monkeypatch):
-    """The fallback expects only the failed NPCs; one it leaves without a head is a FALLBACK_FAILED line."""
-    monkeypatch.setattr(facegen, 'expected_faces', lambda plugin, data: {'00000800', '00000801'})
-    monkeypatch.setattr(facegen, 'run_ck', lambda plugin, data: None)
-    monkeypatch.setattr(facegen, 'collect', lambda plugin, data, only: [])
-    lines = facegen.fallback('p.esp', tmp_path, {0x801: 'ValueError: x'})
-    assert lines[0].startswith(facegen.FALLBACK_FAILED) and '00000801' in lines[0]
 
 
 def test_a_build_flipping_an_unrelated_plugin_stops_the_run(tmp_path, monkeypatch, capsys):
@@ -435,7 +403,6 @@ def test_the_chain_keeps_the_scratch_chains_order(tmp_path, monkeypatch):
     cfg = _config(tmp_path)
     for mod, name in (('F3NV - Dead Money', 'DeadMoney.esm'), ('F3NV - The Frontier', 'TheFrontier.esm')):
         _built(cfg.nv.parent / mod / name, 'one')
-    monkeypatch.setattr(FC, '_ck_output', lambda: [])
     args = argparse.Namespace(profile_stages=FC.PROFILE_STAGES, kit=tmp_path / 'kit.esl', kit_mod=tmp_path / 'kit')
     steps = FC.chain_steps(cfg, args)
     assert [s.name for s in steps] == ['base replay', 'base', 'faces', 'helpers', 'dll', 'plan', 'others',
@@ -446,4 +413,4 @@ def test_the_chain_keeps_the_scratch_chains_order(tmp_path, monkeypatch):
     assert others[-1] == '--run' and str(cfg.nv.parent / 'F3NV - Dead Money' / 'DeadMoney.esm') in others
     assert not any('Frontier' in a for a in others)
     assert steps[0].env['F3NV_PROFILE_STAGES'] == 'worlds,item WEAP'
-    assert '--own-facegen' in steps[1].argv
+    assert str(steps[1].argv[-1]) == FC.BASE

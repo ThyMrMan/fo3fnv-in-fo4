@@ -168,23 +168,20 @@ def test_digest_tells_float_bits_and_ignores_set_order():
     assert V.digest(frozenset(('a', 'b', 'c'))) == V.digest(frozenset(('c', 'b', 'a')))
 
 
-def _elric_stand_in(paths: list, run, names: list) -> list:
-    """Stand in for elric.finish: append b'+' to each staged mesh; none fails."""
-    for path in paths:
-        path.write_bytes(path.read_bytes() + b'+')
-    return []
+def _finish_stand_in(data: bytes) -> tuple:
+    """Stand in for elric_cache.finished: `data` with b'+' appended, covered."""
+    return True, data + b'+'
 
 
 def test_a_finished_mesh_keeps_the_code_that_ran_finishing_it(cache, tmp_path, monkeypatch):
-    """elric_finish's entry keys on Elric's tag and the mesh bytes; its record is what ran finishing (the stand-in),
-    not every function of nif.elric's import tree."""
-    monkeypatch.setattr(EC, 'elric_tag', lambda: b'tag')
-    monkeypatch.setattr(EC.elric, 'finish', _elric_stand_in)
+    """elric_finish's entry keys on the mesh bytes; its record is what ran finishing (the stand-in), not every
+    function of nif.hknp_write's import tree."""
+    monkeypatch.setattr(EC, 'finished', _finish_stand_in)
     mesh = tmp_path / 'a.nif'
     mesh.write_bytes(b'a')
     assert EC.finish([mesh]) == [] and mesh.read_bytes() == b'a+'
-    record = _record_of(cache, 'elric_finish', (b'tag', hashlib.sha1(b'a').digest()))
-    assert HERE + '_elric_stand_in' in record and not any(k.startswith('fo4_import/base/') for k in record)
+    record = _record_of(cache, 'elric_finish', (hashlib.sha1(b'a').digest(),))
+    assert HERE + '_finish_stand_in' in record and not any(k.startswith('fo4_import/base/') for k in record)
 
 
 def _put(path, text: str = 'x') -> None:

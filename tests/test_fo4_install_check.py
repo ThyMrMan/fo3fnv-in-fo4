@@ -121,10 +121,7 @@ def test_enabled_xdi_conflicts(machine):
 
 
 def test_mo2_problems(machine):
-    """No instance or profile is MISSING; a lost Creation Kit executable only RECOMMENDED."""
-    ini = machine.mo2 / 'ModOrganizer.ini'
-    ini.write_text(ini.read_text().replace('Creation Kit', 'CK'), encoding='utf-8')
-    assert status(machine, 'MO2 "Creation Kit" executable') == 'RECOMMENDED'
+    """No instance or profile is MISSING."""
     assert status(IC.Machine(**{**machine.__dict__, 'profile': 'Nope'}), 'MO2 profile') == 'MISSING'
     assert status(IC.Machine(**{**machine.__dict__, 'mo2': machine.work / 'none'}), 'Mod Organizer 2') == 'MISSING'
 

@@ -363,8 +363,8 @@ passes `--light` ([the policy](research/fo4_light_plugins.md#policy)).
   |---|---|---|
   | Caprica (`external/caprica/Caprica.exe`, ours) | Build: every converted script | run directly, not under Wine (`base/caprica.py`): off Windows no script compiles |
   | FO4 Papyrus compiler (Creation Kit) | Build: the scripts Caprica fails on | those scripts stay uncompiled (`papyrus.compile_folder` returns nothing) |
-  | Elric (Creation Kit) | Build: meshes our physics writer (`hknp_write`) doesn't cover; 0 in the 2026-11-21 FalloutNV.esm build ([audit](../audits/fo4_redo_audit_2026-11-23.md#elric)) | those meshes have no collision (`elric._run` finishes none) |
-  | Creation Kit FaceGen | Faces: NPCs our own FaceGen fails on | those NPCs have no FaceGen |
+  | Elric (Creation Kit) | no longer used (2026-11-24): our physics writer finishes every mesh; one it does not cover has no collision ([seam](fo4_hknp_writer.md#seam)) | — |
+  | Creation Kit FaceGen | no longer used (2026-11-24): an NPC our own FaceGen fails on has no FaceGen ([own stage](fo4_facegen_plan.md#own-stage)) | — |
   | `xwma_enc.exe` (ours, `native/src/xwma`, shipped) | Build: every voice and sound file (`voice.convert` through `audio_converter.convert_file_to_xwm`); no Linux build yet, and `convert_file_to_xwm` would hand a native one Wine paths | no voice or sound files |
   | LipGenerator (Creation Kit) | Build: a voice line with no FNV `.lip`, when installed | the lip comes from the recording's loudness (`voice.loudness_lip`) |
   | `LODGenx64.exe` (bundled) | Build: object LOD, under Wine off Windows | no object LOD |

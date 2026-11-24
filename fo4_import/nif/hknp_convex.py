@@ -368,18 +368,35 @@ def _surface(points: np.ndarray) -> Mass:
     return Mass(area, com, inertia, frame, False)
 
 
+def point_mass(center, radius: float) -> Mass:
+    """A sphere's mass: `radius` at `center`, density 1, inertia × INERTIA_SCALE."""
+    volume = 4 / 3 * math.pi * radius ** 3
+    return Mass(volume, np.array(center, float), np.full(3, INERTIA_SCALE * 2 / 5 * radius * radius * volume),
+                (0.0, 0.0, 0.0, 1.0))
+
+
+def box_mass(points: np.ndarray) -> Mass:
+    """The mass of `points`' axis-aligned box, density 1, inertia × INERTIA_SCALE."""
+    return mass_properties(points, _box(points), 0.0)
+
+
 def flat(name: str, points: np.ndarray, radius: float, material: int) -> tuple:
     """([shape, its properties, its mass properties], Mass) as Elric writes a convex shape whose points are
-    planar on Havok's grid: an hknpConvexShape of the points as they are, the mass of their surface.
+    planar on Havok's grid: an hknpConvexShape of the points as they are, the mass of their surface (of
+    point_mass when they are one point, weighing its volume).
 
     See: docs/fork/fo4_hknp_writer.md#flat
     """
     points = np.asarray(points, float)
-    mass = _surface(points)
-    mass.volume *= radius
+    if (points == points[0]).all():
+        mass = point_mass(points[0], radius)
+        weight = mass.volume
+    else:
+        mass, weight = _surface(points), FLAT_WEIGHT
+        mass.volume *= radius
     cl = classes()
     data = _vertices(points)
     offset = cl.size(FLAT_CLASS) - {m.name: m.offset for m in cl.members(FLAT_CLASS)}['vertices']
     shape = {'flags': FLAT_FLAGS, 'numShapeKeyBits': 0, 'dispatchType': DISPATCH_CONVEX, 'convexRadius': radius,
              'userData': material, 'properties': None, 'vertices': (len(data) // 16, offset), '__tail__': data}
-    return _objects(name, FLAT_CLASS, shape, mass, FLAT_WEIGHT), mass
+    return _objects(name, FLAT_CLASS, shape, mass, weight), mass

@@ -7,7 +7,7 @@ twice, once with its own material and once with the blood material, which
 the game fades in as the weapon gets bloody. Both games hold the weapon with
 its grip at the origin and its length along +Y, so FNV's geometry stays as
 it is. No attach points are added: a converted weapon takes no FO4 mods.
-Run after Elric (elric.finish), which replaces the Havok input with FO4
+Run after elric_cache.finish, which replaces the Havok input with FO4
 physics (elric.without_havok keeps the blocks after that input and renumbers
 the references to them).
 FNV moves a weapon's own parts while it is held (the switchblade's blade

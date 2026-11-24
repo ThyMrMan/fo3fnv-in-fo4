@@ -83,23 +83,6 @@ def test_a_cached_mesh_is_converted_once_per_key(tmp_path, monkeypatch):
     assert len(calls) == 2
 
 
-def test_elric_runs_only_on_uncached_meshes_and_remembers_a_crash(tmp_path, monkeypatch):
-    """A cached mesh skips Elric; a mesh Elric crashed on stays without output and is not run again."""
-    runs = []
-
-    def fake(sources):
-        """Elric that crashes on 'bad'."""
-        runs.append(sorted(sources))
-        return {n: d + b'!' for n, d in sources.items() if d != b'bad'}
-    monkeypatch.setattr(EC, 'CACHE', tmp_path)
-    monkeypatch.setattr(EC, 'elric_tag', lambda: b'tag')
-    monkeypatch.setattr(EC.elric, 'process', fake)
-    monkeypatch.setattr(EC, 'ours', lambda data: None)
-    assert EC.process({'a': b'one', 'b': b'bad'}) == {'a': b'one!'}
-    assert EC.process({'c': b'one', 'd': b'bad', 'e': b'two'}) == {'c': b'one!', 'e': b'two!'}
-    assert runs == [['a', 'b'], ['e']]
-
-
 def test_cached_work_runs_once_per_input_and_keeps_a_none(tmp_path, monkeypatch):
     """Same inputs come from the cache (even a None value); other inputs run the work again."""
     calls = []
@@ -117,16 +100,12 @@ def test_a_finished_mesh_is_written_back_from_the_cache_with_its_failure(tmp_pat
     its failed flag back."""
     runs = []
 
-    def fake(paths, run, names):
-        """Stand in for elric.finish: append b'+' to each mesh; 'b' fails."""
-        runs.append(sorted(p.read_bytes() for p in paths))
-        failed = [p for p in paths if p.read_bytes() == b'b']
-        for p in paths:
-            p.write_bytes(p.read_bytes() + b'+')
-        return failed
+    def fake(data):
+        """Stand in for elric_cache.finished: append b'+'; 'b' is not covered."""
+        runs.append([data])
+        return data != b'b', data + b'+'
     monkeypatch.setattr(WC, 'CACHE', tmp_path / 'cache')
-    monkeypatch.setattr(EC, 'elric_tag', lambda: b'tag')
-    monkeypatch.setattr(EC.elric, 'finish', fake)
+    monkeypatch.setattr(EC, 'finished', fake)
     paths = [tmp_path / 'a.nif', tmp_path / 'b.nif']
     for _ in range(2):
         for p in paths:
@@ -140,8 +119,7 @@ def test_a_mesh_a_master_finished_alike_is_left_out_and_its_mark_recorded(tmp_pa
     """finish() records each finished mesh's mark; a later build leaves out (deletes, does not write) one whose
     master gives the same mark, keeps its failed flag, and writes one whose mark differs."""
     monkeypatch.setattr(WC, 'CACHE', tmp_path / 'cache')
-    monkeypatch.setattr(EC, 'elric_tag', lambda: b'tag')
-    monkeypatch.setattr(EC.elric, 'finish', lambda paths, run, names: [p for p in paths if p.read_bytes() == b'b'])
+    monkeypatch.setattr(EC, 'finished', lambda data: (data != b'b', data))
     monkeypatch.setattr(EC, 'MARKS', {})
     monkeypatch.setattr(EC, 'LEFT', {})
     paths = [tmp_path / 'a.nif', tmp_path / 'b.nif', tmp_path / 'c.nif']

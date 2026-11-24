@@ -1,17 +1,11 @@
-"""elric.process() through an on-disk cache: Elric runs only on the NIFs it has not done; finish() also keeps
-each finished NIF, so a NIF seen before is not read, grafted and written again.
+"""Each mesh's pre-Elric Havok input finished by our physics writer (nif/hknp_write.py) through the work cache;
+finish() keeps each finished NIF, so a NIF seen before is not read, finished and written again.
 
-An entry is Elric's output for one pre-Elric NIF, keyed by that NIF's bytes
-and a tag over Elric's own files (its exe, DLLs and settings); a NIF Elric
-crashes on alone is kept as an empty entry. Elric writes a few uninitialised
-bytes into its physics, so two fresh runs differ; a cached entry makes every
-rebuild after the first byte for byte the same. Elric runs as one instance:
-four at once never finished (no CPU after nine minutes). A NIF with Havok
-input is held in memory (hold()) rather than written, since FO4 cannot load
-it; finish() writes only the finished NIF, and only when its bytes changed,
-so a game running beside the build never loads a half-made mesh. A NIF our
-own physics writer covers (nif/hknp_write.py: convex, round and mesh bodies) never reaches
-Elric or its cache.
+A NIF with Havok input is held in memory (write_mesh) rather than written,
+since FO4 cannot load it; finish() writes only the finished NIF, and only
+when its bytes changed, so a game running beside the build never loads a
+half-made mesh. A NIF our writer does not cover is written without its
+Havok, so without collision, and counted as failed.
 
 See: docs/fork/fo4_pipeline.md#skeleton
 See: docs/fork/fo4_hknp_writer.md#seam
@@ -21,24 +15,21 @@ import concurrent.futures
 import functools
 import hashlib
 import os
-import tempfile
 import zlib
 from pathlib import Path
 
 from core.build_resources import pool_workers
 from core.process_job import join_pool_job
 from fo4_import.base import touched
-from fo4_import.base.source_fault import FAULTS, SourceFault, count, faulted
+from fo4_import.base.source_fault import faulted
 from fo4_import.nif import elric, hknp_write
 from fo4_import.nif import file as nif_file
 from fo4_import.pipeline import mesh_cache, work_cache
-from fo4_import.pipeline.code_tag import ROOT
 from fo4_import.pipeline.ran_code import ran_alone
 from fo4_import.pipeline.stage_timer import counted
 from fo4_import.pipeline.work_cache import UNUSED_DAYS, prune, store
 from asset_convert import paths as data_paths
 
-CACHE = data_paths.FO4_CACHE / 'elric'
 #: The work-cache site of a finished NIF.
 SITE = 'elric_finish'
 #: Meshes to finish before finished_each spreads them over worker processes, and the memory each worker is given.
@@ -77,21 +68,6 @@ def kept_input(key: str) -> 'bytes | None':
         return zlib.decompress((INPUT_STORE / key[:2] / key).read_bytes())
     except OSError:
         return None
-
-
-@functools.cache
-def elric_tag() -> bytes:
-    """A SHA-1 over Elric's exe, DLLs and settings."""
-    digest = hashlib.sha1()
-    for path in sorted(p for p in elric.ELRIC.rglob('*') if p.suffix.lower() in ('.exe', '.dll', '.esf')):
-        digest.update(path.name.encode() + b'\0' + path.read_bytes())
-    return digest.digest()
-
-
-def entry(data: bytes, cache: 'Path | None' = None) -> Path:
-    """The cache file of one pre-Elric NIF, under `cache` (default: CACHE now)."""
-    key = hashlib.sha1(elric_tag() + data).hexdigest()
-    return (cache or CACHE) / key[:2] / key
 
 
 def write_new(target: Path, data: bytes) -> None:
@@ -160,10 +136,10 @@ def mark(inputs: tuple) -> 'str | None':
 
 
 def finish(paths: list, theirs: 'dict | None' = None) -> list:
-    """elric.finish() through work_cache (a NIF finished before, same bytes, Elric and the code that ran finishing
-    it, comes from the cache) on each path's mesh_bytes(), run on staged copies; each finished NIF written with
-    write_new(), one with a source fault not cached, its [mark(), ok] kept in MARKS. A path `theirs` ({normcased
-    path: [mark, ok]}, a master's) gives the same mark is not written (LEFT). The paths left without collision.
+    """finished() through work_cache (a NIF finished before, same bytes and the code that ran finishing it, comes
+    from the cache) on each path's mesh_bytes(); each finished NIF written with write_new(), one with a source
+    fault not cached, its [mark(), ok] kept in MARKS. A path `theirs` ({normcased path: [mark, ok]}, a master's)
+    gives the same mark is not written (LEFT). The paths left without collision.
     See: docs/fork/fo4_build_speed.md#keys
     See: docs/fork/fo4_build_speed.md#fixed
     """
@@ -171,7 +147,7 @@ def finish(paths: list, theirs: 'dict | None' = None) -> list:
     for path in dict.fromkeys(Path(p) for p in paths):
         data = _HELD.pop(os.path.normcase(str(path)), None) or path.read_bytes()
         INPUTS[str(path)] = keep_input(data)
-        inputs = (elric_tag(), hashlib.sha1(data).digest())
+        inputs = (hashlib.sha1(data).digest(),)
         made = mark(inputs)
         shipped = (theirs or {}).get(os.path.normcase(str(path)))
         if made is None:
@@ -189,30 +165,17 @@ def finish(paths: list, theirs: 'dict | None' = None) -> list:
 
 
 def _run(todo: dict) -> list:
-    """finish()'s work for `todo` ({path: (inputs, pre-Elric bytes)}), none cached: each mesh finished alone
-    (finished_each), then the ones needing a new Elric run in one batch; each result stored (but a source fault's),
-    written and marked; the paths left without collision."""
-    failed, waiting = [], {}
+    """finish()'s work for `todo` ({path: (inputs, pre-Elric bytes)}), none cached: each mesh finished
+    (finished_each), stored (but a source-faulted one), written and marked; the paths left without collision."""
+    failed = []
     each = finished_each({path: data for path, (_, data) in todo.items()})
-    for path, ok, data, ran, faults in counted(each, len(todo), 'meshes'):
-        if ok is None:
-            waiting[path] = todo[path][1]
-        else:
-            failed += _keep(path, todo[path][0], ok, data, ran, faults)
-    for path, ok, data, ran, faults in _batch(waiting):
-        failed += _keep(path, todo[path][0], ok, data, ran, faults)
+    for path, ok, data, ran in counted(each, len(todo), 'meshes'):
+        if not faulted(path):
+            store(SITE, 'fo4_import.nif.hknp_write', todo[path][0], (ok, data), ran)
+            MARKS[os.path.normcase(str(path))] = [mark(todo[path][0]), ok]
+        write_new(path, data)
+        failed += [] if ok else [path]
     return failed
-
-
-def _keep(path: Path, inputs: tuple, ok: bool, data: bytes, ran: dict, faults: list) -> list:
-    """Count `faults`, store and mark mesh `path`'s finished `data` (not after a fault), write it; [path] if not ok."""
-    for fault in faults:
-        count(SourceFault(*fault))
-    if not faulted(path):
-        store(SITE, 'fo4_import.nif.elric', inputs, (ok, data), ran)
-        MARKS[os.path.normcase(str(path))] = [mark(inputs), ok]
-    write_new(path, data)
-    return [] if ok else [path]
 
 
 def finished_each(meshes: dict):
@@ -228,81 +191,24 @@ def finished_each(meshes: dict):
 
 
 def finish_one(job: tuple) -> tuple:
-    """(path, ok, finished bytes, code record, faults met) of `job` = (path, pre-Elric bytes) through elric.finish
-    with no new Elric run (cached_process); ok None when it needs one (NeedsElric).
+    """(path, ok, finished bytes, code record) of `job` = (path, pre-Elric bytes) through finished().
     See: docs/fork/fo4_build_speed.md#collision-pool
     """
     path, data = job
-    before = set(FAULTS)
-    with tempfile.TemporaryDirectory() as tmp:
-        staged = Path(tmp) / 'mesh.nif'
-        staged.write_bytes(data)
-        try:
-            failed, ran = ran_alone(functools.partial(elric.finish, [staged], cached_process, [path]))
-        except NeedsElric:
-            return path, None, b'', {}, []
-        return path, not failed, staged.read_bytes(), ran, [f for f in FAULTS if f not in before]
+    (ok, out), ran = ran_alone(functools.partial(finished, data))
+    return path, ok, out, ran
 
 
-def _batch(meshes: dict) -> list:
-    """[(path, ok, finished bytes, code record, faults met)] of `meshes` ({path: pre-Elric bytes}) through one
-    elric.finish on staged copies, Elric run once for them all."""
-    if not meshes:
-        return []
-    before = set(FAULTS)
-    with tempfile.TemporaryDirectory() as tmp:
-        staged = {path: Path(tmp) / f'{i:05d}.nif' for i, path in enumerate(meshes)}
-        for path, data in meshes.items():
-            staged[path].write_bytes(data)
-        failed, ran = ran_alone(functools.partial(elric.finish, list(staged.values()), process, list(meshes)))
-        faults = [f for f in FAULTS if f not in before]
-        return [(path, staged[path] not in failed, staged[path].read_bytes(), ran, faults) for path in meshes]
-
-
-class NeedsElric(Exception):
-    """A mesh neither our writer nor Elric's cache finishes: it waits for _batch's Elric run."""
-
-
-def _needs_elric(sources: dict) -> dict:
-    """Stand in for elric.process in a worker: NeedsElric."""
-    raise NeedsElric(sorted(sources))
-
-
-def cached_process(sources: dict) -> dict:
-    """process() running no Elric: NeedsElric for a mesh only a new run finishes."""
-    return process(sources, _needs_elric)
-
-
-def ours(data: bytes) -> 'bytes | None':
-    """NIF `data` finished by our physics writer; None where it does not cover it.
-    See: docs/fork/fo4_hknp_writer.md#seam
-    """
-    made = hknp_write.finish(nif_file.read(data))
-    return None if made is None else nif_file.write(made)
-
-
-def process(sources: dict, run=None) -> dict:
-    """Each pre-Elric NIF finished by name: by ours() where it covers it, else `run` (default elric.process),
-    cached (module notes); a NIF Elric crashes on is left out."""
-    done, todo = {}, {}
-    for name, data in sources.items():
-        done[name] = ours(data)
-        if done[name] is not None:
-            continue
-        cached = entry(data)
-        if cached.exists():
-            done[name] = cached.read_bytes()
-            os.utime(cached)
-        else:
-            todo[name] = data
-    done.update((run or elric.process)(todo) if todo else {})
-    for name in todo:
-        cached = entry(todo[name])
-        cached.parent.mkdir(parents=True, exist_ok=True)
-        cached.write_bytes(done[name] or b'')
-    return {name: out for name, out in done.items() if out}
+def finished(data: bytes) -> tuple:
+    """(covered, NIF `data` with our physics for its Havok input, or without that input where our writer does not
+    cover it); `data` itself when it has none."""
+    nif = nif_file.read(data)
+    if elric.havok_start(nif) is None:
+        return True, data
+    made = hknp_write.finish(nif)
+    return made is not None, nif_file.write(made if made is not None else elric.without_havok(nif_file.read(data)))
 
 
 def prune_caches(days: int = UNUSED_DAYS) -> int:
-    """Delete the mesh, work, Elric and pre-Elric entries unused `days` days; how many."""
-    return prune((mesh_cache.CACHE, work_cache.CACHE, CACHE, INPUT_STORE), days)
+    """Delete the mesh, work and pre-Elric entries unused `days` days; how many."""
+    return prune((mesh_cache.CACHE, work_cache.CACHE, INPUT_STORE), days)

@@ -6,6 +6,7 @@ See: docs/fork/fo4_hknp_writer.md#mesh
 import struct
 
 import numpy as np
+import pytest
 
 from fo4_import.havok import packfile, packfile_write
 from fo4_import.nif import file as nif_file
@@ -128,8 +129,9 @@ def test_a_coded_box_holds_the_box_it_codes():
         assert (dlo <= lo).all() and (dhi >= hi).all()
 
 
-def _mesh_nif(motion: int, mass: float) -> NifFile:
-    """A pre-Elric NIF: a root node owning one body of `motion` and `mass` on a two-strip square mesh."""
+def _mesh_nif(motion: int, mass: float, lift: float = 0.0) -> NifFile:
+    """A pre-Elric NIF: a root node owning one body of `motion` and `mass` on a two-strip square mesh, its third
+    corner raised `lift`."""
     nif = NifFile()
     root = {'name': nif.string('Root'), 'extra': [], 'controller': NONE, 'flags': 0, 'translation': (0.0,) * 3,
             'rotation': IDENTITY, 'scale': 1.0, 'collision': 1, 'children': []}
@@ -137,7 +139,7 @@ def _mesh_nif(motion: int, mass: float) -> NifFile:
     struct.pack_into('<i', body, 0, 3)
     struct.pack_into('<f', body, MASS, mass)
     body[MOTION] = motion
-    square = [(0.0, 0.0, 0.0), (70.0, 0.0, 0.0), (70.0, 70.0, 0.0), (0.0, 70.0, 0.0)]
+    square = [(0.0, 0.0, 0.0), (70.0, 0.0, 0.0), (70.0, 70.0, lift), (0.0, 70.0, 0.0)]
     shape = struct.pack('<If20xI4fI', CRCS[0], 0.01, 1, 1.0, 1.0, 1.0, 0.0, 2)
     shape += struct.pack('<2iI', 4, 5, 2) + struct.pack('<2I', *FILTERS)
     nif.blocks = [('NiNode', root), ('bhkCollisionObject', struct.pack('<iHi', 0, 0, 2)),
@@ -147,8 +149,8 @@ def _mesh_nif(motion: int, mass: float) -> NifFile:
     return nif_file.read(nif_file.write(nif))
 
 
-def test_a_fixed_mesh_body_gets_a_compressed_mesh_and_a_dynamic_one_goes_to_elric():
-    """Our strips read back as Havok-unit triangles, one strip each; a body with a full motion is not covered."""
+def test_a_fixed_mesh_body_gets_a_compressed_mesh_and_a_flat_one_that_moves_is_not_covered():
+    """Our strips read back as Havok-unit triangles, one strip each; a flat mesh on a moving body has no box mass."""
     block, owners = hknp_write.physics(_mesh_nif(hknp_write.FIXED, 0.0))
     classes = {o['class']: o['fields'] for o in packfile.read(block[4:]).objects}
     tris, materials = hknp_mesh.triangles(classes['hknpCompressedMeshShapeData']['meshTree'])
@@ -156,3 +158,17 @@ def test_a_fixed_mesh_body_gets_a_compressed_mesh_and_a_dynamic_one_goes_to_elri
     assert np.allclose(tris.reshape(-1, 3).max(0), [70 / hknp_mesh.GAME_PER_HAVOK] * 2 + [0.0], atol=1e-6)
     assert classes['hknpCompressedMeshShape']['userData'] == CRCS[0]
     assert hknp_write.physics(_mesh_nif(3, 5.0)) is None
+
+
+def test_a_mesh_on_a_moving_body_moves_with_the_mass_of_its_box():
+    """A dynamic mesh body: the compressed mesh, no mass properties on it, and a motion with its triangles' box mass.
+
+    See: docs/fork/fo4_hknp_writer.md#moving-mesh
+    """
+    block, _ = hknp_write.physics(_mesh_nif(3, 5.0, 70.0))
+    classes = {o['class']: o['fields'] for o in packfile.read(block[4:]).objects}
+    side = 70 / hknp_mesh.GAME_PER_HAVOK
+    motion = classes['hknpPhysicsSystemData']['motionCinfos'][0]
+    assert 'hknpShapeMassProperties' not in classes
+    assert motion['massFactor'] == pytest.approx(5 / side ** 3, rel=1e-5)
+    assert motion['centerOfMassWorld'][:3] == pytest.approx((side / 2,) * 3, rel=1e-5)

@@ -160,7 +160,7 @@ def _made(logs: list, records: list, dirs: list, plugin: Path, vanilla, copies: 
 
 
 def _finished(builder, data_dir: Path) -> tuple:
-    """([every written mesh], [those nothing changes or reads after Elric: not weapons (dressed) or object LOD])."""
+    """([every written mesh], [those nothing changes or reads after their physics: not weapons (dressed) or object LOD])."""
     paths = [data_dir / 'Meshes' / model for model, _ in builder.meshes.values()]
     later = {data_dir / 'Meshes' / m for m in builder.weapons}
     later |= {data_dir / 'Meshes' / made[0] for key, made in builder.meshes.items() if key.endswith('#lod')}
@@ -174,7 +174,7 @@ def _collision(builder, data_dir: Path) -> None:
     paths, alone = _finished(builder, data_dir)
     builder.finished_alike = master_copies.theirs(builder, alone)
     failed = finish_meshes(data_dir, paths, builder.finished_alike, sorted(builder.weapons))
-    builder.counts['meshes without collision (Elric failed)'] = len(failed)
+    builder.counts['meshes without collision (our writer does not cover them)'] = len(failed)
     builder.counts["meshes left to the master's archive (finished alike)"] = len(elric_cache.LEFT)
     builder.counts['mesh vertices with a UV clamped to the half-float range'] = sum(mesh_cache.CLAMPED.values())
     builder.counts['weapon meshes'] = len(builder.weapons)
@@ -191,7 +191,7 @@ def finish_meshes(data_dir: Path, paths: list, theirs: dict, weapons: list) -> l
 
 @timed('object LOD', MESHES)
 def _object_lod(builder, export_dir: Path, data_dir: Path) -> None:
-    """Built worldspaces' object LOD (after Elric, before the texture BA2)."""
+    """Built worldspaces' object LOD (after mesh physics, before the texture BA2)."""
     builder.counts.update(object_lod.bake_all(export_dir, data_dir, builder.object_lod.worlds,
                                               master_copies.master_dirs(builder)))
 

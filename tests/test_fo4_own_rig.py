@@ -519,10 +519,10 @@ def test_set_securitron_expression_equips_that_faces_screen_armor(monkeypatch):
 RAT = EXPORT_MESHES / 'creatures' / 'nvgiantrat' / 'skeleton.nif'
 
 
-@pytest.mark.skipif(not RAT.exists() or not assets.elric.ELRIC.exists(), reason='needs the FalloutNV.esm export and Elric')
+@pytest.mark.skipif(not RAT.exists(), reason='needs the FalloutNV.esm export')
 @pytest.mark.parametrize('folder', ['nvgiantrat', 'centaur', 'nvcazadores'])
-def test_an_elric_skeleton_comes_out_byte_identical_its_ragdoll_in_node_order(tmp_path, folder):
-    """Elric numbers ragdoll bodies differently each run; in_node_order makes two runs' skeleton.nif identical,
+def test_a_skeleton_comes_out_byte_identical_its_ragdoll_in_node_order(tmp_path, folder):
+    """Two runs' skeleton.nif are identical (in_node_order, from when Elric numbered ragdoll bodies at random),
     bodies in node order: capsules (rat), a sphere shape (centaur), constraints sharing one motor through fixed
     arrays (cazador)."""
     skeleton = EXPORT_MESHES / 'creatures' / folder / 'skeleton.nif'

@@ -6,7 +6,7 @@
 Each argument is an FNV mesh or folder (a path, or one under the export's
 meshes/), converted as the build converts it; with --pre-elric, a pre-Elric
 NIF read as it is. A pair is that pre-Elric NIF and Elric's output for it
-from the Elric cache (`--cache`, default the build's), so Elric never runs.
+from the Elric cache the build kept while it ran Elric (`--cache`), so Elric never runs.
 Both physics systems are walked from their root, pointers followed, so
 object names and order do not matter; a convex shape's hull is compared as
 a set of corners and faces matched by normal, packed mass properties
@@ -21,6 +21,8 @@ See: docs/fork/fo4_hknp_writer.md#check
 """
 
 import argparse
+import functools
+import hashlib
 import json
 import os
 import re
@@ -34,11 +36,12 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial import cKDTree
 
+from asset_convert import paths as data_paths
+from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.havok import packfile
 from fo4_import.nif import file as nif_file
 from fo4_import.nif import hknp_mesh, hknp_write
 from fo4_import.nif.elric import havok_start
-from fo4_import.pipeline import elric_cache
 from fo4_import.pipeline.mesh_cache import cached_files
 
 #: Relative-array members of a convex polytope: (element size, struct format of one element).
@@ -56,6 +59,8 @@ LEAVES = frozenset({'points', 'triangles'})
 #: A system's root classes, and each system block's path prefix in a comparison.
 ROOTS = frozenset({'hknpPhysicsSystemData', 'hknpRagdollData'})
 SYSTEMS = {'bhkPhysicsSystem': '', 'bhkRagdollSystem': 'ragdoll.'}
+#: Elric's folder, and the cache of its output the build kept while it ran Elric.
+ELRIC, ELRIC_CACHE = FALLOUT4_DIR / 'Tools' / 'Elric', data_paths.FO4_CACHE / 'elric'
 
 
 # ---------------------------------------------------------------------------
@@ -335,6 +340,21 @@ def pre_elric(path: Path, export_dir: 'Path | None') -> 'bytes | None':
     return None if havok_start(nif) is None else nif_file.write(nif)
 
 
+@functools.cache
+def elric_tag() -> bytes:
+    """A SHA-1 over Elric's exe, DLLs and settings, as the build keyed the Elric cache."""
+    digest = hashlib.sha1()
+    for path in sorted(p for p in ELRIC.rglob('*') if p.suffix.lower() in ('.exe', '.dll', '.esf')):
+        digest.update(path.name.encode() + b'\0' + path.read_bytes())
+    return digest.digest()
+
+
+def elric_entry(data: bytes, cache: Path) -> Path:
+    """The Elric cache file of pre-Elric NIF `data` under `cache`."""
+    key = hashlib.sha1(elric_tag() + data).hexdigest()
+    return cache / key[:2] / key
+
+
 def _job(path: str, export_dir: 'str | None', cache: str, tolerance: float) -> tuple:
     """(path, status, differences) of one mesh: 'no havok', 'not cached', 'elric failed', 'not covered',
     'error: ...', or 'compared' with its differences."""
@@ -342,7 +362,7 @@ def _job(path: str, export_dir: 'str | None', cache: str, tolerance: float) -> t
         source = pre_elric(Path(path), export_dir and Path(export_dir))
         if source is None:
             return path, 'no havok', {}
-        entry = elric_cache.entry(source, Path(cache))
+        entry = elric_entry(source, Path(cache))
         if not entry.is_file():
             return path, 'not cached', {}
         elric_out = entry.read_bytes()
@@ -413,7 +433,7 @@ def _arguments(argv) -> argparse.Namespace:
     parser.add_argument('paths', nargs='+')
     parser.add_argument('--export', type=Path, help='the FNV export (needed unless --pre-elric)')
     parser.add_argument('--pre-elric', action='store_true', help='the paths are pre-Elric NIFs')
-    parser.add_argument('--cache', type=Path, default=elric_cache.CACHE)
+    parser.add_argument('--cache', type=Path, default=ELRIC_CACHE)
     parser.add_argument('--max', type=int, default=0)
     parser.add_argument('--workers', type=int, default=max(1, min(4, (os.cpu_count() or 2) - 1)))
     parser.add_argument('--tolerance', type=float, default=1e-4)
