@@ -30,8 +30,8 @@ from tes5_import.base.tes5_reader import subrecords, walk
 
 #: How every FaceGen test plugin's description starts, so the stage reads past them.
 TEST_DESCRIPTION = 'FaceGen test'
-#: Bytes one worker holds at most (Sources peaks at 1.84 GB). See #own-stage-speed.
-WORKER_BYTES = 2 << 30
+#: Bytes one worker holds at most (the skin step peaks at 1.13 GB). See docs/fork/fo4_facegen_plan.md#worker-memory.
+WORKER_BYTES = 1280 << 20
 #: FO4 ACBS flag Female.
 FEMALE = 0x1
 #: A worker process's shared inputs (_start).

@@ -37,6 +37,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from core.subprocess_flags import configure_multiprocessing
 from fo4_import.base.ba2_pack import (archived, drop_packed, pack_main, pack_textures, restore_packed, stashed,
                                       staging_root)
 from fo4_import.base.install import FALLOUT4_ESM, masters_of
@@ -458,8 +459,11 @@ def overrides(args, data_dir: Path, export_dir: Path) -> bool:
 
 
 def main():
-    """Export, refine, export again, skin and pack; print what was done. The faces stamp records the plugin build
-    this ran on (faces_stale); exit 2 when a CK fallback left NPCs without FaceGen."""
+    """Export, refine, export again, skin and pack, in workers on one BLAS thread each (configure_multiprocessing);
+    print what was done. The faces stamp records the plugin build this ran on (faces_stale); exit 2 when a CK
+    fallback left NPCs without FaceGen.
+    See: docs/commentary/performance.md#blas-threads-commit
+    """
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--export', required=True, help='FalloutNV.esm export folder')
     ap.add_argument('--data', required=True, help='The mod folder holding the plugin')
@@ -473,6 +477,7 @@ def main():
                     help="Only give the faces this plugin overrides its master's values again (a master's ran since)")
     ap.add_argument('plugin', help='Plugin file name')
     args = ap.parse_args()
+    configure_multiprocessing()
     data_dir, export_dir = Path(args.data), Path(args.export)
     plugin_path, argv = data_dir / args.plugin, [a for a in sys.argv[1:] if a != OVERRIDES_ONLY]
     if not args.overrides_only:

@@ -1740,6 +1740,49 @@ NPC's skin in the work cache (site `face_skin`):
   face sets' `_s`, the rear head texture, the FaceGeom NIF) and the skin
   tone the plugin patch takes.
 
+#### <a id="worker-memory"></a>Face workers' memory (2026-11-24)
+
+On the laptop (Ryzen 7 6800HS, 16 threads, 16 GB) the app's FalloutNV.esm
+faces stage took 3,060 s: heads 840 s for 746 faces, skin 1,907 s for 679,
+nothing from the work cache. Its pool had 3 workers. A face worker was
+budgeted 2 GB (`facegen_skin.WORKER_BYTES`, from the 1.84 GB measured above).
+
+Where a worker's memory went (private bytes, this desktop, 24 threads):
+
+- **1,029 MB just importing the face code.** numpy's and scipy's OpenBLAS
+  each reserve buffers per CPU thread
+  ([BLAS threads](../commentary/performance.md#blas-threads-commit)).
+  `configure_multiprocessing()` sets one BLAS thread for the build's
+  workers, but the faces stage is its own process (`-m
+  fo4_import.spike.facegen`) and never called it, so it ran with one only
+  when its parent (`build_plan`) had set it; the app's launch did not. With
+  one thread: 65 MB. Outputs are byte-identical (6 faces skinned both ways,
+  168 files).
+- **530 MB of archive index** (`Sources`): every BA2 entry of the game and
+  the profile's mods, 1.1 million, 667k of them `sound\`. A face reads only
+  `meshes`, `textures` and `materials` (`facegeom.FACE_FOLDERS`), so the
+  index keeps only those: 605 → 323 MB after the worker starts.
+Each pooled step on 39 FO3 faces, 6 workers, every worker on an empty work
+cache, largest worker's private bytes:
+
+| Step | Before | After | Time before → after |
+|---|---|---|---|
+| heads | 1,935 MB | 660 MB | 12.6 → 12.0 s |
+| refit | 1,935 MB | 688 MB | 6.5 → 5.8 s |
+| skin | 2,386 MB | 1,155 MB | 26.0 → 25.0 s |
+
+All six skin workers together: 13,973 → 6,516 MB. Skin sets the size, so
+`WORKER_BYTES` is 1.25 GB, about the headroom the old 2 GB had over its
+1.84 GB: the laptop's pool goes from 3 workers to about 5 at the same
+memory budget.
+
+Measure skin memory on fresh heads (`facegen_own.export_own` first), never
+on FaceGeoms taken out of a built archive. The skin step rewrites the NIF
+with its rear head's UVs moved into the cut (`npc_skin.rear_head`), so
+skinning a skinned head cuts nearly the whole 2048² race skin instead of
+its ~400-texel island and adds about 900 MB a face that a build never
+spends.
+
 #### <a id="addon-faces"></a>Faces for the DLC and mods (2026-11-21)
 
 The chain ran the faces stage for `FalloutNV.esm` only, so every DLC, pack

@@ -29,6 +29,8 @@ from tes5_import.base.tes5_reader import masters, subrecords, walk
 
 #: Record types a FaceGeom draws on.
 SIGS = (b'NPC_', b'RACE', b'HDPT', b'TXST', b'CLFM', b'ARMO', b'ARMA')
+#: The Data folders a face reads (Sources.read, tri_morphs, material): the only archive entries Sources indexes.
+FACE_FOLDERS = ('meshes', 'textures', 'materials')
 #: HDPT DATA flags: an extra part (drawn only through its parent's HNAM); its textures are the body's.
 EXTRA_PART, USES_BODY_TEXTURE = 0x08, 0x20
 #: ACBS flags bit Female.
@@ -104,9 +106,9 @@ class Sources:
         from `dirs`' loose folders and BA2s (first wins), then the game's archives."""
         self.dirs = [Path(d) for d in dirs]
         self.records, self.masters, self.seen, self.tris = {}, {}, set(), {}
-        self.archives = Archives(FALLOUT4_DIR / 'Data')
+        self.archives = Archives(FALLOUT4_DIR / 'Data', folders=FACE_FOLDERS)
         for d in reversed(self.dirs):
-            self.archives.by_name.update(Archives(d, '*.ba2').by_name)
+            self.archives.by_name.update(Archives(d, '*.ba2', FACE_FOLDERS).by_name)
         for name in [*load_order, Path(plugin).name]:
             if name.lower() not in self.masters:
                 self._load(self._find(name) if name in load_order else Path(plugin))
