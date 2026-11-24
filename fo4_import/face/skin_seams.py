@@ -14,7 +14,8 @@ from scipy.spatial import cKDTree
 
 from fo4_import.face.bake import NECK_BLEND, point_tree
 from fo4_import.face.skin_tint import tint_for, tinted, untinted
-from fo4_import.face.texture import bilinear, face_colours, fnv_ratios, per_texel, shared_texel_points, texel_map
+from fo4_import.face.texture import (bilinear, face_colours, fnv_ratios, fnv_turns, per_texel, shared_texel_points,
+                                     slopes, texel_map, tilted)
 
 #: A face texel counts as neck (where its untinted diffuse sets the skin tint) from this neck mask value up.
 NECK_TEXEL = 0.5
@@ -96,4 +97,22 @@ def shine_texture(own: np.ndarray, part: tuple, frame, fnv, shine: np.ndarray, s
     weight = neck_weight(where, seam)
     out = own.astype(float)
     out[rows, cols, :3] = bilinear(shine, fnv_uv) * (1 - weight) + out[rows, cols, :3] * weight
+    return _repadded(out, edge)
+
+
+def relief_texture(own: np.ndarray, face: tuple, fnv, relief: np.ndarray, seam: cKDTree) -> np.ndarray:
+    """Face normal map `own` (RGBA, red and green; blue rebuilt) with FNV's race relief `relief`
+    (fnv_npc.fnv_relief) added to its height slopes on the face `face` = (points, UVs, triangles), turned into
+    FO4's tangent frames (fnv_turns), faded out over NECK_BLEND above the neck `seam`.
+    See: docs/fork/fo4_facegen_plan.md#race-relief
+    """
+    fnv_mesh = (fnv.mean, fnv.triangles, fnv.uvs)
+    rows, cols, fnv_uv, edge = texel_map(face, fnv_mesh, own.shape[:2])
+    _, _, where = shared_texel_points(*face, own.shape[0])
+    turned = np.einsum('nij,nj->ni', fnv_turns(face, fnv_mesh, own.shape[0]), bilinear(relief, fnv_uv))
+    out = own.astype(float)
+    xy = out[rows, cols, :2] / 127.5 - 1.0
+    normal = np.concatenate([xy, np.sqrt(np.clip(1.0 - (xy ** 2).sum(1, keepdims=True), 0.0, 1.0))], 1)
+    added = slopes(normal) + turned * (1 - neck_weight(where, seam))
+    out[rows, cols, :2] = (tilted(added) + 1.0) * 127.5
     return _repadded(out, edge)

@@ -14,6 +14,8 @@
   FaceGeom names it.
 - Shine (own face sets): face and rear head specular maps from FNV's skin
   (skin_seams.shine_texture).
+- Relief (a race with its own head normal map): the race's relief over the stock
+  skin's added to the face normal map (skin_seams.relief_texture).
 
 See: docs/fork/fo4_facegen_plan.md#build-faces
 """
@@ -43,7 +45,8 @@ class Skin:
     """One NPC's inputs: sex, FNV colour (fnv_face), own face set or not, FNV brows RGBA at the template face's
     size (base NPCs), FNV shine (fnv_shine) or None, the race's neck mask (0..1 at the template face's size),
     the NPC's QNAM RGB, the race skin's body _d and _s DDS bytes, the tint basis template's QNAM RGB, the
-    race's overall shade (fnv_npc.race_shade), the face set's untinted diffuse RGB at the template face's size."""
+    race's overall shade (fnv_npc.race_shade), the face set's untinted diffuse RGB at the template face's size,
+    the race's normal map relief (fnv_npc.fnv_relief) or None."""
 
     female: bool
     colour: tuple
@@ -56,6 +59,7 @@ class Skin:
     template: np.ndarray
     shade: np.ndarray
     head: np.ndarray
+    relief: object = None
 
 
 def whole_scale(drawn: np.ndarray, face_geo: tuple, colour: tuple) -> np.ndarray:
@@ -124,6 +128,17 @@ def face_shine(skin: Skin, specular: Path, face_geo: tuple, seam) -> str:
     return 'face ' + shine_means(before, hair.image(specular.read_bytes()), face_geo)
 
 
+def face_relief(skin: Skin, normal: Path, face_geo: tuple, seam) -> str:
+    """Rewrite the face normal map at `normal` with the race's relief (skin_seams.relief_texture); a report line."""
+    own = normal.read_bytes()
+    before = hair.image(own)
+    after = skin_seams.relief_texture(before, face_geo, skin.colour[0], skin.relief, seam)
+    normal.write_bytes(dds_like(after, own))
+    rows, cols, _ = texel_points(*face_geo, before.shape[0])
+    moved = np.abs(after[rows, cols, :2].astype(float) - before[rows, cols, :2]).mean()
+    return f'face relief: normal red/green moved {moved:.1f} on average'
+
+
 def skinned(skin: Skin, nif_bytes: bytes, folder: Path, stem: str, rear_name: tuple) -> tuple:
     """Write the NPC's skin (module doc): its face textures `folder`/`stem`_* in place, its rear head's at
     `rear_name` = (Textures folder, path under it without the `_d.dds`); (FaceGeom NIF bytes, QNAM RGB, lines)."""
@@ -136,6 +151,7 @@ def skinned(skin: Skin, nif_bytes: bytes, folder: Path, stem: str, rear_name: tu
     qnam = np.clip(qnam, 0.0, 1.0)
     shine_neck = None if skin.shine is None else seam
     lines = [] if shine_neck is None else [face_shine(skin, folder / f'{stem}_s.dds', face_geo, shine_neck)]
+    lines += [] if skin.relief is None else [face_relief(skin, folder / f'{stem}_msn.dds', face_geo, seam)]
     neck = (seam, (skin.template, qnam), None if skin.own else (face_geo[1], skin.neck))
     nif = rear_head(skin, nif_bytes, (face_geo[0], neck, whole, shine_neck), rear_name)
     return nif, qnam, lines

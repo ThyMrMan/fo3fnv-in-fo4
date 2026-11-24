@@ -26,7 +26,7 @@ from fo4_import.face import texture as TX
 from fo4_import.face.bake import align, surface
 from fo4_import.face.fnv_head import FnvHead, head
 from fo4_import.nif import file as nif_file
-from fo4_import.pipeline import stage_timer
+from fo4_import.pipeline import stage_timer, work_cache
 from fo4_import.pipeline.export_index import asset_root
 from fo4_import.spike import facegen as FG
 from fo4_import.spike import npcs as N
@@ -330,9 +330,11 @@ def test_face_textures_become_vanilla_sizes_with_mips(tmp_path):
         '00000800_x': (256, 1, b'DXT5')}
 
 
-def _fake_tools(monkeypatch, write):
-    """Replace the converter with `write(dest)` (counted) and ffmpeg's lookup; the call list."""
+def _fake_tools(monkeypatch, write, cache: Path):
+    """Replace the converter with `write(dest)` (counted), ffmpeg's lookup and the work cache (`cache`, empty);
+    the call list."""
     calls = []
+    monkeypatch.setattr(work_cache, 'CACHE', cache)
 
     def convert(source, dest, ffmpeg, xwma, lipgen, text):
         """A counted conversion through `write`."""
@@ -352,7 +354,7 @@ def _write(path: Path, data: bytes) -> bool:
 
 def test_voice_converts_each_recording_and_transcript_once(monkeypatch, tmp_path):
     """Jobs sharing a recording and transcript convert once and share its file; a copy's stale .xwm goes."""
-    calls = _fake_tools(monkeypatch, lambda dest, n: _write(dest, b'converted %d' % n))
+    calls = _fake_tools(monkeypatch, lambda dest, n: _write(dest, b'converted %d' % n), tmp_path / 'work')
     src = tmp_path / 'line.ogg'
     shared = [tmp_path / 'A' / '1_1.fuz', tmp_path / 'B' / '1_1.fuz', tmp_path / 'C' / '2_1.fuz']
     _write(tmp_path / 'B' / '1_1.xwm', b'stale')
@@ -377,7 +379,7 @@ def test_an_unused_voice_file_waits_in_the_cache_and_comes_back_when_a_line_need
 
 def test_voice_copies_the_audio_left_when_lips_fail(monkeypatch, tmp_path):
     """When the lips fail, the .xwm left beside the first .fuz is copied beside the others; none counts."""
-    _fake_tools(monkeypatch, lambda dest, n: _write(dest.with_suffix('.xwm'), b'audio'))
+    _fake_tools(monkeypatch, lambda dest, n: _write(dest.with_suffix('.xwm'), b'audio'), tmp_path / 'work')
     src = tmp_path / 'line.ogg'
     jobs = [(src, tmp_path / 'A' / '1_1.fuz', 'Hi'), (src, tmp_path / 'B' / '1_1.fuz', 'Hi')]
     assert V.convert(jobs, tmp_path) == 0

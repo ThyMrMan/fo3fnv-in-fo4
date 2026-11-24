@@ -25,7 +25,7 @@ from fo4_import.face.bake import face_shape
 from fo4_import.pipeline import creation_kit
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.face_fit import brow_overlay, record_subrecords
-from fo4_import.spike.fnv_npc import fnv_face, fnv_shine, npc_head, race_shade
+from fo4_import.spike.fnv_npc import fnv_face, fnv_relief, fnv_shine, npc_head, race_shade
 from tes5_import.base.tes5_reader import subrecords, walk
 
 #: How every FaceGen test plugin's description starts, so the stage reads past them.
@@ -194,7 +194,8 @@ def skin_of(face: Face) -> npc_skin.Skin:
                          np.array(struct.unpack('<4f', npc.first(b'QNAM'))[:3]),
                          (src.read('textures\\' + textures[0]), src.read('textures\\' + textures[npc_skin.SPECULAR])),
                          _worker['templates'][female], race_shade(export, face.edid),
-                         npc_skin.untinted_face(src, facegeom.face_diffuse(src, npc, race, female), size))
+                         npc_skin.untinted_face(src, facegeom.face_diffuse(src, npc, race, female), size),
+                         fnv_relief(export, face.edid))
 
 
 def skin_face(face: Face) -> tuple:

@@ -70,7 +70,54 @@ the fit's 256 px working size the two skins differ by 2.35/255 on average
 basis still serves. The calibration template now drops FTST too, and
 the bases are now measured without the CK ([calibration](#calibration)).
 
-## <a id="age-face-set"></a>Old faces drawn on a young face set (2026-11-19, not yet played)
+## <a id="race-relief"></a>Old faces: the race's own wrinkle relief (2026-11-24, not yet played)
+
+**Code:** `fnv_npc.fnv_relief`, `texture.fnv_turns`, `skin_seams.relief_texture`
+(the skin step, `npc_skin.face_relief`).
+
+Played after the [old face set](#age-face-set): better, but most of the
+wrinkles and the aged look were still lost. FO3 keeps them in the old race's
+normal map (`characters\old\headhuman_n.dds`, female `oldfemale\`): deep
+forehead furrows and cheek, jaw and neck lines, where the stock
+`characters\male\headhuman_n.dds` is smooth (red/green differ by 10.2/12.4
+of 255 on average). No face ever read an FNV or FO3 normal map: a base NPC's
+`_msn` was the face set's, an own face set's the copied FO4 default. FO4's
+old set has finer wrinkles in another pattern, so FO3's dark wrinkle lines,
+carried into `_d` by the [race skin](#race-skin), had no relief under them.
+
+Now, like the race skin on `_d`, the race's normal map minus the stock
+skin's is added to the face `_msn`, carried by geometry (`texel_map`) and
+faded over `NECK_BLEND` above the neck seam; a race on the stock skin gets
+none. It is added as height slopes (x/z, y/z) and renormalized: adding the
+red and green themselves left 17% of the ear texels outside the unit disk
+(drawn edge-on), slopes none.
+
+The old face set stays. Census of the races that get a relief (mean slope
+size; NPCs in FO3 / FNV):
+
+| Races | Relief | NPCs |
+|---|---|---|
+| OldAged (`characters\old`, `oldfemale`) | 0.40 male, 0.14 female | 64 / 31 |
+| Old (`characters\male\headhumanold`, female) | 0.016, 0.035 | 84 / 145 |
+| Raider | 0.02 male, 0 female | 214 / 538 |
+| Child, Ghoul | 0.07–0.31 | not fitted, so not skinned |
+
+FO3 ages the Old races (Dad, Stanley, Ellen DeLoria) by colour alone; their
+normal map is almost the stock one. Without FO4's old set they would lose the
+fine wrinkles it gave them and gain nothing, so the relief goes on top of it.
+
+- **Channels:** the static converter ships FNV/FO3 `_n` maps unchanged as
+  FO4 normal maps. Measured on the maps themselves, the curl of a height
+  field's normals (corr(dR/dv, dG/du)) is +0.51 for FO3's old map and
+  +0.59/+0.66 for FO4's young and old head maps: green runs with texture v
+  in both, so red/green turn with the UVs.
+- **Turning:** the two heads' UV layouts turn against each other on the
+  sides of the face (Tenpenny on the male template, FO4 u-axis in FO3's UVs
+  over 16 texels: 10th/90th percentile −25°/+25°). Each texel's relief is
+  turned by the closest rotation to its FO4 triangle's map from FO4 UVs to
+  FO3 UVs (none on a folded triangle).
+
+## <a id="age-face-set"></a>Old faces drawn on a young face set (2026-11-19, played: better)
 
 Old NPCs looked far too young. A fitted copy drops its body's `FTST`
 ([body skin](#body-skin)), so every converted face used HumanRace's default

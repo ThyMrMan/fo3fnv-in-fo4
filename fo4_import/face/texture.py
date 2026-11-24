@@ -44,6 +44,8 @@ RATIO_PAD = 8.0
 CHUNK = 8192
 #: UV layouts (mesh and texture size) texel_cover keeps per process: each sex's face and rear head (a 1024 face: 37 MB).
 COVERS = 8
+#: The smallest normal z an 8-bit normal map states: an edge-on or invalid texel's slopes are taken at it.
+Z_FLOOR = 1 / 127.5
 
 
 def egt_offset(data: bytes, fgts: np.ndarray) -> np.ndarray:
@@ -158,14 +160,47 @@ def texel_map(fo4: tuple, fnv_mesh: tuple, shape: tuple, frame: np.ndarray = Non
     points `frame` (default: the part's own); and the texels within ISLAND_PADDING outside the part with the
     part texel each copies ((rows, columns), (rows, columns)). Kept per process (memo)."""
     points, uv, tris = fo4
+    rows, cols, where = shared_texel_points(points, uv, tris, shape[0])
+    fnv_uv = fnv_uvs_at(where, points if frame is None else frame, fnv_mesh)
+    return rows, cols, fnv_uv, padding(rows, cols, shape)
+
+
+def fnv_uvs_at(where: np.ndarray, frame: np.ndarray, fnv_mesh: tuple) -> np.ndarray:
+    """FNV UVs of FO4 points `where`, placed on FNV's mean head `fnv_mesh` by bake.align of the face points
+    `frame`."""
     mean, triangles, fnv_uvs = fnv_mesh
     fnv_surface = mean_surface(mean, triangles)
-    s, r, t = align(points if frame is None else frame, mean, fnv_surface)
-    rows, cols, where = shared_texel_points(points, uv, tris, shape[0])
+    s, r, t = align(frame, mean, fnv_surface)
     placed = s * where @ r.T + t
     _, idx = point_tree(fnv_surface[0]).query(placed, workers=QUERY_THREADS)
-    fnv_uv = per_texel(functools.partial(surface_uv, (mean, triangles[fnv_surface[1]], fnv_uvs)), placed, idx)
-    return rows, cols, fnv_uv, padding(rows, cols, shape)
+    return per_texel(functools.partial(surface_uv, (mean, triangles[fnv_surface[1]], fnv_uvs)), placed, idx)
+
+
+def slopes(normal: np.ndarray) -> np.ndarray:
+    """Height slopes (x/z, y/z) [..., 2] of normals [..., 3], z at least Z_FLOOR."""
+    return normal[..., :2] / np.maximum(normal[..., 2:], Z_FLOOR)
+
+
+def tilted(slope: np.ndarray) -> np.ndarray:
+    """x and y [..., 2] of the unit normal with height slopes `slope` [..., 2]."""
+    return slope / np.sqrt(1.0 + (slope ** 2).sum(-1, keepdims=True))
+
+
+@by_content
+def fnv_turns(fo4: tuple, fnv_mesh: tuple, size: int, frame: np.ndarray = None) -> np.ndarray:
+    """Per texel of texel_map(fo4, fnv_mesh, (size, size), frame), in its order: the rotation [n, 2, 2] taking a
+    tangent-space normal's red and green on FNV's head to FO4's: the closest rotation to its FO4 triangle's map
+    from FO4 UVs to FNV UVs, transposed; none on a folded triangle. Kept per process (memo).
+    See: docs/fork/fo4_facegen_plan.md#race-relief
+    """
+    points, uv, tris = fo4
+    at = fnv_uvs_at(points, points if frame is None else frame, fnv_mesh)
+    corners = texel_cover(uv, tris, size)[2]
+    edges = (uv[corners[:, 1:]] - uv[corners[:, :1]]).transpose(0, 2, 1)
+    j = (at[corners[:, 1:]] - at[corners[:, :1]]).transpose(0, 2, 1) @ np.linalg.inv(edges)
+    angle = np.where(np.linalg.det(j) > 0, np.arctan2(j[:, 1, 0] - j[:, 0, 1], j[:, 0, 0] + j[:, 1, 1]), 0.0)
+    c, s = np.cos(angle), np.sin(angle)
+    return np.stack([np.stack([c, s], 1), np.stack([-s, c], 1)], 1)
 
 
 def surface_uv(mesh: tuple, placed: np.ndarray, idx: np.ndarray) -> np.ndarray:

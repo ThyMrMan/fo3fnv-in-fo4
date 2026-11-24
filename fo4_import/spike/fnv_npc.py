@@ -20,7 +20,7 @@ import numpy as np
 from fo4_import.face import hair
 from fo4_import.face.bake import align, surface
 from fo4_import.face.fnv_head import FnvHead, coefficients, head
-from fo4_import.face.texture import fnv_texture, rgb
+from fo4_import.face.texture import fnv_texture, rgb, slopes
 from fo4_import.nif import fnv_file
 from fo4_import.nif.convert_static import smoothness, spec_image
 from fo4_import.pipeline.export_index import asset_root, export_file, export_records, plugin_sources
@@ -132,6 +132,26 @@ def fnv_shine(export_dir: Path, edid: str) -> np.ndarray:
         textures = next(b.textures for b in blocks if type(b).__name__ == 'BSShaderTextureSet')
         normal = asset(export_dir, '', textures[1].decode())
     return spec_image(normal.read_bytes(), smoothness(glossiness)).astype(float)
+
+
+def fnv_relief(export_dir: Path, edid: str) -> 'np.ndarray | None':
+    """FNV NPC `edid`'s race head normal map's height slopes (texture.slopes) minus the stock skin's (STOCK_SKIN)
+    in the race texture's UVs; None for a race on the stock skin or without both maps.
+    See: docs/fork/fo4_facegen_plan.md#race-relief
+    """
+    _, race, part = npc_race(export_dir, edid)
+    texture = first(race[part + '.Texture'])
+    own, stock = (asset(export_dir, 'textures', t[:-4] + '_n.dds') for t in (texture, STOCK_SKIN[part]))
+    if own == stock or not (own.is_file() and stock.is_file()):
+        return None
+    return relief_between(own, stock)
+
+
+@cache
+def relief_between(own: Path, stock: Path) -> np.ndarray:
+    """Normal map `own`'s height slopes minus `stock`'s (resized to it)."""
+    relief = rgb(own)
+    return slopes(relief / 127.5 - 1.0) - slopes(rgb(stock, relief.shape[:2]) / 127.5 - 1.0)
 
 
 @cache
