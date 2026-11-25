@@ -108,7 +108,8 @@ Please [report](#problems) how it goes.
    and download **`fo3fnv-in-fo4-<release>.zip`** from the newest release's
    assets (about 12 MB), not **Source code (zip)**: that one is the
    developers' whole repository, and it can't build the menus without
-   extra tools.
+   extra tools. [CHANGELOG.md](CHANGELOG.md) lists what changed in each
+   release.
 2. Unzip it to a folder you can write to, outside `Program Files`, for
    example `D:\Games`. That gives `D:\Games\fo3fnv-in-fo4-<release>`. The
    app keeps its work (the export of your game, caches and logs, about

@@ -29,7 +29,8 @@ ENTRIES = ('fo4_app', 'convert', 'fo4_import.helpers_plugin', 'fo4_import.spike.
            'fo4_import.pipeline.run', 'tools.validate.fo4_ref_check', 'tools.validate.fo4_check',
            'tools.validate.fo4_install_check', 'tools.release.machine_benchmark')
 #: Tracked files every zip carries beside the traced code: launchers, docs, the F4SE plugins the output ships.
-EXTRA_FILES = ('Convert to Fallout 4.cmd', 'TES Auto-Convert.cmd', 'README.md', 'LICENSE', 'requirements.txt',
+EXTRA_FILES = ('Convert to Fallout 4.cmd', 'TES Auto-Convert.cmd', 'README.md', 'CHANGELOG.md', 'LICENSE',
+               'requirements.txt',
                'native/src/f3_zlib/zlib/LICENSE', 'tes_runtime/dist/F3NV.dll', 'tes_runtime/dist/CleanroomUI.dll',
                'tes_runtime/dist/CleanroomDialogue.dll', 'tes_runtime/dist/cleanroom_ui.txt')
 #: Folders of tracked files every zip carries (minus SKIPPED): the native extensions and zlib build.
