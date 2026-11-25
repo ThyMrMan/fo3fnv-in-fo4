@@ -8,7 +8,8 @@ it have no C++ compiler:
 | `_navgrow_native.<abi>.pyd` | Python extension (64-bit) | `../src/navgrow/grow.cpp` | `navmesh.corridor_grow` (Phase-2 width march) and `navmesh.corridor_union` (per-vertex surface levels) |
 | `spt_engine_dump.exe` | standalone program (**32-bit**) | `../src/spt_engine/` | `asset_convert.speedtree.spt_engine_geom` — the SpeedTree engine-branch path (`--engine-branches`) |
 | `f3_zlib.dll` | plain shared library (64-bit, ctypes; any Python version) | `../src/f3_zlib/` (zlib 1.4's deflate, unmodified) | `fo4_import.base.pinned_zlib` — every compressed byte the FO4 build writes; built by `python -m tools.generators.gen_native_c f3_zlib` ([why](../../docs/fork/fo4_pipeline.md#pinned-zlib)) |
-| `xwma_enc.exe` | standalone program (64-bit) | `../src/xwma/` (Xwma-Codec's encoder, GPL-3.0, changed so Microsoft's decoder plays it) | `fo4_import.spike.voice` — the audio of every FO4 voice file; built by `python -m tools.generators.gen_native_c xwma_enc` ([why](../../docs/fork/fo4_ck_replacements.md#xwma-spike)) |
+| `xwma_enc.exe` | standalone program (64-bit) | `../src/xwma/` (Xwma-Codec's encoder, GPL-3.0, changed so Microsoft's decoder plays it) | `fo4_import.spike.voice` — the audio of every FO4 voice file, a batch of lines a launch; built by `python -m tools.generators.gen_native_c xwma_enc` ([why](../../docs/fork/fo4_ck_replacements.md#xwma-spike)) |
+| `f3_bc1.dll` | plain shared library (64-bit, ctypes; any Python version) | `../src/bc1/` (our BC1 encoder, `dds_encode.bc1_blocks` in C) | `fo4_import.base.dds_encode` — face and terrain LOD textures; built by `python -m tools.generators.gen_native_c f3_bc1` ([why](../../docs/fork/fo4_facegen_plan.md#own-dds-encoder)) |
 
 Build everything with:
 

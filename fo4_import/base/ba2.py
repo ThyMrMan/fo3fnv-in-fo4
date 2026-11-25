@@ -47,9 +47,9 @@ class Archive:
     """One BA2: its paths (`entries`: lowercase, backslashes, whichever slash it stores; `spelled`: each as
     stored) and their bytes."""
 
-    def __init__(self, path: Path, folders: tuple = ()):
+    def __init__(self, path: Path, folders: tuple = (), skipped: tuple = ()):
         """Index the archive at `path`: every file, or with `folders` (lower-case top folders) only those under
-        them."""
+        them, less those starting with one of `skipped` (lower-case, backslashes)."""
         self.path = Path(path)
         with open(self.path, 'rb') as f:
             magic, _, self.kind, count, names_at = struct.unpack('<4sI4sIQ', f.read(24))
@@ -58,7 +58,8 @@ class Archive:
             f.seek(names_at)
             spelled = [f.read(struct.unpack('<H', f.read(2))[0]).decode('cp1252') for _ in range(count)]
         names = [name.lower().replace('/', chr(92)) for name in spelled]
-        kept = [i for i, name in enumerate(names) if not folders or name.split(chr(92), 1)[0] in folders]
+        kept = [i for i, name in enumerate(names) if (not folders or name.split(chr(92), 1)[0] in folders)
+                and not (skipped and name.startswith(skipped))]
         self.entries = {names[i]: entries[i] for i in kept}
         self.spelled = {names[i]: spelled[i] for i in kept}
 
@@ -87,11 +88,12 @@ class Archive:
 class Archives:
     """Every BA2 in a Data folder, later archives winning, read by path."""
 
-    def __init__(self, data_dir: Path, pattern: str = GAME_ARCHIVES, folders: tuple = ()):
-        """Index the archives in `data_dir` matching `pattern` (each only under `folders`, as Archive)."""
+    def __init__(self, data_dir: Path, pattern: str = GAME_ARCHIVES, folders: tuple = (), skipped: tuple = ()):
+        """Index the archives in `data_dir` matching `pattern` (each only under `folders`, less `skipped`, as
+        Archive)."""
         self.by_name = {}
         for path in sorted(Path(data_dir).glob(pattern)):
-            archive = Archive(path, folders)
+            archive = Archive(path, folders, skipped)
             self.by_name.update(dict.fromkeys(archive.entries, archive))
 
     def names(self, prefix: str = '') -> list:

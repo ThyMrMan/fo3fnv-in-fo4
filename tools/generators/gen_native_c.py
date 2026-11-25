@@ -15,6 +15,7 @@ from pathlib import Path
 
 from asset_convert.paths import XWMA_ENC
 from core.subprocess_flags import POPEN_FLAGS
+from fo4_import.base.dds_encode import LIBRARY as BC1_LIBRARY
 from fo4_import.base.pinned_zlib import LIBRARY
 from native.build import find_unix_compiler, find_vcvars
 
@@ -25,10 +26,12 @@ INSTALLER = r'%ProgramFiles(x86)%\Microsoft Visual Studio\Installer'
 
 
 def targets() -> dict:
-    """{name: (output, C sources, shared library?, MSVC defines)}: the pinned zlib and the xWMA encoder."""
+    """{name: (output, C sources, shared library?, MSVC defines)}: the pinned zlib, the BC1 encoder and the xWMA
+    encoder."""
     zlib = NATIVE / 'src' / 'f3_zlib'
     xwma = NATIVE / 'src' / 'xwma'
     return {'f3_zlib': (LIBRARY, [zlib / 'f3_zlib.c', *sorted((zlib / 'zlib').glob('*.c'))], True, ()),
+            'f3_bc1': (BC1_LIBRARY, [NATIVE / 'src' / 'bc1' / 'bc1.c'], True, ()),
             'xwma_enc': (XWMA_ENC, [xwma / 'main.c', xwma / 'xwma_encoder.c'], False,
                          ('_USE_MATH_DEFINES', '_CRT_SECURE_NO_WARNINGS'))}
 
@@ -51,7 +54,7 @@ def build_unix(target: tuple, compiler: str) -> int:
     """Compile `target` with gcc/clang as C (position-independent for a library); the exit code."""
     output, sources, shared, _ = target
     kind = ['-shared', '-fPIC'] if shared else []
-    command = [compiler, '-x', 'c', *kind, '-O2', '-o', str(output), *map(str, sources), *([] if shared else ['-lm'])]
+    command = [compiler, '-x', 'c', *kind, '-O2', '-o', str(output), *map(str, sources), '-lm']
     return subprocess.run(command, cwd=ROOT, **POPEN_FLAGS).returncode
 
 

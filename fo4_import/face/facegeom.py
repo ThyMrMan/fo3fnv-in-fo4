@@ -31,6 +31,8 @@ from tes5_import.base.tes5_reader import masters, subrecords, walk
 SIGS = (b'NPC_', b'RACE', b'HDPT', b'TXST', b'CLFM', b'ARMO', b'ARMA')
 #: The Data folders a face reads (Sources.read, tri_morphs, material): the only archive entries Sources indexes.
 FACE_FOLDERS = ('meshes', 'textures', 'materials')
+#: Engine-made data under FACE_FOLDERS no record a face reads names (animation info, precombines, terrain LOD).
+NOT_FACE_FOLDERS = ('meshes\\animtextdata\\', 'meshes\\precombined\\', 'meshes\\terrain\\', 'textures\\terrain\\')
 #: HDPT DATA flags: an extra part (drawn only through its parent's HNAM); its textures are the body's.
 EXTRA_PART, USES_BODY_TEXTURE = 0x08, 0x20
 #: ACBS flags bit Female.
@@ -85,12 +87,24 @@ def zstr(data: bytes) -> str:
     return data.rstrip(b'\0').decode('cp1252')
 
 
-@dataclass(eq=False)
 class Rec:
-    """One record: the plugin it is read from, its signature and subrecords [(tag, data)]."""
-    owner: str
-    sig: bytes
-    subs: list
+    """One record: the plugin it is read from, its signature and subrecords [(tag, data)], given as a list or as the
+    record's body, split on first use (a worker holds every face record of the load order and reads a few).
+    See: docs/fork/fo4_facegen_plan.md#worker-memory
+    """
+
+    __slots__ = ('owner', 'sig', '_subs')
+
+    def __init__(self, owner: str, sig: bytes, subs):
+        """`subs`: [(tag, data)], or the record's body bytes."""
+        self.owner, self.sig, self._subs = owner, sig, subs
+
+    @property
+    def subs(self) -> list:
+        """The subrecords [(tag, data)], split from the body the first time."""
+        if isinstance(self._subs, bytes):
+            self._subs = list(subrecords(self._subs))
+        return self._subs
 
     def first(self, tag: bytes, default=None):
         """The first `tag` subrecord's data."""
@@ -106,9 +120,9 @@ class Sources:
         from `dirs`' loose folders and BA2s (first wins), then the game's archives."""
         self.dirs = [Path(d) for d in dirs]
         self.records, self.masters, self.seen, self.tris = {}, {}, set(), {}
-        self.archives = Archives(FALLOUT4_DIR / 'Data', folders=FACE_FOLDERS)
+        self.archives = Archives(FALLOUT4_DIR / 'Data', folders=FACE_FOLDERS, skipped=NOT_FACE_FOLDERS)
         for d in reversed(self.dirs):
-            self.archives.by_name.update(Archives(d, '*.ba2', FACE_FOLDERS).by_name)
+            self.archives.by_name.update(Archives(d, '*.ba2', FACE_FOLDERS, NOT_FACE_FOLDERS).by_name)
         for name in [*load_order, Path(plugin).name]:
             if name.lower() not in self.masters:
                 self._load(self._find(name) if name in load_order else Path(plugin))
@@ -123,7 +137,7 @@ class Sources:
         self.masters[path.name.lower()] = own
         for rec, _ in walk(data, *SIGS):
             owner = own[rec.form_id >> 24] if rec.form_id >> 24 < len(own) else path.name.lower()
-            self.records[owner, rec.form_id & 0xFFFFFF] = Rec(path.name.lower(), rec.sig, list(subrecords(rec.body)))
+            self.records[owner, rec.form_id & 0xFFFFFF] = Rec(path.name.lower(), rec.sig, bytes(rec.body))
 
     def _find(self, name: str) -> Path:
         """A master's file in `dirs` or the game's Data."""

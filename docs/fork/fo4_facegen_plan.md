@@ -1660,6 +1660,16 @@ except the fallback for NPCs our FaceGen fails on.
 - **The work cache keys** of `facegen_own` and `facegen_skin_cache` dropped
   texconv's SHA-1. The code record covers the encoder, so every face
   misses once after this change.
+- **BC1 in C (2026-11-25).** `bc1_blocks` was numpy and cost about 1.2 s of
+  a face's 4.5 s (head and skin, desktop). The same algorithm is now
+  `native/src/bc1` (`f3_bc1.dll`, built by `gen_native_c f3_bc1`, loaded by
+  ctypes). Its version is `dds_encode.BC1_VERSION` and the library's
+  `f3_bc1_version()`; a mismatch refuses to load. On 408,640 blocks of New
+  Vegas character textures and noise, 99.64% are byte-identical to numpy's.
+  The rest differ by float summation order, and the total squared error is
+  the same (0.00002% lower), each texture within ±0.4%. 1.24 s → 0.16 s.
+  The code record changed, so every face and terrain LOD texture is made
+  once more.
 
 Measured against texconv on vanilla actor textures box-filtered to half
 size (so their old blocks don't line up), PSNR to the source, full mips:
@@ -1779,6 +1789,35 @@ All six skin workers together: 13,973 → 6,516 MB. Skin sets the size, so
 `WORKER_BYTES` is 1.25 GB, about the headroom the old 2 GB had over its
 1.84 GB: the laptop's pool goes from 3 workers to about 5 at the same
 memory budget.
+
+**Less per worker (2026-11-25).** The laptop's fresh FalloutNV.esm build
+(2,254 fitted faces) spent 2,328 s in skin and 1,127 s in heads, its skin
+pool 6.59 GB across 5 workers. On this desktop with the `Play` profile (46
+mod folders), a worker's start (`facegen_skin._start`) committed 1.56 GB for
+`Sources` alone:
+
+- **Archive index, about 870 MB:** 601,946 paths under `FACE_FOLDERS`, of
+  them 247,270 `meshes\animtextdata` and 124,871 `meshes\precombined`. The
+  heads and skins of Dead Money's 19 fitted NPCs read 237 paths, all under
+  `meshes`, `textures` and `materials\actors\character` but 5 material
+  templates and the plugin's own textures. `facegeom.NOT_FACE_FOLDERS` now
+  leaves out the engine's animation info, precombines and terrain LOD,
+  which no record a face reads names (`ba2.Archive`'s `skipped`).
+- **Records, about 530 MB:** every NPC, RACE, HDPT, TXST, CLFM, ARMO and
+  ARMA of the load order (15,381; 9,932 NPCs), each split into subrecord
+  copies. The same faces looked records up 1,022 times, NPCs 54 of them. `facegeom.Rec` now keeps the
+  record's body and splits it the first time `subs` is asked for.
+
+`Sources` now adds 0.53 GB. One worker running every Dead Money head on the
+committed code: 1.64 GB after its start, 1.99 GB peak; now 0.60 and 0.95 GB.
+Run alone in one process, every head and then every skin peaks at 1.67 GB.
+That is a worst case, so `WORKER_BYTES` is unchanged until a pool's
+measured worker peak can set it.
+
+The faces stage on a scratch copy of Dead Money, the committed code against
+the new code with the numpy BC1 encoder, writes a byte-identical plugin and
+both archives. Per face in one process (Dead Money, desktop), with the
+native BC1 as well: a head 2.39 → 1.57 s, a skin 2.13 → 1.57 s.
 
 Measure skin memory on fresh heads (`facegen_own.export_own` first), never
 on FaceGeoms taken out of a built archive. The skin step rewrites the NIF
