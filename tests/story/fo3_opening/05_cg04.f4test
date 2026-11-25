@@ -49,9 +49,9 @@ walk 120 {Fallout3.esm:054285} 80                     # no path to the load door
 activate {Fallout3.esm:054285}
 wait 3
 ready 60
-check walk 60 {Fallout3.esm:05396D} 80                # set aside (atrium-route): from the entrance no path or stride reached it (run 72)
-unless {Fallout3.esm:05396D}.GetOpenState == 1 | activate {Fallout3.esm:05396D}    # (atrium-path): open it
-wait 2
+check walk 120 {Fallout3.esm:053952} 80              # the upper hall's sliding door on the way to the stop box (05396D,
+unless {Fallout3.esm:053952}.GetOpenState == 1 | activate {Fallout3.esm:053952}    # walked to before, is the tunnel's,
+wait 2                                                # behind the Overseer's office: atrium-route)
 check walk 60 {Fallout3.esm:02D4B6}                   # out and into the stop box
 unless GetStageDone FNV_CG04 35 == 1 | run player.moveto {Fallout3.esm:02D4B6}
 unless GetStageDone FNV_CG04 35 == 1 | walk 60 {Fallout3.esm:02D4B6}    # a walk into the box fires its trigger

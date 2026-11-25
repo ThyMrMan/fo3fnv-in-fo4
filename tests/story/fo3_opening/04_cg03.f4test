@@ -74,9 +74,12 @@ wait 4
 unless player.GetSitting == 3 | walk 30 {Fallout3.esm:021425} 100
 unless player.GetSitting == 3 | activate {Fallout3.esm:021425}
 wait 4
-until 30 player.GetSitting == 3
+check until 30 player.GetSitting == 3                 # set aside: run 2026-11-24 sat at none of the 8 desks
+unless GetStageDone FNV_CG03 50 == 1 | run setstage FNV_CG03 50    # so the run reaches CG04; `report` still fails it
 until 120 GetStageDone FNV_CG03 50 == 1               # CG03ClassroomTrigger: sitting at 40
-until 300 GetStageDone FNV_CG03 60 == 1               # Brotch walks in (55); every student seated: 60
+check until 300 GetStageDone FNV_CG03 60 == 1         # Brotch walks in (55); every student seated: 60
+unless GetStageDone FNV_CG03 60 == 1 | run setstage FNV_CG03 60    # the player never sat (above)
+until 30 GetStageDone FNV_CG03 60 == 1
 end
 
 case cg03_goat

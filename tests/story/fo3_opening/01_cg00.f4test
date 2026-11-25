@@ -3,6 +3,11 @@
 # Speakers are display names; INFOs are the source (Fallout3.esm) FormIDs.
 
 case cg00_birth
+menu 60 PlayBinkMenu                                  # Fallout 3's intro movie, interruptible (bink_movies.md#new-game-movie)
+wait 2
+press T                                               # the first T shows the skip prompt
+wait 1
+press T                                               # the second skips
 until 120 GetStage FNV_CG00 >= 5                      # leaving the sink starts CG00 stage 0, the birth
 hear Dad 0001F387                                     # "Are you a boy or a girl?"; stage 18's box answers itself
 hear Dad ${SEX=male:0001F386,female:0001F385}         # "It's a boy?" / "It's a girl?"

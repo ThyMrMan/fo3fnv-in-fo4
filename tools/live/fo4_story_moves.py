@@ -8,6 +8,7 @@ do for a player; `activate` is the player's own activation.
 
 See: docs/fork/fo4_opening_progression_plan.md#verbs
 """
+import itertools
 import math
 import re
 import time
@@ -48,6 +49,14 @@ SIDESTEP_SECONDS = 0.8
 SHOT_GAP = 3.0
 #: The player's eye above its position, as a share of its bounds' height.
 EYE = 0.9
+#: Shares of a reference's bounds `activate` aims at on each axis, middle first: a desk's middle is air (sight).
+SPOTS = (0.5, 0.2, 0.8)
+#: Vanilla hudmenu.swf: the crosshair's state ("Activate" over what E would use) and the activate prompt's name.
+HUD_PATHS = ('CenterGroup_mc.HUDCrosshair_mc.requestedState', 'CenterGroup_mc.RolloverWidget_mc.RolloverName_tf.text')
+#: The crosshair state of hud() over something the player can activate (HUDCrosshair.STATE_ACTIVATE).
+ACTIVATE = 'Activate'
+#: Seconds the HUD is given to follow a new aim before it is read.
+HUD_SECONDS = 0.2
 #: The current scale in the console's `GetScale` answer: `( REF * BASE = CURRENT ) ( 0.40 * 1.00 = 0.40 )`.
 SCALE = re.compile(r'=\s*([0-9.]+)\s*\)\s*$')
 
@@ -110,15 +119,41 @@ def where(bridge: Bridge, ref: str = '') -> dict:
 
 
 def activate(bridge: Bridge, rest: str, front) -> None:
-    """`<ref>`: the player looks at it and presses E in the game window (brought to the front), so it takes the
-    activate prompt and reach a player needs; `run <ref>.activate player` is the console's way.
+    """`<ref>`: the player looks at it until the HUD shows the activate prompt (sight) and presses E in the game
+    window (brought to the front), so it takes the prompt and reach a player needs; `run <ref>.activate player` is
+    the console's way.
     See: docs/fork/fo4_test_layers_plan.md#tutorial-harness
     """
     target = rest.split()[0]
-    aim(bridge, target)
+    seen = sight(bridge, target)
     front()
     hidden_launch.tap_key(hidden_launch.SCANCODES['e'])
-    print('    E at %s' % target, flush=True)
+    print('    E at %s (crosshair: %s)' % (target, seen), flush=True)
+
+
+def hud(bridge: Bridge) -> 'str | None':
+    """The HUD crosshair's state and the name its prompt shows (HUD_PATHS); None when the HUD cannot be read."""
+    try:
+        state, name = (bridge.request('invoke', text='HUDMenu ' + path).get('result') for path in HUD_PATHS)
+    except BridgeError:
+        return None
+    return '%s %r' % (state, name)
+
+
+def sight(bridge: Bridge, target: str) -> str:
+    """Aims at points inside `target`'s bounds (SPOTS each axis, the middle first) until the crosshair is in its
+    Activate state; the last hud() reading. An unreadable HUD keeps the first aim.
+    See: docs/fork/fo4_test_layers_plan.md#tutorial-harness
+    """
+    me, there = where(bridge), where(bridge, target)
+    seen = None
+    for share in sorted(itertools.product(SPOTS, repeat=3), key=lambda s: sum(abs(v - 0.5) for v in s)):
+        look(bridge, me, inside(there, share))
+        time.sleep(HUD_SECONDS)
+        seen = hud(bridge)
+        if seen is None or seen.startswith(ACTIVATE):
+            break
+    return seen or 'HUD unreadable'
 
 
 def gap(me: dict, there: dict) -> float:
@@ -213,14 +248,14 @@ def unstick(bridge: Bridge, target: str, goal: tuple, spot: tuple, tries: list) 
     return True
 
 
-def middle(there: dict) -> dict:
-    """The middle of reference `there`'s bounds in the world (x, y, z): the box's center turned by its heading, as
-    gap() turns the other way; its position when it has no bounds."""
+def inside(there: dict, share: tuple = (0.5, 0.5, 0.5)) -> dict:
+    """The point `share` (x, y, z, each 0 to 1) of the way across reference `there`'s bounds, in the world: turned by
+    its heading, as gap() turns the other way (default the middle); its position when it has no bounds."""
     low, high = there.get('min', (0, 0, 0)), there.get('max', (0, 0, 0))
-    mid = [(low[i] + high[i]) / 2 for i in range(3)]
+    at = [low[i] + (high[i] - low[i]) * share[i] for i in range(3)]
     turn = math.radians(there['angle'])
-    return {'x': there['x'] + mid[0] * math.cos(turn) + mid[1] * math.sin(turn),
-            'y': there['y'] - mid[0] * math.sin(turn) + mid[1] * math.cos(turn), 'z': there['z'] + mid[2]}
+    return {'x': there['x'] + at[0] * math.cos(turn) + at[1] * math.sin(turn),
+            'y': there['y'] - at[0] * math.sin(turn) + at[1] * math.cos(turn), 'z': there['z'] + at[2]}
 
 
 def scale(bridge: Bridge) -> float:
@@ -229,14 +264,18 @@ def scale(bridge: Bridge) -> float:
     return float(found.group(1)) if found else 1.0
 
 
-def aim(bridge: Bridge, target: str) -> None:
-    """Turns the player (heading, then pitch: FO4's angle x, down positive) from its eye (its bounds' height at its
-    scale: a baby's is low) toward the middle of `target`'s bounds."""
-    me, there = where(bridge), middle(where(bridge, target))
+def look(bridge: Bridge, me: dict, there: dict) -> None:
+    """Turns the player `me` (heading, then pitch: FO4's angle x, down positive) from its eye (its bounds' height at
+    its scale: a baby's is low) toward point `there`."""
     eye = me['z'] + EYE * me.get('max', (0, 0, 0))[2] * scale(bridge)
     level = math.hypot(there['x'] - me['x'], there['y'] - me['y'])
     face(bridge, me, there)
     T.send(bridge, 'player.setangle x %.1f' % -math.degrees(math.atan2(there['z'] - eye, level)))
+
+
+def aim(bridge: Bridge, target: str) -> None:
+    """Turns the player toward the middle of `target`'s bounds (look)."""
+    look(bridge, where(bridge), inside(where(bridge, target)))
 
 
 def shoot(bridge: Bridge, rest: str, front) -> None:

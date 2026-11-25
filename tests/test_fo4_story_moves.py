@@ -18,9 +18,13 @@ class World:
     def __init__(self, refs: dict, wall: float = math.inf):
         """`refs`: {FormID hex: (x, y)}; the player starts at 0, 0 facing north."""
         self.me, self.angle, self.refs, self.wall, self.lines, self.track = [0.0, 0.0], 0.0, refs, wall, [], []
+        self.crosshair = lambda: 'Activate'
 
     def request(self, cmd: str, text: str = '', command: str = '') -> dict:
-        """`form`, `where` and `console` as the test DLL answers them."""
+        """`form`, `where`, `invoke` (the HUD: `crosshair`'s state, name 'Desk') and `console` as the test DLL
+        answers them."""
+        if cmd == 'invoke':
+            return {'result': self.crosshair() if text.endswith('requestedState') else 'Desk'}
         if cmd == 'form':
             plugin, oid = text.split()
             return {'form': '%02X%06X' % (0x0B, int(oid, 16)), 'type': 'REFR'}
@@ -45,6 +49,7 @@ def no_console(monkeypatch):
     monkeypatch.setattr(M.T, 'send', lambda bridge, line: bridge.request('console', command=line)['output'])
     monkeypatch.setattr(M, 'PATH_POLL_SECONDS', 0)
     monkeypatch.setattr(M, 'PATH_RETRY_SECONDS', 0)
+    monkeypatch.setattr(M, 'HUD_SECONDS', 0)
 
 
 def test_source_records_become_the_running_games_formids(tmp_path):
@@ -249,10 +254,42 @@ def test_activate_looks_at_the_ref_and_presses_e(monkeypatch, no_console):
     assert not any('.activate' in line for line in world.lines)
 
 
+def test_activate_looks_across_the_bounds_until_the_prompt_shows(monkeypatch, no_console):
+    """CG03's school desk: its bounds' middle is the air between top and seat, so the crosshair shows no prompt
+    there; the player looks further into the bounds until it does, then presses E once."""
+    world = World({'0B02B793': (100.0, 0.0)})
+    world.request = lambda cmd, text='', command='', inner=world.request: (
+        {**inner(cmd, text, command), 'min': [-26.0, -21.0, -34.0], 'max': [26.0, 75.0, 32.0]}
+        if cmd == 'where' and text else inner(cmd, text, command))
+    world.crosshair = lambda: 'Activate' if sum('setangle x' in line for line in world.lines) >= 3 else 'Standard'
+    pressed = []
+    monkeypatch.setattr(hidden_launch, 'tap_key', lambda scan, seconds=0: pressed.append(scan))
+    M.activate(world, '0B02B793', lambda: None)
+    assert pressed == [hidden_launch.SCANCODES['e']]
+    assert sum('setangle x' in line for line in world.lines) == 3
+
+
+def test_activate_keeps_the_middle_when_the_hud_cannot_be_read(monkeypatch, no_console):
+    """No HUD answer: the player looks at the middle once, as before, and presses E."""
+    world = World({'0B000001': (100.0, 0.0)})
+    inner = world.request
+
+    def request(cmd, text='', command=''):
+        """The HUD path is missing."""
+        if cmd == 'invoke':
+            raise BridgeError('HUDMenu has no object CenterGroup_mc', 'E_NOPATH')
+        return inner(cmd, text, command)
+
+    world.request = request
+    monkeypatch.setattr(hidden_launch, 'tap_key', lambda scan, seconds=0: None)
+    M.activate(world, '0B000001', lambda: None)
+    assert sum('setangle x' in line for line in world.lines) == 1
+
+
 def test_the_middle_of_a_box_is_turned_by_its_heading():
     """CG01's playpen gate: hinged at its origin, 64 units long, turned east."""
     gate = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'angle': 90.0, 'min': [-2.0, -2.0, 2.0], 'max': [2.0, 64.0, 51.0]}
-    there = M.middle(gate)
+    there = M.inside(gate)
     assert (there['x'], there['y'], there['z']) == pytest.approx((31.0, 0.0, 26.5))
 
 

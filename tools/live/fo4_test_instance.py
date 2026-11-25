@@ -7,7 +7,8 @@
 
 `build` makes the instance folder from HARD LINKS to Fallout 4's own files,
 F4SE, the test bridge and the mods an MO2 profile enables (its plugins.txt
-and INIs too). Small config files are copied, so nothing the game writes
+and INIs too), with the session trace always on (F3NV_Trace.esl, which the
+cases' `hear` reads). Small config files are copied, so nothing the game writes
 reaches the mod folders. `launch` starts it muted on a hidden desktop with
 My Games and LocalAppData redirected (TESSandbox.dll), so it never touches
 the player's screen, input, INIs, saves or logs. Slots 2+ run beside slot 1.
@@ -23,6 +24,8 @@ from pathlib import Path
 
 from core.mod_sources import enabled_mods, mo2_layout, profile_dir
 from fo4_import.app import settings as S
+from fo4_import.helpers_plugin import build_trace_switch
+from script_convert.constants import FALLOUT4_TRACE_PLUGIN
 from tools.live import hidden_launch
 from tools.live.game_bridge import Bridge, BridgeError
 from tools.validate.fo4_install_check import machine_from
@@ -158,7 +161,7 @@ def apply_ini(inst: Instance, name: str, settings) -> None:
 
 
 def write_profile(inst: Instance, mo2_profile: Path) -> None:
-    """The sandbox's INIs (the MO2 profile's, then the test settings) and Plugins.txt."""
+    """The sandbox's INIs (the MO2 profile's, then the test settings) and Plugins.txt (the profile's, the trace on)."""
     inst.my_games.mkdir(parents=True, exist_ok=True)
     for name in INIS:
         source = mo2_profile / name.lower()
@@ -168,7 +171,9 @@ def write_profile(inst: Instance, mo2_profile: Path) -> None:
     apply_ini(inst, 'Fallout4Prefs.ini', PREFS_INI)
     plugins = inst.local_appdata / 'Fallout4' / 'Plugins.txt'
     plugins.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(mo2_profile / 'plugins.txt', plugins)
+    lines = (mo2_profile / 'plugins.txt').read_text(encoding='utf-8', errors='replace').splitlines()
+    kept = [line for line in lines if line.lstrip('*').strip().lower() != FALLOUT4_TRACE_PLUGIN.lower()]
+    plugins.write_text('\n'.join(kept + ['*' + FALLOUT4_TRACE_PLUGIN]) + '\n', encoding='utf-8')
 
 
 def debug_log(ini: Path, made: list) -> None:
@@ -202,6 +207,10 @@ def build(inst: Instance, mo2: Path, profile: str) -> None:
     mods = list(reversed(enabled_mods(mo2_profile / 'modlist.txt')))
     for mod in mods:
         place_tree(folders['mods'] / mod, inst.data, made)
+    trace = inst.data / FALLOUT4_TRACE_PLUGIN
+    if not trace.is_file():
+        build_trace_switch(trace)
+        made.append(str(trace))
     place(TEST_BIN / 'F3NVTest.dll', inst.data / 'F4SE' / 'Plugins' / 'F3NVTest.dll', made)
     for name in DEBUG_LOGS:
         debug_log(inst.data / 'F4SE' / 'Plugins' / f'{name}.ini', made)
