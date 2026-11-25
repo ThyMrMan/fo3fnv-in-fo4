@@ -74,8 +74,11 @@ def package(monkeypatch):
 
 
 def _edit(path: Path, old: str, new: str) -> None:
-    """Replace `old` with `new` in `path`, clearing the identity memo."""
+    """Replace `old` with `new` in `path`, its mtime a second on (a same-size edit in one clock tick reads as the
+    same file), clearing the identity memo."""
+    before = path.stat().st_mtime
     path.write_text(path.read_text(encoding='utf-8').replace(old, new), encoding='utf-8')
+    os.utime(path, (before + 1, before + 1))
     CI.identity.cache_clear()
 
 
@@ -478,6 +481,17 @@ def test_a_rebuild_writes_the_plugin_in_its_own_folder(tmp_path):
                                                  str(game), '--export', 'export/Dlc.esm', '--no-test-cell']
 
 
+def test_a_rebuild_from_the_app_reads_the_apps_own_export_and_scripts(tmp_path):
+    """A build recorded elsewhere (relative paths from a checkout) is rebuilt from the roots given: same names."""
+    work = tmp_path / 'F3NV Work'
+    argv = ['--out', 'x.esm', '--export', 'export/Anchorage.esm', '--scripts', 'temp/fo4_scripts/Anchorage.esm',
+            '--world', 'Wasteland']
+    roots = {'--export': str(work / 'export'), '--scripts': str(work / 'scripts')}
+    assert BP.rooted(argv, roots) == ['--out', 'x.esm', '--export', str(work / 'export' / 'Anchorage.esm'),
+                                      '--scripts', str(work / 'scripts' / 'Anchorage.esm'), '--world', 'Wasteland']
+    assert BP.rooted(argv, {'--export': None}) == argv
+
+
 def test_a_record_from_a_moved_app_folder_reads_its_paths_in_this_one(tmp_path):
     """Paths inside the app folder a record names (its root, else its listed fo4_import's folder) move into this
     one; paths elsewhere stay."""
@@ -510,7 +524,7 @@ def test_a_plugin_still_out_of_date_after_its_build_stops_the_run(monkeypatch, t
     plugin, builds = tmp_path / 'Dlc.esm', []
     monkeypatch.setattr(BP, 'plan', lambda plugins: [(plugin, BP.BUILD, 'no finished build with an inputs record')])
     monkeypatch.setattr(BP, 'master_dirs', lambda *_: [])
-    monkeypatch.setattr(BP, 'rebuild', lambda p, dirs: builds.append(p) or 0)
+    monkeypatch.setattr(BP, 'rebuild', lambda p, dirs, roots=None: builds.append(p) or 0)
     assert BP.run([plugin]) == 3
     assert builds == [plugin]
 

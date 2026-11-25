@@ -63,9 +63,12 @@ def test_a_dlc_builds_into_its_own_folder_on_the_game_output(tmp_path, monkeypat
     assert ST.plugin_path(s, 'falloutnv') == game_out.parent / 'F3NV FNV - HonestHearts' / 'HonestHearts.esm'
     assert addons.default_output(s, 'fallout3', 'BrokenSteel.esm').name == 'F3NV FO3 - BrokenSteel'
     assert ST.master_dirs(s, 'falloutnv') == [game_out]
-    assert ST.unavailable(s, 'falloutnv', 'build') == 'build its master FalloutNV.esm first'
+    missing = 'convert its master FalloutNV.esm first, with this work folder'
+    assert ST.unavailable(s, 'falloutnv', 'build') == missing
     game_out.mkdir(parents=True)
     (game_out / 'FalloutNV.esm').write_bytes(b'')
+    assert ST.unavailable(s, 'falloutnv', 'update') == missing, 'built elsewhere, its export not in this work folder'
+    (S.export_root(s) / 'FalloutNV.esm').mkdir(parents=True)
     monkeypatch.setattr(addons, 'build_scope', lambda export, region: ['--world', 'Zion', '--whole'])
     build = ST.command(s, 'falloutnv', 'build', ST.Scope('world'), tmp_path / 'x.json')
     argv = build()

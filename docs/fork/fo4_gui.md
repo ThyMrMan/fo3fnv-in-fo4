@@ -971,6 +971,28 @@ does not list as add-ons).
   name and exit code. The Finished screen's headline names the stage that
   ended the run and its exit code (`finished_view.headline`).
 
+### <a id="rebuild-folders"></a>A rebuild reads this work folder
+
+A plugin's build record keeps the paths its build was given. A build made
+somewhere else records that place's folders: a developer checkout keeps
+`export/<plugin>` and `temp/fo4_scripts/<plugin>` relative to itself, and
+another release keeps its own work folder. f3nv-0.8 replayed those paths
+from its own app folder, so an Anchorage reconvert (built 2026-11-23 from
+the checkout) read an export that was not there and stopped with a
+`StopIteration` looking for the world `Wasteland` (2026-11-25).
+
+- The app's Rebuild what changed passes `--export-root` and
+  `--scripts-root` (its work folder's `export` and scripts folders), and
+  `build_plan.rooted` moves each recorded `--export` and `--scripts` there,
+  keeping the folder's name (an imported mod's through the registry). The
+  faces stage's export moves the same way. When anything moved, the parts
+  replay is skipped: its manifest names the old export, so the plugin is
+  built whole.
+- An add-on's build and rebuild need each master both built and exported
+  in this work folder (`stages.missing_master`): the build reads the
+  masters' records. A fresh work folder with only the DLC exported says
+  "convert its master Fallout3.esm first" instead of failing.
+
 ### <a id="child-output"></a>Child processes under pythonw
 
 The app runs under `pythonw.exe`, and its stages under the same

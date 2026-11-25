@@ -164,12 +164,14 @@ def rebuilt(settings: dict, source: str) -> list:
 
 
 def missing_master(settings: dict, source: str) -> str:
-    """The first of the target's masters with no built plugin in its output folder ('' when all are built)."""
-    chosen, master = target(settings, source), GAMES[source]['master']
-    plugin = None if chosen.game else addons.source_file(settings, source, chosen, S.export_root(settings))
+    """The first of the target's masters with no built plugin in its output folder or no export in this work
+    folder (a build reads both); '' when none."""
+    chosen, master, root = target(settings, source), GAMES[source]['master'], S.export_root(settings)
+    plugin = None if chosen.game else addons.source_file(settings, source, chosen, root)
     for name in addons.plugin_masters(plugin) if plugin else []:
         built = GAMES[source]['plugin'] if name.lower() == master.lower() else name
-        if not (addons.output(settings, source, name, master) / built).is_file():
+        if not (addons.output(settings, source, name, master) / built).is_file() \
+                or not Path(build_plan.in_root(root, name)).is_dir():
             return name
     return ''
 
@@ -187,8 +189,8 @@ def unavailable(settings: dict, source: str, stage: str, platform: str = sys.pla
         return f'needs {WINDOWS_TOOLS[stage]}, which runs only on Windows'
     if stage == 'export' and not chosen.mod and not _has_data(settings, source):
         return f"{GAMES[source]['master']}'s game folder is not set, or has no Data folder"
-    if stage == 'build' and not chosen.game and missing_master(settings, source):
-        return f'build its master {missing_master(settings, source)} first'
+    if stage in ('build', 'update') and not chosen.game and missing_master(settings, source):
+        return f'convert its master {missing_master(settings, source)} first, with this work folder'
     if stage == 'update' and build_plan.record(plugin_path(settings, source)) is None:
         return 'no finished build of it yet: build it once first'
     if stage == 'update' and build_plan.from_older_release(plugin_path(settings, source)):
@@ -253,7 +255,9 @@ def command(settings: dict, source: str, stage: str, scope: Scope, settings_file
         return [py, '-m', 'fo4_import.spike.facegen', '--export', str(export_dir(settings, source)), '--data',
                 str(out), plugin_path(settings, source).name]
     if stage == 'update':
-        return lambda: [py, '-m', 'fo4_import.pipeline.build_plan', '--run', *map(str, rebuilt(settings, source))]
+        return lambda: [py, '-m', 'fo4_import.pipeline.build_plan', '--run', '--export-root',
+                        str(S.export_root(settings)), '--scripts-root', str(S.scripts_dir(settings, source).parent),
+                        *map(str, rebuilt(settings, source))]
     if stage == 'runtime':
         return [py, '-m', 'fo4_import.app.runtime_dll', '--out', str(out)]
     if stage == 'classic':

@@ -159,7 +159,9 @@ def test_rebuild_what_changed_covers_the_target_its_masters_and_the_mods_built_o
     assert ST.rebuilt(s, 'falloutnv') == [game, mods['A'], mods['C'], other]
     argv = ST.command(s, 'falloutnv', 'update', ST.Scope(), tmp_path / 'x.json')()
     assert argv[1:4] == ['-m', 'fo4_import.pipeline.build_plan', '--run']
-    assert argv[4:] == [str(game), str(mods['A']), str(mods['C']), str(other)]
+    assert argv[4:8] == ['--export-root', str(ST.S.export_root(s)), '--scripts-root',
+                         str(ST.S.scripts_dir(s, 'falloutnv').parent)]
+    assert argv[8:] == [str(game), str(mods['A']), str(mods['C']), str(other)]
     assert ST.unavailable(s, 'falloutnv', 'update', 'win32') == '' and ST.found(s, 'falloutnv', 'faces').done
     mods['A'].parent.mkdir(parents=True)
     mods['A'].write_text('x')

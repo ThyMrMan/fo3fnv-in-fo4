@@ -24,6 +24,7 @@ import stat
 import sys
 from pathlib import Path
 
+from asset_convert.sources import source_registry
 from asset_convert.sources.source_registry import REGISTRY_NAME
 from core.subprocess_flags import call_inherited
 from fo4_import.base import release, source
@@ -460,6 +461,26 @@ def build_argv(plugin: Path, dirs: list) -> list:
     return retarget(argv, plugin, dirs)
 
 
+def in_root(root: Path, value: str) -> str:
+    """Recorded folder `value` in `root`: root/<its name>, else the registry's record folder of that name."""
+    name = Path(value).name
+    plain = Path(root) / name
+    if plain.is_dir() or not source_registry.get(root, name):
+        return str(plain)
+    return str(source_registry.record_dir(root, name))
+
+
+def rooted(argv: list, roots: dict) -> list:
+    """`argv` with the value of each flag in `roots` ({flag: folder}) moved into that folder (in_root).
+    See: docs/fork/fo4_gui.md#rebuild-folders
+    """
+    out = list(argv)
+    for i, word in enumerate(argv[:-1]):
+        if roots.get(word):
+            out[i + 1] = in_root(roots[word], argv[i + 1])
+    return out
+
+
 def master_dirs(plugin: Path, plugins: list) -> list:
     """The folders of the `plugins` that `plugin`'s header names as masters."""
     names = {m.lower() for m in file_masters(plugin)}
@@ -488,11 +509,13 @@ def replay_parts(plugin: Path) -> 'frozenset | None':
     return frozenset(parts)
 
 
-def rebuild(plugin: Path, dirs: list = ()) -> int:
-    """Build `plugin` again in its own folder with the module that built it, masters from `dirs`, or only replay
-    the parts that changed (replay_parts; a whole build after all when that says NEEDS_BUILD); the exit code (2 for
-    a module this cannot replay)."""
-    if replay_parts(plugin):
+def rebuild(plugin: Path, dirs: list = (), roots: dict = None) -> int:
+    """Build `plugin` again in its own folder with the module that built it, masters from `dirs`, its folders moved
+    into `roots` (rooted), or only replay the parts that changed (replay_parts, when `roots` moved nothing; a whole
+    build after all when that says NEEDS_BUILD); the exit code (2 for a module this cannot replay)."""
+    recorded = build_argv(plugin, dirs)
+    argv = rooted(recorded, roots or {})
+    if argv == recorded and replay_parts(plugin):
         print(f'== replaying parts of {plugin.name} ({REPLAY})', flush=True)
         code = call_inherited([sys.executable, '-m', REPLAY, str(plugin)], cwd=ROOT)
         if code != NEEDS_BUILD:
@@ -502,7 +525,7 @@ def rebuild(plugin: Path, dirs: list = ()) -> int:
         print(f'{plugin.name} was built by {module}, which build_plan cannot replay', flush=True)
         return 2
     print(f'== building {plugin.name} ({module})', flush=True)
-    return call_inherited([sys.executable, '-m', module, *build_argv(plugin, dirs)], cwd=ROOT)
+    return call_inherited([sys.executable, '-m', module, *argv], cwd=ROOT)
 
 
 def _scratch(path: Path) -> bool:
@@ -546,10 +569,11 @@ def leaked(rows: list, before: dict, built: Path, plugins: list) -> 'tuple | Non
     return next(((p, why) for p, why in flipped if p.resolve() not in deps), None)
 
 
-def faces_due(plugin: Path, plugins: list) -> 'tuple | None':
+def faces_due(plugin: Path, plugins: list, roots: dict = None) -> 'tuple | None':
     """(why, the faces stage's arguments, its folder) when `plugin`'s faces must run: stale (facegen.faces_stale),
     run before a master's among `plugins` (only its overrides step: it takes their patched faces), or never run
-    on a built plugin with fitted NPCs (arguments from its build stamp's export); None otherwise.
+    on a built plugin with fitted NPCs (arguments from its build stamp's export); None otherwise. The export is
+    moved into `roots` (rooted).
     See: docs/fork/fo4_facegen_plan.md#addon-faces
     """
     kept = facegen.faces_stamp(plugin)
@@ -557,12 +581,14 @@ def faces_due(plugin: Path, plugins: list) -> 'tuple | None':
         export = stamp_options(plugin).get('--export')
         if not export or facegen.base_build(plugin) is None or not facegen.fitted(plugin):
             return None
-        return 'its faces never ran', ['--export', export[0], '--data', str(plugin.parent), plugin.name], ROOT
+        argv = rooted(['--export', export[0], '--data', str(plugin.parent), plugin.name], roots or {})
+        return 'its faces never ran', argv, ROOT
     names = {m.lower() for m in file_masters(plugin)}
     later = [m.name for m in map(Path, plugins) if m.name.lower() in names
              and ((facegen.faces_stamp(m) or {}).get('ended') or '') > (kept.get('ended') or '')]
     old = kept.get('cwd') or str(ROOT)
-    stale, argv = facegen.faces_stale(plugin), in_folder([moved(a, old) for a in kept['argv']], plugin)
+    argv = rooted(in_folder([moved(a, old) for a in kept['argv']], plugin), roots or {})
+    stale = facegen.faces_stale(plugin)
     if stale or not later:
         return (stale, argv, ROOT) if stale else None
     return f'its master {later[0]}\'s faces ran after its own', [facegen.OVERRIDES_ONLY, *argv], ROOT
@@ -576,13 +602,13 @@ def in_folder(argv: list, plugin: Path) -> list:
     return argv[:at] + [str(plugin.parent)] + argv[at + 1:]
 
 
-def faces_again(plugins: list) -> int:
-    """Run the faces stage (faces_due's arguments) for each of `plugins`, in order, whose faces are due; the
-    first failing run's exit code, else 0.
+def faces_again(plugins: list, roots: dict = None) -> int:
+    """Run the faces stage (faces_due's arguments, its export in `roots`) for each of `plugins`, in order, whose
+    faces are due; the first failing run's exit code, else 0.
     See: docs/fork/fo4_facegen_plan.md#faces-stamp
     """
     for plugin in map(Path, plugins):
-        due = faces_due(plugin, plugins)
+        due = faces_due(plugin, plugins, roots)
         if due is None:
             continue
         reason, argv, cwd = due
@@ -606,12 +632,12 @@ def refusal(plugins: list) -> 'tuple | None':
     return None
 
 
-def run(plugins: list) -> int:
-    """Build every plugin of `plugins` that needs it, masters first, checking the rest again after each, and run a
-    rebuilt plugin's faces stage again (faces_again); the first failing build's exit code, STILL_BUILD when a
-    plugin still needs a build after its own with none of its masters built since, LEAKED when a build flips a plugin that does not depend on it,
-    SCRATCH_MASTER when a plugin reads a master from a scratch copy, OLD_RELEASE when an older release built one,
-    else 0.
+def run(plugins: list, roots: dict = None) -> int:
+    """Build every plugin of `plugins` that needs it, masters first, from the folders in `roots` (rooted),
+    checking the rest again after each, and run a rebuilt plugin's faces again (faces_again); the first failing
+    build's exit code, STILL_BUILD when one still needs a build after its own, LEAKED when a build flips a
+    plugin not depending on it, SCRATCH_MASTER for a master from a scratch copy, OLD_RELEASE for one an older
+    release built, else 0.
     See: docs/fork/fo4_plugin_layout.md#plan-guards
     """
     refused = refusal(plugins)
@@ -620,7 +646,7 @@ def run(plugins: list) -> int:
         return refused[0]
     built, before, last = set(), None, None
     while True:
-        code, faces = clocked(faces_again, plugins)
+        code, faces = clocked(faces_again, plugins, roots)
         if code:
             return code
         rows, planned = clocked(plan, plugins)
@@ -640,7 +666,7 @@ def run(plugins: list) -> int:
             print(f'{plugin.name} still needs a build after building it ({reason}); stopped', flush=True)
             return STILL_BUILD
         print(f'{plugin.name}: {reason}', flush=True)
-        code, took = clocked(rebuild, plugin, master_dirs(plugin, plugins))
+        code, took = clocked(rebuild, plugin, master_dirs(plugin, plugins), roots)
         print(f'{plugin.name}: build process {took:.0f}s, start to exit', flush=True)
         if code:
             print(f'{plugin.name}: its build failed (exit code {code}); the lines above say why', flush=True)
@@ -670,11 +696,13 @@ def main():
     ap.add_argument('plugins', nargs='+', type=Path, help='Built plugins (each beside its stamp and inputs record)')
     ap.add_argument('--run', action='store_true', help='Build every plugin that needs it, masters first')
     ap.add_argument('--verify', action='store_true', help='Rebuild the (current) plugin and compare its bytes')
+    ap.add_argument('--export-root', help='--run: read each export from this folder, not the recorded one')
+    ap.add_argument('--scripts-root', help='--run: convert each plugin\'s scripts into this folder')
     args = ap.parse_args()
     if args.verify:
         sys.exit(verify(args.plugins[0]))
     if args.run:
-        sys.exit(run(args.plugins))
+        sys.exit(run(args.plugins, {'--export': args.export_root, '--scripts': args.scripts_root}))
     for plugin, verdict, reason in plan(args.plugins):
         print(f'{plugin.name}: {verdict}{f" ({reason})" if reason else ""}')
 

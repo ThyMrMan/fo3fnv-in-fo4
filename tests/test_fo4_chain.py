@@ -273,14 +273,14 @@ def test_build_plan_runs_the_faces_again_right_after_a_rebuild(tmp_path, monkeyp
     monkeypatch.setattr(BP, 'plan', lambda plugins: next(plans))
     monkeypatch.setattr(BP, 'master_dirs', lambda *_: [])
     monkeypatch.setattr(BP, 'masters_of', lambda p: [])
-    monkeypatch.setattr(BP, 'rebuild', lambda p, dirs: calls.append('build') or _built(p, 'two') or 0)
+    monkeypatch.setattr(BP, 'rebuild', lambda p, dirs, roots=None: calls.append('build') or _built(p, 'two') or 0)
 
     def faces(argv, cwd):
         """The faces stage: record it, stamp it on the new build."""
         calls.append(argv[3:])
         facegen.write_faces_stamp(plugin, 'finished', argv[3:], tmp_path)
         return 0
-    monkeypatch.setattr(BP.subprocess, 'call', faces)
+    monkeypatch.setattr(BP, 'call_inherited', faces)
     assert BP.run([plugin]) == 0
     assert calls == ['build', ['--data', str(plugin.parent), '--own-facegen', 'FalloutNV.esm']]
 
@@ -306,7 +306,7 @@ def test_a_build_flipping_an_unrelated_plugin_stops_the_run(tmp_path, monkeypatc
     monkeypatch.setattr(BP, 'plan', lambda plugins: next(plans))
     monkeypatch.setattr(BP, 'masters_of', lambda p: [])
     monkeypatch.setattr(BP, 'master_dirs', lambda *_: [])
-    monkeypatch.setattr(BP, 'rebuild', lambda p, dirs: built.append(p.name) or 0)
+    monkeypatch.setattr(BP, 'rebuild', lambda p, dirs, roots=None: built.append(p.name) or 0)
     assert BP.run([a, b]) == BP.LEAKED and built == ['A.esm']
     assert f'B.esm needs a build after building A.esm, which it does not depend on (file {tmp_path / "shared.txt"})' \
            in capsys.readouterr().out
@@ -321,7 +321,7 @@ def test_a_plugin_reading_the_one_built_may_flip(tmp_path, monkeypatch):
     monkeypatch.setattr(BP, 'plan', lambda plugins: next(plans))
     monkeypatch.setattr(BP, 'masters_of', lambda p: {c: [a], b: [c]}.get(p, []))
     monkeypatch.setattr(BP, 'master_dirs', lambda *_: [])
-    monkeypatch.setattr(BP, 'rebuild', lambda p, dirs: built.append(p.name) or 0)
+    monkeypatch.setattr(BP, 'rebuild', lambda p, dirs, roots=None: built.append(p.name) or 0)
     assert BP.run([a, c, b]) == 0 and built == ['A.esm', 'B.esm']
 
 
@@ -335,7 +335,7 @@ def test_a_plugin_built_before_its_masters_builds_again_after_them(tmp_path, mon
     monkeypatch.setattr(BP, 'plan', lambda plugins: next(plans))
     monkeypatch.setattr(BP, 'masters_of', lambda p: [m] if p == o and built else [])
     monkeypatch.setattr(BP, 'master_dirs', lambda *_: [])
-    monkeypatch.setattr(BP, 'rebuild', lambda p, dirs: built.append(p.name) or 0)
+    monkeypatch.setattr(BP, 'rebuild', lambda p, dirs, roots=None: built.append(p.name) or 0)
     assert BP.run([o, m]) == 0 and built == ['O.esl', 'M.esp', 'O.esl']
 
 

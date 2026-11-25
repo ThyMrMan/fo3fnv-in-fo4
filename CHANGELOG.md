@@ -5,6 +5,20 @@ alpha. Download the zip named `fo3fnv-in-fo4-<release>.zip` from the
 [Releases page](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases), not
 "Source code".
 
+## f3nv-0.9 (2026-11-25)
+
+### Fixed
+- **Reconverting a DLC no longer fails on a build made elsewhere.** "Rebuild
+  what changed" now always reads the exports and scripts in this app's work
+  folder. Before, it reused the folders recorded by the plugin's last build,
+  so a plugin built by another release or from the command line failed to
+  find its export (an Anchorage reconvert stopped looking for the world
+  `Wasteland`).
+- **A DLC asks for its game first.** Converting a DLC now needs its game
+  converted with the same work folder, since the build reads the game's
+  records too. The Convert screen says so instead of starting a build that
+  cannot finish.
+
 ## f3nv-0.8 (2026-11-25)
 
 **After upgrading:** "Rebuild what changed" rebuilds your converted games
