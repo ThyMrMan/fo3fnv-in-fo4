@@ -74,7 +74,7 @@ def skin_face(face: facegen_skin.Face) -> tuple:
         facegen_skin.skin_face, face)))
     (((form_id, qnam, lines), ran), reads, writes), records = reading(src, make)
     value = (records, outside(reads, src), written(writes, data_dir), np.asarray(qnam).tolist(), lines)
-    work_cache.store(SITE, __name__, inputs, value, ran)
+    work_cache.store_latest(SITE, __name__, (inputs[0], face.form_id), inputs, value, ran)
     return form_id, qnam, lines, False
 
 

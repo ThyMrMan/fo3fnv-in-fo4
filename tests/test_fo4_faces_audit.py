@@ -210,7 +210,8 @@ def test_prune_keeps_only_faces_of_the_plugins_npcs_from_the_last_export(tmp_pat
     for folder, stem in ((loose, '00000801'), (staged, '00000801'), (staged, '00000802'), (staged, '00000803')):
         (folder / f'{stem}_d.dds').write_bytes(b'dds')
     assert FG.prune('Spike.esp', tmp_path, [0x03000801]) == 3
-    assert sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob('*') if p.is_file()) == sorted(
+    faces = (p for p in tmp_path.rglob('*') if p.is_file() and p.name != ba2_pack.DATA_RECORD)
+    assert sorted(p.relative_to(tmp_path).as_posix() for p in faces) == sorted(
         p.relative_to(tmp_path).as_posix() for p in (geom / '00000801.NIF', loose / '00000801_d.dds',
                                                      staged / '00000801_d.dds'))
 

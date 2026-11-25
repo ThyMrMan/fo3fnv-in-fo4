@@ -7,6 +7,7 @@ See: docs/fork/fo4_pipeline.md#build-files
 
 import os
 import shutil
+import time
 
 from fo4_import.base import ba2_pack as BP
 from fo4_import.base import build_files as BF
@@ -229,3 +230,22 @@ def test_a_stash_the_archive_moved_on_from_is_not_used(tmp_path, monkeypatch):
     (data / 'Meshes/fnv/Extra.nif').write_bytes(b'not packed')
     BP.drop_packed(data, 'P.esm')
     assert not stash.exists() and not (data / 'Meshes/fnv/Cup.nif').exists()
+
+
+def test_staging_left_unused_or_orphaned_is_pruned(tmp_path, monkeypatch):
+    """A build's staging folder records its Data folder and stays; one whose Data folder is gone, one unused 20
+    days and one from before the record, as old, are deleted."""
+    monkeypatch.setattr(BP, 'STAGING_CACHE', tmp_path / 'cache')
+    live, gone, unused = tmp_path / 'live', tmp_path / 'gone', tmp_path / 'idle'
+    for folder in (live, gone, unused):
+        folder.mkdir()
+    kept, orphan, idle = BP.staging_root(live), BP.staging_root(gone), BP.staging_root(unused)
+    shutil.rmtree(gone)
+    old = time.time() - 20 * 86400
+    os.utime(idle / BP.DATA_RECORD, (old, old))
+    legacy = tmp_path / 'cache' / 'legacy-0123456789ab'
+    legacy.mkdir()
+    os.utime(legacy, (old, old))
+    assert (kept / BP.DATA_RECORD).read_text(encoding='utf-8') == os.path.normcase(os.path.abspath(live))
+    assert BP.prune_staging(14) == 3
+    assert kept.is_dir() and not orphan.exists() and not idle.exists() and not legacy.exists()

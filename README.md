@@ -80,7 +80,7 @@ differs from the original games is in [fo4_drift.md](docs/fork/fo4_drift.md).
 | **[Mod Organizer 2](https://github.com/ModOrganizer2/modorganizer)** | Set up for Fallout 4. The steps below assume it. |
 | **[F4SE](https://f4se.silverlock.org/)** | For 1.11.240, installed into your Fallout 4 folder, its `Data` folder included (converted scripts compile against its script sources). |
 | **Two mods in MO2** | [Address Library for F4SE Plugins](https://www.nexusmods.com/fallout4/mods/47327), [Mod Configuration Menu](https://www.nexusmods.com/fallout4/mods/21497). |
-| **A strong PC** | 32 GB of RAM and about 100 GB of free disk space. |
+| **A strong PC** | 32 GB of RAM, and about 70 GB of free disk space per game you convert (about 140 GB for both), not counting the games themselves ([breakdown](docs/fork/fo4_build_resources.md#disk)). |
 
 > [!CAUTION]
 > **Uninstall or disable Extended Dialogue Interface (XDI)** before you play.
@@ -112,8 +112,10 @@ Please [report](#problems) how it goes.
 2. Unzip it to a folder you can write to, outside `Program Files`, for
    example `D:\Games`. That gives `D:\Games\fo3fnv-in-fo4-<release>`. The
    app keeps its work (the export of your game, caches and logs, about
-   100 GB for New Vegas) in **`F3NV Work`** beside it, here
-   `D:\Games\F3NV Work`, so pick a drive with room.
+   40 GB for New Vegas and 45 GB for Fallout 3) in **`F3NV Work`** beside
+   it, here `D:\Games\F3NV Work`, so pick a drive with room. The converted
+   game itself goes into MO2's `mods` folder: about 14 GB for New Vegas and
+   20 GB for Fallout 3.
 
 ### 2. Start the app
 

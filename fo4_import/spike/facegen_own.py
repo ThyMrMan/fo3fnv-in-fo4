@@ -121,7 +121,7 @@ def cached_files(src: facegeom.Sources, plugin: str, form_id: int, kinds: tuple 
     why = miss_reason(src, inputs, kept)
     make = functools.partial(face_files, src, plugin, form_id, kinds)
     (files, ran), read = reading(src, functools.partial(ran_while, make))
-    work_cache.store(SITE, __name__, inputs, (read, files), ran)
+    work_cache.store_latest(SITE, __name__, (inputs[0], form_id, kinds), inputs, (read, files), ran)
     return files, why
 
 

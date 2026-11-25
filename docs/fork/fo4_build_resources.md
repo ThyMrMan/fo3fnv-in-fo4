@@ -20,6 +20,7 @@ and during it. Raw speed on the build machine is not the goal.
 - [Estimated time](#eta)
 - [The machine benchmark](#benchmark)
 - [The fit and its error](#fit)
+- [Disk space](#disk)
 - [Still open](#open)
 
 ## <a id="stage-memory"></a>Memory per stage
@@ -558,6 +559,97 @@ What it shows:
 The estimate printed `about 1 min cold` from the export. A first build into
 an empty cache also recomputes the animation records table and collision
 for every mesh, which the cold model does not cover.
+
+## <a id="disk"></a>Disk space
+
+**Code:** `fo4_import/base/ba2_pack.py` (`prune_staging`),
+`fo4_import/pipeline/work_cache.py` (`store_latest`), called from
+`spike/build_finish.py`, `spike/facegen_own.py`, `spike/facegen_skin_cache.py`.
+
+**Where it went on the build machine (2026-11-24, before cleanup).**
+`output/fo4_cache` held 482 GB in 8.1 million files, `temp/` 145 GB:
+
+| Cache | Size | What |
+|---|---|---|
+| `ba2` | 316 GB, 137 folders | archive staging: per Data folder, loose copies of what its archives hold |
+| `work` | 152 GB | the work cache; `own_face` 82 GB and `face_skin` 32 GB of it |
+| `meshes`, `object_lod`, others | 14 GB | |
+
+- **Staging is a second copy of each built mod.** A staging folder holds the
+  staged sounds, the textures and the `loose` stash of Main-archive files
+  (FO3: Sound 12.3, Textures 4.0, loose 2.5 GB; FNV: 7.7, 5.3, 2.5 GB), about
+  the size of the mod's archives. It stays between builds so a rebuild skips
+  unchanged voices and textures. Its name is the Data folder's path hash, so
+  every folder a build ever wrote to kept one: 75.8 GB belonged to folders
+  that no longer existed (scratch builds, `temp/profile_data*`), and about
+  42 GB to `C:\Modlists` copies of mods since built under `D:\Modlists`.
+  Nothing removed them.
+- **Faces were kept once per NPC record version.** An `own_face` entry is
+  keyed on the NPC record as built and its masters (`facegen_own.cached_files`),
+  so a converter change that touches NPC records, or a rebuilt master under a
+  DLC, makes a new key for each face; the old entry (about 0.9 MB) waited out
+  the 14-day prune. Of `own_face`'s 82 GB, 18.5 GB had been used in the last two
+  days. `face_skin` keys on the head files' digests, so it grew the same way.
+
+**What the build does now.**
+- `ba2_pack._staging` writes `data_folder.txt` (the Data folder) into the
+  staging folder each build that uses it, and the end of every build
+  (`prune_staging(14)`) deletes a staging folder unused 14 days, or whose
+  Data folder is gone from a drive that is present (an unplugged drive keeps
+  its staging). A folder from before the record goes by its age. The cost of a
+  wrong delete is one rebuild that stages everything again.
+- `work_cache.store_latest` keeps each NPC's two newest face entries
+  (`own_face`: plugin, FormID, kinds; `face_skin`: plugin, FormID) and deletes
+  older ones when a new one is stored. Two, not one: builds alternating between
+  two code versions (a test worktree sharing this cache) both hit, as
+  `tests/test_fo4_facegen_own.py` requires.
+
+**A conversion's disk use** (one game). New Vegas is a fresh build into an
+empty work folder on the test laptop (2026-11-24, release
+`f3nv-0.6-6-gd3a448bb`); Fallout 3 is the build machine's folders, its caches
+estimated from New Vegas's plus its larger voice set:
+
+| Part | Where | New Vegas | Fallout 3 |
+|---|---|---|---|
+| Export (records, archives extracted, music) | work folder | 9.2 GB | 7.8 GB |
+| Archive staging (`fo4_cache/ba2`) | work folder | 15.2 GB | 18.9 GB |
+| Work cache (`fo4_cache/work`) | work folder | 13.2 GB | about 15 GB |
+| Other caches (`meshes`, `object_lod`, `pre_elric`, headers) | work folder | 2.3 GB | about 2.3 GB |
+| Built mod folder | MO2 `mods` | 13.7 GB | 19.4 GB (voices 12.3) |
+| **Total** | | **53.5 GB** | **about 63 GB** |
+
+The work cache's largest sites after a fresh New Vegas build: `own_face`
+4.3 GB, `face_skin` 3.6 GB, `voice_file` 1.9 GB, `land textures` and
+`spec_map` 0.7 GB each, `mesh_files` 0.6 GB, `gun_clip_files` 0.6 GB. A
+rebuild after a change to NPC records stores a second face per NPC (the two
+kept by `store_latest`), so the face sites can grow to about 16 GB; the README
+asks for about 70 GB per game to cover that.
+
+## <a id="gun-clip-memory"></a>Gun clip workers
+
+**Code:** `fo4_import/havok/gun_clips.py` (`_third_target`),
+`fo4_import/havok/gun_clip_pool.py` (`WORKER_BYTES`).
+
+On the test laptop's fresh New Vegas build (13.7 GB, 2026-11-24) the weapons
+step (`item WEAP`) took 2,197 s, and its two gun clip workers committed
+7.98 GB together beside a 6.65 GB main process: free memory reached 0.01 GB.
+The pool had sized them at `WORKER_BYTES` = 1 GB each.
+
+A worker kept every vanilla third-person clip it parsed (`third_clips`), the
+whole clip, though it reads only the left-hand target track from most of them
+(`_on_gun`), to decide which clips follow the gun. A shotgun reads 646 such
+clips. Replaying the saved jobs of a one-cell build in one process, the commit
+went 1.14 GB after two guns, 2.28 GB after the third (646 clips kept),
+3.05 GB after the fifth (1,061 clips).
+
+Now a worker keeps per clip only that track's translations
+(`third_targets`), and parses a clip again when it writes a copy of it
+(WPNAssemblyPose and the clips whose target stays on the gun). The same eight
+guns replayed (`temp/gun_worker_mem.py`): each gun's clips, entries and files
+hash the same as before; the commit stays at 1.13–1.14 GB where it climbed to
+3.30 GB, and the eight take 97 s against 101 s. Both figures include about
+1 GB of the replay's own saved jobs, so a real worker is smaller still, and
+`WORKER_BYTES` stays at 1 GB.
 
 ## <a id="open"></a>Still open
 

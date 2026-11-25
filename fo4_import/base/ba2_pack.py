@@ -27,6 +27,7 @@ import json
 import multiprocessing
 import os
 import shutil
+import time
 from pathlib import Path
 
 from core.build_resources import pool_workers
@@ -44,6 +45,8 @@ from asset_convert import paths as data_paths
 STAGING, STAGING_CACHE = '_ba2', data_paths.FO4_CACHE / 'ba2'
 #: The staging folder's record of its files at the last pack: {texture key: [size, mtime_ns, signature or None]}.
 MANIFEST = 'manifest.json'
+#: The staging folder's record of the Data folder it stages, rewritten each build that uses it (prune_staging).
+DATA_RECORD = 'data_folder.txt'
 #: Texture key prefixes a build writes itself (its textures, its worldspaces' LOD); only these are pruned, not FaceGen.
 OWN = ('fnv/', 'terrain/fnv_')
 #: The Data folder's folder packed into `<plugin> - Main.ba2`, uncompressed (.fuz and .xwm are compressed already).
@@ -90,7 +93,40 @@ def _staging(cache: Path, data_key: str) -> Path:
         shutil.move(str(legacy), str(root))
     elif legacy.is_dir():
         shutil.rmtree(legacy)
+    _record_use(root, data_key)
     return root
+
+
+def _record_use(root: Path, data_key: str) -> None:
+    """Writes `root`'s DATA_RECORD (its Data folder), so its time is the last build that used it (prune_staging);
+    another process writing it at once keeps its copy."""
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        (root / DATA_RECORD).write_text(data_key, encoding='utf-8')
+    except OSError:
+        pass
+
+
+def prune_staging(days: int, cache: 'Path | None' = None) -> int:
+    """Delete each staging folder in `cache` (STAGING_CACHE) no build used for `days` days, or whose Data folder
+    (DATA_RECORD) is gone from a drive that is there; how many. A folder from before the record goes by its age.
+    See: docs/fork/fo4_build_resources.md#disk
+    """
+    folders = [p for p in Path(cache or STAGING_CACHE).glob('*') if p.is_dir()]
+    gone = [p for p in folders if _staging_unused(p, time.time() - days * 86400)]
+    for root in gone:
+        shutil.rmtree(root)
+    return len(gone)
+
+
+def _staging_unused(root: Path, before: float) -> bool:
+    """Whether staging folder `root` was last used before `before` or stages a Data folder that is gone."""
+    record = root / DATA_RECORD
+    try:
+        used, data = record.stat().st_mtime, Path(record.read_text(encoding='utf-8'))
+    except OSError:
+        return root.stat().st_mtime < before
+    return used < before or (Path(data.anchor).exists() and not data.is_dir())
 
 
 def _read_json(path: Path) -> dict:

@@ -39,6 +39,10 @@ UNUSED_DAYS = 14
 #: Seconds a used entry's time may lag before a lookup marks it again: prune() counts whole days.
 MARK_EVERY = 86400
 RAN_SUFFIX = '.ran'
+#: A site's folder of per-group files, each naming its group's newest entries (store_latest).
+LATEST = '_latest'
+#: Entries store_latest keeps per group: two, so builds alternating between two versions of a face both hit.
+LATEST_KEPT = 2
 #: The file whose time is when prune() last swept, beside the caches.
 PRUNED = CACHE.parent / 'pruned'
 
@@ -145,6 +149,27 @@ def store(site: str, module: str, inputs: tuple, value, ran: 'dict | None' = Non
     entry.parent.mkdir(parents=True, exist_ok=True)
     if replace_with(entry, pickle.dumps(value)):
         write_ran(entry, ran if ran is not None else module_ran(module))
+    return value
+
+
+def store_latest(site: str, module: str, group: tuple, inputs: tuple, value, ran: 'dict | None' = None):
+    """store() `value`, keeping `group`'s LATEST_KEPT newest entries under `site` (LATEST lists them) and deleting
+    older ones, as an NPC's faces, so a replaced entry does not wait out UNUSED_DAYS; `value`.
+    See: docs/fork/fo4_build_resources.md#disk
+    """
+    entry, marker = _entry(site, inputs), CACHE / site / LATEST / key(site, group)
+    try:
+        names = marker.read_text(encoding='utf-8').split()
+    except OSError:
+        names = []
+    store(site, module, inputs, value, ran)
+    names = [entry.name] + [n for n in names if n != entry.name]
+    for name in names[LATEST_KEPT:]:
+        old = CACHE / site / name[:2] / name
+        old.unlink(missing_ok=True)
+        ran_path(old).unlink(missing_ok=True)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text('\n'.join(names[:LATEST_KEPT]), encoding='utf-8')
     return value
 
 

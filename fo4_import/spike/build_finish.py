@@ -13,7 +13,7 @@ from fo4_import import dialogue_menu as menu_links
 from fo4_import import level_up as level_up_menu, pipboy_overlay
 from fo4_import.base import translations
 from fo4_import.classic_look import CLASSIC_FOLDER
-from fo4_import.base.ba2_pack import pack_main, pack_textures, sound_root, stage_loose_sounds
+from fo4_import.base.ba2_pack import pack_main, pack_textures, prune_staging, sound_root, stage_loose_sounds
 from fo4_import.base.bink import write_movies
 from fo4_import.base.dangling_scripts import clear_dangling
 from fo4_import.base.install import FALLOUT4_DIR
@@ -338,5 +338,6 @@ def finish(builder, export_dir: Path, data_dir: Path, out: Path, scripts_dir, he
                                 'scripts': _scripts_manifest(builder, export_dir, data_dir, scripts_dir)})
     _main_archive(builder, data_dir, out.name)
     builder.counts['cache entries pruned (unused 14 days)'] = elric_cache.prune_caches(days=14)
+    builder.counts['archive staging folders pruned (unused 14 days or Data folder gone)'] = prune_staging(14)
     print(f'readiness entries: {builder.readiness.write(out.name)}')
     return builder.counts
