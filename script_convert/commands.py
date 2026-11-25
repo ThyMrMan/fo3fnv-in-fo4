@@ -34,7 +34,7 @@ from script_convert.emit.commands import emit_row
 from script_convert.target import (anim_event_call, av_call, controls_call, fallout4_actor_values, fallout4_av_name,
                                    is_fallout4, on_talking_activator, self_as_actor)
 from script_convert.commands_falloutnv import FALLOUT_HANDLERS
-from script_convert.anim_playing_falloutnv import played
+from script_convert.anim_playing_falloutnv import linked_bases, played
 from script_convert.message_menus import PAGE_OPTIONS
 from script_convert.poll_motion import axis_key, rate_scale
 from script_convert.emit import expr as _expr
@@ -509,7 +509,8 @@ def play_group(ctx, call) -> str:
     anim = call.source(0, 'Idle').rstrip(',').strip('"').strip("'") or 'Idle'
     if call.ref:
         sig = ctx.xref.get_base_signature(call.ref) if ctx.xref else ''
-        is_actor = sig in ('NPC_', 'CREA', 'ACHR', 'ACRE') if sig else True
+        sigs = {sig} if sig else {ctx.xref.record_type.get(b, '') for b in linked_bases(ctx, call.ref)} - {''}
+        is_actor = bool(sigs & {'NPC_', 'CREA', 'ACHR', 'ACRE'}) if sigs else True
     else:
         is_actor = call.extends in ('Actor', 'TopicInfo', 'ActiveMagicEffect')
 

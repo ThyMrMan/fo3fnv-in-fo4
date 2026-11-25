@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
 
+from core.run_log import format_elapsed
 from fo4_import.app import mo2_setup
 from fo4_import.app.stages import target
 from fo4_import.app.status_view import InstallStatusDialog, install_checks
@@ -27,12 +28,25 @@ INSTALL_NOTES = (
     'F4SE plugin" stage puts F3NV.dll in the game\'s output.')
 
 
+def headline(results: list) -> str:
+    """The screen's first line: finished, nothing ran, or the stage that ended the run and how."""
+    if not results:
+        return 'Nothing was converted: no stage ran.'
+    failed = next((r for r in results if r.code != 0), None)
+    if failed is None:
+        return 'Conversion finished.'
+    if failed.code is None:
+        return f'Conversion did not finish: "{failed.label}" was stopped.'
+    return (f'Conversion did not finish: "{failed.label}" failed (exit code {failed.code}). The log on the Convert '
+            'screen, also saved in the work folder\'s "logs" folder, says why.')
+
+
 def summary(results: list) -> str:
     """One line per stage: its label, how it ended and how long it took."""
     if not results:
         return 'Nothing ran.'
     return '\n'.join(f'{r.label}: ' + ('stopped' if r.code is None else 'done' if r.code == 0 else f'failed ({r.code})')
-                     + f' in {r.seconds:.0f}s' for r in results)
+                     + f' in {format_elapsed(r.seconds)}' for r in results)
 
 
 class FinishedView(QWidget):
@@ -73,8 +87,8 @@ class FinishedView(QWidget):
 
     def show_outcome(self, results: list, warnings: list, folder: Path, made_zip: str = '') -> None:
         """Show a run's `results` and `warnings`, and the output `folder` (and zip, if one was made)."""
-        ok = bool(results) and all(r.code == 0 for r in results)
-        self.headline.setText('Conversion finished.' if ok else 'Conversion did not finish.')
+        self.headline.setText(headline(results))
+        self.headline.setWordWrap(True)
         self.stages.setText(summary(results))
         self.folder = folder
         self.where.setText(f'Converted files: {folder}' + (f'\nZip: {made_zip}' if made_zip else ''))

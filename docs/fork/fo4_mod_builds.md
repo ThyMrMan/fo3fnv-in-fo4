@@ -88,6 +88,13 @@ What the record keeps now:
   rebuild, e.g. `plugin found ["Guns.esp", ...]`.
 - The file found is still a recorded input when the build reads it, so
   editing it rebuilds the plugin that used it.
+- **The export source registry** (`export/sources.json`) works the same way
+  (2026-11-25). Every export rewrites it, so recorded whole it made each
+  plugin stale whenever any other plugin was exported; exporting Anchorage
+  marked Fallout3.esm for a rebuild. `base/source.py` now logs each lookup
+  it answers from the registry as `export source [name, root, arg]` and
+  leaves the registry out; `build_plan._files` skips any file named
+  `sources.json`, so records written before this still read as current.
 
 Tested (`test_fo4_build_plan.py`): rewriting the ini, ticking an unrelated
 mod or changing another app setting leaves a plugin current. The same plugin

@@ -20,7 +20,15 @@ Weapon Property Fists Auto Const
 String Property CompletedText Auto Const
 String Property ProgressText Auto Const
 
+Float Property BlastSeconds = 3.0 AutoReadOnly
+{How long after an explosion catches an actor a kill of it is credited to the explosion's weapons.}
+Int Property BlastSlots = 16 AutoReadOnly
+
 Int[] Seen
+Actor[] BlastVictims
+FormList[] BlastWeapons
+Float[] BlastTimes
+Int BlastNext
 
 Event OnQuestInit()
   Ready()
@@ -62,17 +70,74 @@ Event OnTrackedStatsEvent(String asStat, Int aiStatValue)
 EndEvent
 
 Function Note(Int aiEvent, Int aiGroup, Int aiAmount, Actor akVictim, Form akItem)
-  {Hand aiEvent (a stat event: of group aiGroup) to every plugin's challenges, with the player's weapon (fists when none), akVictim and akItem.}
-  Ready()
+  {Hand aiEvent (a stat event: of group aiGroup) to every plugin's challenges, with the player's weapon, akVictim and akItem.}
+  Hand(aiEvent, aiGroup, aiAmount, akVictim, akItem, Held())
+EndFunction
+
+Form Function Held()
+  {The player's weapon, the fists when none.}
   Weapon held = Game.GetPlayer().GetEquippedWeapon()
   If !held
-    held = Fists
+    Return Fists
   EndIf
+  Return held
+EndFunction
+
+Function Killed(Actor akVictim)
+  {The player killed akVictim: a kill with the weapons of an explosion that caught it (F3NV_ExplosiveHit, given a moment to arrive), else with the weapon held.}
+  Form held = Held()
+  FormList blast = BlastOf(akVictim)
+  If !blast
+    Utility.Wait(0.3)
+    blast = BlastOf(akVictim)
+  EndIf
+  If blast
+    held = blast
+  EndIf
+  Hand(KillEvent, -1, 1, akVictim, None, held)
+EndFunction
+
+Function Blasted(Actor akVictim, FormList akWeapons)
+  {An explosion set off by akWeapons caught akVictim (F3NV_ExplosiveHit); kept BlastSeconds, the oldest of BlastSlots giving way.}
+  If !BlastVictims
+    BlastVictims = new Actor[16]
+    BlastWeapons = new FormList[16]
+    BlastTimes = new Float[16]
+  EndIf
+  Int i = BlastVictims.Find(akVictim)
+  If i < 0
+    i = BlastNext
+    BlastNext = (BlastNext + 1) % BlastSlots
+  EndIf
+  BlastVictims[i] = akVictim
+  BlastWeapons[i] = akWeapons
+  BlastTimes[i] = Utility.GetCurrentRealTime()
+EndFunction
+
+FormList Function BlastOf(Actor akVictim)
+  {The weapons of the explosion that caught akVictim within BlastSeconds, else None.}
+  Int i = -1
+  If BlastVictims && akVictim
+    i = BlastVictims.Find(akVictim)
+  EndIf
+  If i < 0
+    Return None
+  EndIf
+  Float age = Utility.GetCurrentRealTime() - BlastTimes[i]
+  If age < 0.0 || age > BlastSeconds
+    Return None
+  EndIf
+  Return BlastWeapons[i]
+EndFunction
+
+Function Hand(Int aiEvent, Int aiGroup, Int aiAmount, Actor akVictim, Form akItem, Form akHeld)
+  {Hand aiEvent to every plugin's challenges with akHeld: a weapon, or an explosion's list of weapons.}
+  Ready()
   Int k = 0
   While k < Sources.GetSize()
     F3NV_ChallengeSource rows = Sources.GetAt(k) as F3NV_ChallengeSource
     If rows
-      rows.Note(aiEvent, aiGroup, aiAmount, akVictim, akItem, held)
+      rows.Note(aiEvent, aiGroup, aiAmount, akVictim, akItem, akHeld)
     EndIf
     k += 1
   EndWhile

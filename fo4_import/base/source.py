@@ -5,10 +5,15 @@ them (export/FalloutNV.esm: the New Vegas install's Data; export/Fallout3.esm: F
 See: docs/fork/fo4_pipeline.md#source-plugin
 """
 
+import json
 from pathlib import Path
 
 from asset_convert.sources import source_registry
 from core.mod_sources import PLUGIN_SUFFIXES
+from fo4_import.pipeline.build_inputs import asked
+
+#: build_inputs question kind of a registry lookup: build_plan asks it again (ask), not the whole sources.json.
+ASKED = 'export source'
 
 #: Each source game's own plugins, the game first: New Vegas's five DLC and four pre-order packs, Fallout 3's DLC.
 GAME_PLUGINS = {
@@ -24,12 +29,33 @@ def export_root(export_dir) -> Path:
     return next((p for p in export_dir.parents if source_registry.registry_path(p).is_file()), export_dir.parent)
 
 
+def _answer(found) -> 'str | None':
+    """A registry lookup's result as a logged answer."""
+    return json.dumps(found) if isinstance(found, list) else str(found) if found else None
+
+
+def _registry(name: str, root: Path, arg: str):
+    """source_registry.<name>(`root`, `arg`), logged as a question the build asked, sources.json left out of its
+    record: another plugin's entry changing it rebuilds nothing.
+    See: docs/fork/fo4_mod_builds.md#mo2-answers
+    """
+    found = getattr(source_registry, name)(root, arg)
+    asked(ASKED, json.dumps([name, str(root), arg]), _answer(found), (source_registry.registry_path(root),))
+    return found
+
+
+def ask(arg: str) -> 'str | None':
+    """A logged registry lookup (arg: [function, export root, name]) answered now."""
+    name, root, plugin = json.loads(arg)
+    return _answer(getattr(source_registry, name)(Path(root), plugin))
+
+
 def plugin_name(export_dir) -> str:
     """The plugin file name the export at `export_dir` holds: its folder's name, or an imported mod's one plugin."""
     name = Path(export_dir).name
     if name.lower().endswith(PLUGIN_SUFFIXES):
         return name
-    plugins = source_registry.mod_plugins(export_root(export_dir), name)
+    plugins = _registry('mod_plugins', export_root(export_dir), name)
     if len(plugins) != 1:
         raise SystemExit(f'{name}: not one imported plugin in this mod folder ({plugins}); pass its plugin folder')
     return plugins[0]
@@ -44,26 +70,26 @@ def record_dir(export_dir, plugin: str) -> Path:
     """The export folder of `plugin`'s records beside `export_dir`: export/<plugin>, else an imported mod's."""
     root = export_root(export_dir)
     plain = root / plugin
-    return plain if plain.is_dir() else source_registry.record_dir(root, plugin)
+    return plain if plain.is_dir() else _registry('record_dir', root, plugin)
 
 
 def asset_dirs(export_dir) -> tuple:
     """`export_dir`, then the mod folder holding its assets when that differs (a mod shipping several plugins)."""
     export_dir = Path(export_dir)
-    shared = source_registry.asset_root(export_root(export_dir), plugin_name(export_dir))
+    shared = _registry('asset_root', export_root(export_dir), plugin_name(export_dir))
     return (export_dir,) if shared == export_dir or not shared.is_dir() else (export_dir, shared)
 
 
 def source_data(export_dir) -> 'Path | None':
     """The Data folder the export `export_dir` came from; None if unknown."""
-    data = source_registry.directory_for(export_root(export_dir), plugin_name(export_dir))
+    data = _registry('directory_for', export_root(export_dir), plugin_name(export_dir))
     return Path(data) if data else None
 
 
 def source_plugin(export_dir) -> Path:
     """The plugin file the export at `export_dir` was read from: an imported mod's kept copy, else its Data's."""
     name = plugin_name(export_dir)
-    imported = source_registry.plugin_binary(export_root(export_dir), name)
+    imported = _registry('plugin_binary', export_root(export_dir), name)
     data = source_data(export_dir)
     plugin = imported or (data / name if data else None)
     if plugin is None or not plugin.is_file():

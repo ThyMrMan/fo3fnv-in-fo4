@@ -47,7 +47,7 @@ import subprocess
 import sys
 
 __all__ = ["POPEN_FLAGS", "configure_multiprocessing", "windows_cmd",
-          "run_streamed", "to_wine_path"]
+          "run_streamed", "call_inherited", "to_wine_path"]
 
 # Flags to hide the console window of any subprocess we spawn on Windows.
 POPEN_FLAGS: dict = {}
@@ -156,6 +156,24 @@ def run_streamed(cmd: list, **kwargs) -> tuple:
         sys.stdout.flush()
         lines.append(line)
     return ''.join(lines), proc.wait()
+
+
+def call_inherited(cmd: list, **kwargs) -> int:
+    """``subprocess.call(cmd)`` writing to this process's own stdout and stderr, handed over explicitly; the exit code.
+
+    A pythonw.exe parent passes a child no standard handles unless told, so the child's output and traceback vanish.
+    See: docs/fork/fo4_gui.md#child-output
+    """
+    streams = {}
+    for name in ('stdout', 'stderr'):
+        stream = getattr(sys, name)
+        try:
+            stream.flush()
+            stream.fileno()
+        except (AttributeError, OSError, ValueError):
+            continue
+        streams[name] = stream
+    return subprocess.call(cmd, **streams, **kwargs, **POPEN_FLAGS)
 
 
 def to_wine_path(path) -> str:

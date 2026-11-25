@@ -2,7 +2,7 @@ ScriptName F3NV_ChallengesPlayer extends ReferenceAlias Hidden
 {The player's alias on the challenges quest: hands F3NV_Challenges the player's kills, the potions and chems used and the player's limbs crippled. See docs/fork/fo4_pipeline.md#challenges}
 
 Event OnKill(Actor akVictim)
-  Challenges().Note(0, -1, 1, akVictim, None)
+  Challenges().Killed(akVictim)
 EndEvent
 
 Event OnItemEquipped(Form akBaseObject, ObjectReference akReference)

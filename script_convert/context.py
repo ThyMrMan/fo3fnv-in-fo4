@@ -117,6 +117,8 @@ class ScriptContext:
     uses_anim_action: bool = False
     #: A sequence played or IsAnimPlaying read (Fallout 4), so the play record and TES4_AnimPlaying are due.
     uses_anim_playing: bool = False
+    #: Variables (lower case) set from the script's own GetLinkedRef: PlayGroup and IsAnimPlaying see their linked refs.
+    linked_vars: frozenset = frozenset()
 
     #: Chargen-menu call sites converted here, and whether the re-entrancy
     #: latch declaration is due.

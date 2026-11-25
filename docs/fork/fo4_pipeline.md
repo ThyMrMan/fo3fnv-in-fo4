@@ -1703,8 +1703,32 @@ script-added entries after its authored ones (`pages.cpp` `ListIds`: F4SE's
   Food, Speech Failures, Disintegrations, Dismembered Limbs, Items
   Repaired, Miss Fortunate Occurrences, Doctor Bags Used. They have no
   row. Damage and hits would need a combat-hit perk entry point with a
-  script per hit, measuring the target's health. Explosives kills still count only while an explosive is held. A kill check through `IsKillerObject` (a spell cast on the corpse) was built 2026-11-08 and removed the same day: it crashed the game on a dynamite kill. Fallout4.exe 1.11.240 `GetKillerObject` (0x5A36D0) reads the dead actor's killer data at +0x38 without a null check (0x5A372A), and an explosion kill leaves none; no condition placed before it can see that, and no vanilla record uses the function. Do not use `IsKillerObject`. A use or discovery whose item or marker is outside the build
+  script per hit, measuring the target's health. A use or discovery whose item or marker is outside the build
   cannot progress.
+- <a id="challenges-explosives"></a>**Explosive kills (built 2026-11-25, not
+  played).** A kill counts the weapon held, and a thrown grenade or a placed
+  mine leaves the gun in hand, so explosive kills counted only while an
+  explosive was equipped. A kill check through `IsKillerObject` (a spell cast
+  on the corpse) was built 2026-11-08 and removed the same day: it crashed the
+  game on a dynamite kill. Fallout4.exe 1.11.240 `GetKillerObject`
+  (0x5A36D0) reads the dead actor's killer data at +0x38 without a null check
+  (0x5A372A), and an explosion kill leaves none; no condition placed before
+  it can see that, and no vanilla record uses the function. Do not use
+  `IsKillerObject`. Instead, every explosion copy that an FNV weapon's
+  projectile sets off (WEAP `DNAM.Projectile` → PROJ `DATA.Explosion`, masters'
+  weapons too) carries an object effect, as 24 Fallout4.esm explosions do
+  (`explosive_kills.py`). Its pairs are the stand-in's own enchantment (its
+  ENIT kept) or FNV's converted one, plus a 1-second script effect flagged No
+  Death Dispel (bit 28), so it still starts on an actor the blast killed.
+  Its script, `F3NV_ExplosiveHit`, hands `F3NV_Challenges.Blasted` the actor
+  and a form list of the weapons setting that explosion off, unless another
+  actor is the caster. `Killed` (the player alias's `OnKill`) credits a kill
+  within 3 seconds of a blast to that list, waiting 0.3 s for the effect if it
+  has not arrived; `F3NV_ChallengeSource.Holds` matches a challenge whose
+  weapons hold any of them. The lists are written last, by `Challenges.write`,
+  from the weapons the build made. To check in game: whether the caster of an
+  explosion's effect is the thrower, and that a frag grenade kill counts for
+  Explosives with a gun drawn.
 
 <a id="globals"></a>**Globals (step 2, built 2026-10-12).** Only dialogue
 unlocks, objective mirrors, helper globals and the engine globals were

@@ -241,6 +241,7 @@ class Challenges:
         for rec, event, stats in kept:
             for key, value in self._columns(rec, event, STAT_GROUPS.index(stats) if stats else -1, filters).items():
                 columns[key].append(value)
+        self.builder.projectiles.copies.kills.write(filters.made)
         links = {'Sources': sources, 'Hub': quest, 'TabRows': tab_rows, 'TabShown': tab_shown}
         rows = (SOURCE_SCRIPT, links, self._values(columns))
         self.builder.scripts.used += [s for s in (SOURCE_SCRIPT, SCRIPT) if s not in self.builder.scripts.used]

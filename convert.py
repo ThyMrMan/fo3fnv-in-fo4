@@ -72,14 +72,7 @@ from tes4_export.morrowind_patch import (
 from core.plugin_masters import (binary_master_chain, get_masters_from_binary,
                                  is_master_export, topological_order)
 import core.run_log as run_log
-
-
-# Papyrus batch compilation (see phase_compile).  An error line from
-# papyrus.exe looks like:  <path>\Foo.psc:12:3: Checker error: <message>
-# The compiler aborts the whole batch on the first bad file, so each failing
-# script is quarantined and the batch retried; this bounds that loop.
-
-from core.subprocess_flags import (POPEN_FLAGS as _POPEN_FLAGS,
+from core.subprocess_flags import (POPEN_FLAGS as _POPEN_FLAGS, call_inherited,
                               configure_multiprocessing)
 from core.process_job import create_pool_job, describe_limit
 from core.heavy_lock import SUPERVISED_ENV_VAR, hold_heavy_lock
@@ -1198,7 +1191,7 @@ def _create_lod(output_dir) -> bool:
            str(SCRIPT_DIR / "tools" / "release" / "create_lod.py")]
     if output_dir:
         cmd += ["--output-dir", str(output_dir)]
-    return subprocess.call(cmd, **_POPEN_FLAGS) == 0
+    return call_inherited(cmd) == 0
 
 
 def _record_versions(step_ok, tes4_data) -> None:

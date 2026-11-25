@@ -966,6 +966,22 @@ does not list as add-ons).
 - **On the user's setup** (read only, 2026-11-15): with the game as target,
   the set is FalloutNV.esm and the 30 mod plugins built on it, Fallout3.esm
   left out, as the chain's `others` step builds them.
+- **Messages.** With nothing to rebuild it prints "nothing to rebuild: every
+  plugin is up to date" and finishes; a failed plugin build prints its
+  name and exit code. The Finished screen's headline names the stage that
+  ended the run and its exit code (`finished_view.headline`).
+
+### <a id="child-output"></a>Child processes under pythonw
+
+The app runs under `pythonw.exe`, and its stages under the same
+interpreter. A process started from it with no standard handles given gets
+none: its prints and traceback go nowhere, and it exits with code 1 on its
+first `sys.stdout.flush()` (reproduced 2026-11-25). That is how an
+Anchorage reconvert ended in 0.7: "Rebuild what changed" started a
+Fallout3.esm rebuild, the child died at once, and the log showed only the
+exit code. Every child the stages start themselves goes through
+`core.subprocess_flags.call_inherited`, which hands the parent's own
+stdout and stderr over explicitly, so the child writes into the same log.
 
 ## <a id="phases"></a>Phases
 

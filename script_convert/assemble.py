@@ -23,7 +23,7 @@ from script_convert.constants import (
 from script_convert.command_rows import (
     COMMAND_ROWS, ACTOR_ONLY_FUNCTIONS, OBJREF_SHARED_FUNCTIONS
 )
-from script_convert import anim_action_falloutnv as _anim, \
+from script_convert import anim_action_falloutnv as _anim, anim_playing_falloutnv as _anim_playing, \
     atomic_adds as _adds, quest_var_mirrors as _quest_vars, symbols as _symbols, trace_points as _trace, \
     udf_fallout4 as _udf4
 from script_convert.poll_motion import relative_sets
@@ -265,6 +265,7 @@ def _load_facts(conv, tree) -> None:
     sc.uses_timer = 'timer' in names
     sc.uses_say = bool(called & {'say', 'sayto', 'startconversation'})
     sc.uses_anim_playing = 'isanimplaying' in called
+    sc.linked_vars = _anim_playing.linked_vars(bodies)
     sc.uses_say_timer = any(
         isinstance(st, N.Assign)
         and any(e.called in ('say', 'sayto')

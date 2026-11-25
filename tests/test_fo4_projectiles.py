@@ -160,7 +160,7 @@ def test_an_explosion_copy_takes_fnvs_enchantment_only_when_the_stand_in_has_non
     """FNV's converted enchantment goes in as EITM before MNAM; a stand-in with its own object effect keeps it."""
     copies = C.ProjectileCopies.__new__(C.ProjectileCopies)
     copies.builder, copies.enchantments = None, {0x14DDDD: {'EditorID': 'EnchStunGrenadeEffect'}}
-    copies.spells = SimpleNamespace(explosion=lambda ench: 0xABC)
+    copies.spells, copies.kills = SimpleNamespace(explosion=lambda ench: 0xABC), SimpleNamespace(marked=lambda *a: None)
     rec = {'EITM': '0014DDDD'}
     plain = [(b'EDID', b''), (b'MODL', b''), (b'MNAM', b''), (b'DATA', b'')]
     out = copies._effect(plain, rec)
@@ -186,6 +186,7 @@ def _copies(made_mesh: list) -> C.ProjectileCopies:
     copies.builder = SimpleNamespace(writer=writer, counts=Counter(),
                                      mesh=lambda model: made_mesh.append(model) or (f'FNV\\{model}', None))
     copies.made, copies.fuses, copies.enchantments, copies.spells = {}, {}, {}, None
+    copies.kills = SimpleNamespace(marked=lambda *a: None)
     copies.own_models = frozenset({'GrenadeGasExplosion'})
     copies.vanilla = {0x10: [(b'EDID', b'\0'), (b'MODL', b'frag.nif\0'), (b'DNAM', _stand_in(C.EXPLODES, 0x20))],
                       0x20: [(b'EDID', b'\0'), (b'MODL', b'blast.nif\0'), (b'DATA', bytes(64))]}

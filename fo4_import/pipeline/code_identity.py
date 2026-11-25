@@ -28,10 +28,11 @@ _ROOT = os.path.normcase(str(ROOT)) + os.sep
 
 @functools.cache
 def relative(filename: str) -> 'str | None':
-    """`filename`'s repo path (forward slashes) when it is a .py file in the repo; else None."""
+    """`filename`'s repo path (forward slashes) when it is a .py file in the repo; else None (also a relative name
+    with no such file, as PySide6's embedded shibokensupport modules carry)."""
     full = os.path.abspath(filename)
     norm = os.path.normcase(full)
-    if not norm.startswith(_ROOT) or not norm.endswith('.py'):
+    if not norm.startswith(_ROOT) or not norm.endswith('.py') or not os.path.isfile(full):
         return None
     return Path(full).relative_to(ROOT).as_posix()
 

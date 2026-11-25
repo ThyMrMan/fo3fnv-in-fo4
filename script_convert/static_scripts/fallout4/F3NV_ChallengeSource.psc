@@ -38,7 +38,7 @@ Event OnQuestInit()
   EndWhile
 EndEvent
 
-Function Note(Int aiEvent, Int aiGroup, Int aiAmount, Actor akVictim, Form akItem, Weapon akHeld)
+Function Note(Int aiEvent, Int aiGroup, Int aiAmount, Actor akVictim, Form akItem, Form akHeld)
   {Add aiAmount to every challenge here counting aiEvent (a stat event: of group aiGroup) whose filters match akHeld, akVictim and akItem.}
   F3NV_Challenges counter = Hub as F3NV_Challenges
   Int i = Events.Find(aiEvent)
@@ -58,9 +58,25 @@ Int Function FindAfter(Int aiEvent, Int i)
   Return Events.Find(aiEvent, i + 1)
 EndFunction
 
-Bool Function Matches(Int i, Weapon akHeld, Actor akVictim, Form akItem)
+Bool Function Matches(Int i, Form akHeld, Actor akVictim, Form akItem)
   {Whether challenge i's weapon, victim and item lists (None: any) hold akHeld, akVictim's base and akItem.}
-  Return (!Weapons[i] || Weapons[i].HasForm(akHeld)) && Fits(i, akVictim, akItem)
+  Return (!Weapons[i] || Holds(Weapons[i], akHeld)) && Fits(i, akVictim, akItem)
+EndFunction
+
+Bool Function Holds(FormList akList, Form akHeld)
+  {Whether akList holds akHeld: a weapon, or one of an explosion's list of weapons.}
+  FormList blast = akHeld as FormList
+  If !blast
+    Return akList.HasForm(akHeld)
+  EndIf
+  Int k = 0
+  While k < blast.GetSize()
+    If akList.HasForm(blast.GetAt(k))
+      Return True
+    EndIf
+    k += 1
+  EndWhile
+  Return False
 EndFunction
 
 Bool Function Fits(Int i, Actor akVictim, Form akItem)

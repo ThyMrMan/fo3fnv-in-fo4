@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from fo4_import.base import source as SRC
 from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record
 from fo4_import.pipeline import build_inputs as BI
 from fo4_import.pipeline import build_plan as BP
@@ -326,6 +327,49 @@ def test_a_plugin_lookup_stands_for_the_mod_sources(recording, monkeypatch):
     assert verdict == BP.BUILD and reason.startswith('plugin found ["Guns.esp"')
 
 
+def test_the_source_registry_stands_for_its_lookups(recording):
+    """A plugin's registry lookups are the input, not sources.json: another plugin's export rewriting the registry
+    leaves it current; its own entry moving makes it build; a record listing the registry file ignores it.
+    See: docs/fork/fo4_mod_builds.md#mo2-answers
+    """
+    export, game, dlc = recording / 'export', recording / 'GameData', recording / 'DlcData'
+    for folder, name in ((export / 'Game.esm', ''), (game, 'Game.esm'), (dlc, 'Dlc.esm')):
+        folder.mkdir(parents=True)
+        if name:
+            (folder / name).write_bytes(b'')
+    registry = export / 'sources.json'
+
+    def listed(*folders):
+        """The registry listing `folders` as Data folders."""
+        registry.write_text(json.dumps({'version': 2, 'directories': [{'path': str(f)} for f in folders]}), 'utf-8')
+        SRC.source_registry._CACHE.clear()
+
+    listed(game)
+    assert SRC.source_data(export / 'Game.esm') == game
+    plugin = recording / 'data' / 'Test.esm'
+    _finished(plugin)
+    rec = json.loads(BI.write(plugin, recording / 'data', []).read_text(encoding='utf-8'))
+    assert BI.norm(registry) not in rec['files'] and rec['asked'][0][0] == SRC.ASKED
+    listed(game, dlc)
+    assert BP.check(plugin) == (BP.CURRENT, '')
+    assert BP._files({'files': {BI.norm(registry): ['old'], **rec['files']}, 'dirs': {}, 'programs': {}}) is None
+    (dlc / 'Game.esm').write_bytes(b'')
+    listed(dlc, game)
+    verdict, reason = BP.check(plugin)
+    assert verdict == BP.BUILD and reason.startswith(SRC.ASKED)
+
+
+def test_a_child_build_writes_to_the_parents_output_under_pythonw(tmp_path):
+    """A pythonw parent whose output is a pipe: a child it starts through call_inherited reaches the pipe."""
+    pythonw = Path(sys.executable).with_name('pythonw.exe')
+    if not pythonw.is_file():
+        pytest.skip('no pythonw.exe beside this Python')
+    middle = ('import sys; from core.subprocess_flags import call_inherited; '
+              'sys.exit(call_inherited([sys.executable, "-c", "print(\'child line\')"]))')
+    done = subprocess.run([str(pythonw), '-c', middle], cwd=ROOT, capture_output=True, text=True, timeout=60)
+    assert 'child line' in done.stdout and done.returncode == 0
+
+
 def _plugin(path: Path, masters: list, records: list) -> Path:
     """A plugin at `path` mastering `masters` and holding `records` [(signature, FormID, body)]."""
     writer = FO4PluginWriter(masters=masters, is_esm=True)
@@ -555,7 +599,7 @@ def test_an_overlay_is_replayed_by_overlay_on_the_planned_masters(tmp_path, monk
     the planned masters' current copies."""
     esl, _, news, mods = _overlay_setup(tmp_path)
     calls = []
-    monkeypatch.setattr(BP.subprocess, 'call', lambda argv, cwd: calls.append(argv) or 0)
+    monkeypatch.setattr(BP, 'call_inherited', lambda argv, cwd: calls.append(argv) or 0)
     assert BP.rebuild(esl, [p.parent for p in news]) == 0
     assert calls[0][1:3] == ['-m', BP.OVERLAY]
     assert calls[0][3:] == ['--out', str(esl.parent), '--name', 'F3NV - NVTUP and NVMIM', '--built',
@@ -567,7 +611,7 @@ def test_an_unknown_build_module_is_not_replayed(tmp_path, monkeypatch):
     plugin = tmp_path / 'X.esm'
     plugin.write_bytes(b'')
     BS.write_stamp(plugin, 'finished', time.time(), {'command': 'fo4_import.other --out x'})
-    monkeypatch.setattr(BP.subprocess, 'call', lambda *a, **k: pytest.fail('ran'))
+    monkeypatch.setattr(BP, 'call_inherited', lambda *a, **k: pytest.fail('ran'))
     assert BP.rebuild(plugin) == 2
 
 

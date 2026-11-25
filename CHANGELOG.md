@@ -5,6 +5,34 @@ alpha. Download the zip named `fo3fnv-in-fo4-<release>.zip` from the
 [Releases page](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases), not
 "Source code".
 
+## f3nv-0.8 (2026-11-25)
+
+**After upgrading:** "Rebuild what changed" rebuilds your converted games
+once, because the challenge and script code changed.
+
+### New
+- **Explosive kills count for challenges.** A kill by a New Vegas grenade,
+  missile launcher or other weapon whose shot explodes now counts for that weapon's
+  challenges, as a direct hit already did.
+- **Animations on linked objects play.** Scripts that animate an object they
+  are linked to now play its animation and wait for its real length: the
+  Hoover Dam turbines and screens in New Vegas, and every Fallout 3
+  vertibird landing, take-off and flyover.
+- **Stage times read in minutes and hours** on the Finished screen
+  (`12m 34s`, `1h 05m 03s`).
+
+### Fixed
+- **Converting a DLC no longer fails after its game was built.** Exporting a
+  DLC such as Anchorage made its game look out of date, and the rebuild the
+  app then started died without a word, ending in "Conversion did not
+  finish". The game now stays current, and a build started by the app writes
+  its output and errors into the app's log.
+- **Clearer endings.** The Finished screen names the stage that failed and
+  its exit code, and says where the log is saved. "Rebuild what changed"
+  says when every plugin is already up to date.
+- **Doors read their state while they move** in scripts that wait on a
+  door's animation (the Vault 11 gear door).
+
 ## f3nv-0.7 (2026-11-25)
 
 **After upgrading:** the first build makes every face and distant-terrain

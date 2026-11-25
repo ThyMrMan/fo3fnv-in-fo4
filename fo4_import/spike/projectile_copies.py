@@ -18,6 +18,7 @@ import struct
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.attack_spells import AttackSpells
+from fo4_import.spike.explosive_kills import ExplosiveKills
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
@@ -112,17 +113,21 @@ class ProjectileCopies:
                 self.vanilla[rec.form_id] = list(subrecords(rec.body))
         self.explosions = {int(r['FormID'], 16): r for r in export_records(builder.export_dir, 'EXPL')}
         self.enchantments = {int(r['FormID'], 16): r for r in export_records(builder.export_dir, 'ENCH')}
-        self.spells = None
+        self.spells, self.kills = None, ExplosiveKills(builder)
 
     def _effect(self, subs: list, rec: dict) -> list:
-        """Stand-in EXPL `subs` with FNV EXPL `rec`'s enchantment, converted (AttackSpells.explosion), as its object
-        effect (EITM, before MNAM and DATA) when the stand-in has none; else unchanged.
+        """Stand-in EXPL `subs` with an object effect (EITM, before MNAM and DATA): the explosive-kill mark's when a
+        weapon sets FNV EXPL `rec` off (ExplosiveKills.marked), else FNV's enchantment, converted
+        (AttackSpells.explosion), when the stand-in has none; else unchanged.
         See: docs/fork/fo4_thrown_weapons.md#effects
         """
         ench = self.enchantments.get(int(rec.get('EITM') or '0', 16))
+        self.spells = self.spells or AttackSpells(self.builder)
+        marked = self.kills.marked(subs, rec, lambda: self.spells.effect_pairs(ench, False, True) if ench else b'')
+        if marked is not None:
+            return marked
         if ench is None or any(tag == b'EITM' for tag, _ in subs):
             return subs
-        self.spells = self.spells or AttackSpells(self.builder)
         fid = self.spells.explosion(ench)
         if not fid:
             return subs

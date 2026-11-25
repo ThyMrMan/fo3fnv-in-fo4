@@ -6,25 +6,13 @@ what is next. Dates, counts and history are in the
 
 ## <a id="fo4-state"></a><a id="alpha"></a>Where it stands
 
-**Release:** [f3nv-0.6](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases/tag/f3nv-0.6),
-an alpha (prerelease, 2026-11-24). A fresh download converts, NPC faces
-included (measured on the user's PC since 0.3, without the Creation Kit).
-Since 0.4 the export and caches live in a work folder beside the app, so a
-new release unzips beside the old one and upgrades cleanly
-([work folder](fo4_gui.md#work-folder)). 0.5 ships the helper scripts every
-earlier zip left out ([slim zip](fo4_plan_release.md#slim-zip)), so scripts
-compile in Caprica again instead of FO4's slow compiler. Shared
-conversation menus keep their topics ([fix](fo4_dialogue_gaps.md#shared-menu-topics)),
-so a build's reference check passes. It also lowers the
-build's memory peak, and gives a quieter log with a steadier time estimate
-([build resources](fo4_build_resources.md)). 0.6 encodes voice with our own
-xWMA encoder instead of a Microsoft tool ([encoder](fo4_ck_replacements.md#xwma-spike)),
-keeps converted voice files across output folders and releases
-([voice cache](fo4_build_speed.md#voice-cache)), and drops the Black
-Landscape Fix requirement ([played without it](fo4_spikes.md#empty-land-layers)).
-It fixes Fallout 3's `washmontop` distant terrain
-([world frame](fo4_pipeline.md#terrain-lod-world-frame)), and the app shows
-when a quiet build is still working ([activity line](fo4_gui.md#activity)).
+**Release:** [f3nv-0.7](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases/tag/f3nv-0.7),
+an alpha (prerelease, 2026-11-25). A fresh download converts either game,
+faces included, and a new release unzips beside the old one and reuses its
+work folder ([work folder](fo4_gui.md#work-folder)). The build no longer
+runs any Creation Kit tool; it still needs the CK's script sources
+([CK replacements](fo4_ck_replacements.md)). What each release changed is
+in the [changelog](../../CHANGELOG.md).
 
 - **New Vegas** is playable from Doc Mitchell's house onward, with its four
   story DLC, five add-on packs and about 20 mods. Nearly every system is
@@ -219,64 +207,99 @@ Most of what is left is play-testing and fixing what testers find.
 
 ## <a id="known-bugs"></a>Known bugs a player will see
 
-- Holes and dark blocks in distant land, closing as you approach.
-  ([terrain LOD](fo4_pipeline.md#terrain-lod))
-- Scripts that wait for an animated window or the Lucky 38 lights do nothing.
-  ([census](fo4_idles.md#census))
-- NPCs and the player catch on some stairs (the Novac motel, Vikki and
-  Vance's steps). ([stairs](fo4_pipeline.md#stair-helper-pitch))
-- Your left hand briefly leaves the rifle when you aim.
-  ([guns](fo4_gun_animation.md#order))
-- Explosives-kill challenges count only while an explosive is equipped.
-  ([challenges](fo4_pipeline.md#challenges-left-out))
+- A script waiting for an animation that another script started sees it as
+  already finished ([IsAnimPlaying](fo4_plan_script_functions.md#phases)).
 - With CBBE installed, bare skin in converted outfits looks scrambled.
-  ([body plan](fo4_bodies_cbbe.md))
+  ([body plan](fo4_bodies_cbbe.md#bare-skin))
 - With both `Fallout3.esm` and `FalloutNV.esm` on, both openings start and
   you get stuck in Vault 101. Keep each game in its own MO2 profile.
-  ([FO3](fo4_fo3_plan.md))
+  ([TTW](fo4_fo3_plan.md#ttw))
+
+**Fixed in the build, not yet confirmed in game:**
+- Holes and dark blocks in distant land
+  ([terrain LOD](fo4_pipeline.md#terrain-lod)).
+- NPCs and the player catching on stairs (the Novac motel, Vikki and
+  Vance's steps, Megaton) ([stairs](fo4_pipeline.md#stair-helper-pitch)).
+- The left hand leaving the gun in third person, except in reloads
+  ([guns](fo4_gun_animation.md#third-person-clips)).
+- Scripts waiting for an object's animation to finish: the Lucky 38 lights,
+  gear doors, and vertibirds landing or taking off
+  ([IsAnimPlaying](fo4_plan_script_functions.md#phases)).
+- Explosives-kill challenges counting only while an explosive is equipped
+  ([explosive kills](fo4_pipeline.md#challenges-explosives)).
 
 Please report what you find in
 [the issues](https://github.com/ThyMrMan/fo3fnv-in-fo4/issues).
 
-## <a id="fo4-next"></a>Planned work
+## <a id="fo4-next"></a><a id="parked"></a>Planned work
 
-In rough order. The [issue plan](fo4_issue_plan.md) sizes and orders the fixes.
+The bigger features still to come, beyond fixing what play-testing finds
+(the [issue plan](fo4_issue_plan.md) sizes and orders those fixes). Each
+links its plan or research; one without a link is an idea not yet
+designed.
 
-1. **The app's real-world runs:** New Vegas built from a fresh 0.2 download
-   (faces fixed in 0.3); a fresh 0.3 download on a second PC, then Fallout 3,
-   are next ([app](fo4_gui.md#convert-screen)).
-2. **Play-testing** everything marked "Built, not played", and fixing what
-   turns up.
-3. **Automated play-tests:** stage sweeps, story runs and unattended runs on
-   the test machine ([story runs](fo4_story_tests.md#order), [layers](fo4_test_layers_plan.md)).
-4. **Regression checks** against the last build that played well
-   ([plan](fo4_regression.md#order)).
-5. **Fallout 3:** finish the opening's story runs, then the Capital
-   Wasteland and the child player ([next](fo4_fo3_plan.md#next)).
-6. **Known bugs** above ([issue plan](fo4_issue_plan.md)).
-7. **Gun animation:** play the third-person clips; a third-person entry for the 14 guns without one ([plan](fo4_gun_animation.md#order)).
-8. **Creatures:** staggers and sounds for own rigs ([own rig](fo4_own_rig.md#hit-reactions)).
-9. **The look:** grass, neon, glow, tone, distant trees and water ([plan](fo4_look.md)).
-10. **Distant terrain of our own** ([plan](fo4_terrain_lod_plan.md)).
-11. **Crafting on our own menu** ([plan](fo4_crafting_plan.md#recommendation)).
-12. **Body choice:** CBBE and BodySlide ([plan](fo4_bodies_cbbe.md)).
-13. **Load order:** mods in your New Vegas order, a conflict report and LOOT
-    rules ([plan](fo4_load_order.md)).
-14. **Build speed:** move the hot spots to native code ([plan](fo4_build_speed.md)).
-15. **Precombines** for Freeside and the Strip ([research](research/fo4_precombines_previs.md#own-precombines)).
-16. **Script speed** ([performance](performance.md#papyrus)).
+### Finishing the conversion
 
-## <a id="parked"></a>Parked
+- **Fallout 3 past Vault 101:** the Capital Wasteland and its DLC played
+  through, and the player as a child in the opening
+  ([next](fo4_fo3_plan.md#next), [child player](fo4_fo3_child_player.md#child-race)).
+- **Tale of Two Wastelands, or our own version:** both games in one load
+  order, with travel between them and one opening that asks which game to
+  start ([TTW](fo4_fo3_plan.md#ttw)).
+- **Any New Vegas or Fallout 3 mod:** mods that need other mods, overrides
+  that stack, and a load order that mirrors the old game's, with a conflict
+  report and LOOT rules ([mod builds](fo4_mod_builds.md#order),
+  [load order](fo4_load_order.md#order)).
+- **The last script commands** with no Fallout 4 counterpart yet
+  ([decision table](fo4_plan_script_functions.md#decision-table)).
+- **Gun and melee animation:** third person for the 14 guns without it,
+  and New Vegas's own melee and unarmed moves
+  ([guns](fo4_gun_animation.md#order), [melee](fo4_spikes.md#spike-4-melee)).
 
-| Item | Why |
-|---|---|
-| A choice between New Vegas and Fallout 4 combat | An idea, not planned |
-| Other languages' movie tracks | Only English is checked ([Bink](bink_movies.md)) |
-| [Graphics research](research/graphics_options.md) | Notes to revisit |
-| [Spin-off mods](spin_offs.md) (Cleanroom UI, f3ui, our level-up menu, the casino games) | Cleanroom UI is split out and shipped; the others aren't released |
-| [Dynamic collision](dynamic_collision_mod.md) | Planned as its own mod |
-| [Ideas the build without the CK makes possible](fo4_after_ck_ideas.md) | Ideas only |
-| [Appearance comparison](appearance_compare_tool.md) | Plan only |
+### Looks and performance
+
+- **Precombines and previs,** so dense places like Freeside and the Strip
+  draw faster ([research](research/fo4_precombines_previs.md#own-precombines)).
+- **Distant terrain of our own,** built from the land itself
+  ([plan](fo4_terrain_lod_plan.md#phases)).
+- **Body choice: CBBE and BodySlide,** with outfits fitted to the chosen
+  body ([plan](fo4_bodies_cbbe.md#plan)).
+- **Better faces and textures as options:** higher resolution, unique faces
+  for generic NPCs, and an "old game look" setting
+  ([ideas](fo4_after_ck_ideas.md#faces)).
+- **More graphics options** ([research](research/graphics_options.md)).
+- **Side-by-side screenshots** of the old game and the conversion, to
+  catch where the look drifts ([plan](appearance_compare_tool.md)).
+- **Faster builds and scripts:** the build's hot spots in native code, and
+  lighter converted scripts ([build speed](fo4_build_speed.md),
+  [script speed](performance.md#papyrus)).
+
+### Fallout 4 features, as options
+
+- **Fallout 4 style combat:** a choice between the old games' combat and
+  Fallout 4's own (damage, V.A.T.S., sprinting). Today's build follows the
+  old games ([combat feel](fo4_combat_feel.md#built)).
+- **Weapon and armor customization** on Fallout 4's mod system, with our
+  own recipe menu for crafting ([crafting](fo4_crafting_plan.md#weapon-mods)).
+- **Settlement building** at places in the Mojave and the Capital
+  Wasteland.
+- **Power armor** as Fallout 4's frame and pieces, instead of worn armor.
+- **Companion affinity and the companion command wheel.**
+- **Fallout 4's Survival** as an alternative to Hardcore mode
+  ([Hardcore](fo4_hardcore.md#approach)).
+
+### Reaching more players
+
+- **A Wabbajack modlist** with the required mods, set up and ready
+  ([release plan](fo4_plan_release.md)).
+- **Light plugins** as an option, to save load-order slots
+  ([design](research/fo4_light_plugins.md#design)).
+- **Linux and macOS** builds
+  ([blockers](../audits/fo4_redo_audit_2026-11-23.md#off-windows)).
+- **Other languages,** movies included ([Bink](bink_movies.md)).
+- **Spin-off mods** released on their own: f3ui, our level-up menu, the
+  casino games, and collision that changes size while playing
+  ([spin-offs](spin_offs.md), [dynamic collision](dynamic_collision_mod.md)).
 
 ## <a id="inherited"></a>The inherited Skyrim converter
 

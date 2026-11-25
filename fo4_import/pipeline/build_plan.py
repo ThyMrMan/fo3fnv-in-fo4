@@ -21,11 +21,12 @@ import json
 import os
 import shutil
 import stat
-import subprocess
 import sys
 from pathlib import Path
 
-from fo4_import.base import release
+from asset_convert.sources.source_registry import REGISTRY_NAME
+from core.subprocess_flags import call_inherited
+from fo4_import.base import release, source
 from fo4_import.base.install import file_masters
 from fo4_import.base.ledger import ID, Ledger, ledger_path
 from fo4_import.base.master_overrides import read_built
@@ -119,9 +120,12 @@ def file_stat(path: str) -> 'os.stat_result | None':
 
 
 def _files(rec: dict) -> 'str | None':
-    """The first input file, folder, program or native extension no longer as the build saw it."""
+    """The first input file, folder, program or native extension no longer as the build saw it; the export's source
+    registry is never one (a record from before its lookups were logged lists it).
+    See: docs/fork/fo4_mod_builds.md#mo2-answers
+    """
     for path, kept in rec['files'].items():
-        if not same_file(path, kept):
+        if Path(path).name != REGISTRY_NAME and not same_file(path, kept):
             return f'file {path}'
     for path, kept in rec['dirs'].items():
         if listing(Path(path)) != kept:
@@ -136,7 +140,8 @@ def _files(rec: dict) -> 'str | None':
 def _asked(rec: dict) -> 'str | None':
     """The first question the build asked about its mods (build_inputs.asked) that now has another answer."""
     for kind, arg, answer in rec.get('asked', []):
-        if (mod_dirs.ask(arg) if kind == mod_dirs.FOUND else creation_kit.ask(kind, arg)) != answer:
+        asks = {mod_dirs.FOUND: mod_dirs.ask, source.ASKED: source.ask}
+        if (asks[kind](arg) if kind in asks else creation_kit.ask(kind, arg)) != answer:
             return f'{kind} {arg}'.rstrip()
     return None
 
@@ -489,7 +494,7 @@ def rebuild(plugin: Path, dirs: list = ()) -> int:
     a module this cannot replay)."""
     if replay_parts(plugin):
         print(f'== replaying parts of {plugin.name} ({REPLAY})', flush=True)
-        code = subprocess.call([sys.executable, '-m', REPLAY, str(plugin)], cwd=ROOT)
+        code = call_inherited([sys.executable, '-m', REPLAY, str(plugin)], cwd=ROOT)
         if code != NEEDS_BUILD:
             return code
     module = build_module(plugin)
@@ -497,7 +502,7 @@ def rebuild(plugin: Path, dirs: list = ()) -> int:
         print(f'{plugin.name} was built by {module}, which build_plan cannot replay', flush=True)
         return 2
     print(f'== building {plugin.name} ({module})', flush=True)
-    return subprocess.call([sys.executable, '-m', module, *build_argv(plugin, dirs)], cwd=ROOT)
+    return call_inherited([sys.executable, '-m', module, *build_argv(plugin, dirs)], cwd=ROOT)
 
 
 def _scratch(path: Path) -> bool:
@@ -582,7 +587,7 @@ def faces_again(plugins: list) -> int:
             continue
         reason, argv, cwd = due
         print(f'== faces of {plugin.name}: {reason}', flush=True)
-        code = subprocess.call([sys.executable, '-m', 'fo4_import.spike.facegen', *argv], cwd=cwd)
+        code = call_inherited([sys.executable, '-m', 'fo4_import.spike.facegen', *argv], cwd=cwd)
         if code:
             return code
     return 0
@@ -627,6 +632,8 @@ def run(plugins: list) -> int:
             return LEAKED
         todo = [(p, reason) for p, verdict, reason in rows if verdict == BUILD]
         if not todo:
+            print('every plugin is up to date now' if built else 'nothing to rebuild: every plugin is up to date',
+                  flush=True)
             return 0
         plugin, reason = todo[0]
         if plugin.resolve() in built:
@@ -636,6 +643,7 @@ def run(plugins: list) -> int:
         code, took = clocked(rebuild, plugin, master_dirs(plugin, plugins))
         print(f'{plugin.name}: build process {took:.0f}s, start to exit', flush=True)
         if code:
+            print(f'{plugin.name}: its build failed (exit code {code}); the lines above say why', flush=True)
             return code
         built = (built - dependents(plugin, plugins)) | {plugin.resolve()}
         before, last = {p.resolve(): verdict for p, verdict, _ in rows}, plugin

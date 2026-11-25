@@ -33,9 +33,11 @@ def _builder(written: list) -> SimpleNamespace:
     """A builder stand-in keeping (signature, record) in `written`; FormIDs from the key's length."""
     writer = SimpleNamespace(derive_formid=lambda site, key: 0x01000000 + len(str(key)),
                              add_record=lambda sig, rec: written.append((sig, rec)), own_index=1)
+    kills = SimpleNamespace(write=lambda made: None)
     return SimpleNamespace(writer=writer, counts=collections.Counter(), fnv_id=lambda f: 0x02000000 | int(f, 16),
                            scripts=SimpleNamespace(used=[], names={0x15EAAA: 'ChallengeLowXPSCRIPT'},
-                                                   effects=SimpleNamespace(script_spell=lambda s, e: 0x0300)))
+                                                   effects=SimpleNamespace(script_spell=lambda s, e: 0x0300)),
+                           projectiles=SimpleNamespace(copies=SimpleNamespace(kills=kills)))
 
 
 @pytest.mark.parametrize('rec,expected', [
@@ -131,7 +133,8 @@ def test_a_kept_challenge_gets_its_row_state_quest_and_tab(monkeypatch):
     written = []
     builder = _builder(written)
     monkeypatch.setattr(C, 'Filters', lambda b, e: SimpleNamespace(weapons=lambda r: 0, victims=lambda r: 0,
-                                                                   items=lambda r: 0, marker=lambda r: 0))
+                                                                   items=lambda r: 0, marker=lambda r: 0,
+                                                                   made=lambda f: None))
     monkeypatch.setattr(C, 'fo4_weapon', lambda fo4, edid: 0x9999)
     builder.fo4 = b''
     shown, locked = _chal(11, 4, FULL='Locks', SCRI='0015EAAA', **{'DATA.Flags': '4'}), \
@@ -160,7 +163,8 @@ def test_a_dlc_writes_only_its_own_challenges_adding_them_to_the_games_tab(monke
     builder.writer.own_index, builder.fo4 = 2, b''
     builder.ids = SimpleNamespace(is_own=lambda fid: fid >> 24 == 1)
     monkeypatch.setattr(C, 'Filters', lambda b, e: SimpleNamespace(weapons=lambda r: 0, victims=lambda r: 0,
-                                                                   items=lambda r: 0, marker=lambda r: 0))
+                                                                   items=lambda r: 0, marker=lambda r: 0,
+                                                                   made=lambda f: None))
     own, game = _chal(11, 4, FormID='01000900'), _chal(11, 5, FormID='00165779')
     chal = C.Challenges.__new__(C.Challenges)
     chal.builder, chal.export_dir = builder, Path('DeadMoney.esm')

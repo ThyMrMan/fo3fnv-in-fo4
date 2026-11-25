@@ -11,6 +11,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
+from script_convert import commands as script_commands
 from script_convert.cross_ref import CrossRefGraph
 from script_convert.resolve import resolve_property_formid
 from script_convert.converter import ScriptConverter
@@ -6455,6 +6456,15 @@ class TestFalloutQuestStageSubject:
         out = conv_lines(converter, 'if IsAnimPlaying Left != 1\n  PlayGroup Left 1\nendif', 'ObjectReference')
         assert 'bAnimPlaying' not in out and out.startswith('If TES4_AnimPlaying(Self, "Left") != 1')
         assert 'TES4_AnimRef = Self' in out and 'TES4_AnimGroup = "Left"' in out and 'TES4_AnimEnd = ' in out
+
+    def test_play_group_on_a_linked_object_plays_its_sequence_on_fallout4(self, converter, monkeypatch):
+        """A GetLinkedRef variable whose linked refs are activators plays the NIF sequence, not an actor event."""
+        monkeypatch.setenv('TES4SKYRIM_PAPYRUS_TARGET', 'fallout4')
+        monkeypatch.setattr(script_commands, 'linked_bases', lambda ctx, ref: ['00000040'] if ref == 'linkedRef' else [])
+        converter.xref.record_type['00000040'] = 'ACTI'
+        converter._property_refs['linkedRef'] = 'ObjectReference'
+        out = conv_lines(converter, 'linkedRef.PlayGroup Forward 0', 'ObjectReference')
+        assert 'linkedRef.PlayGamebryoAnimation("Forward")' in out and 'moveStart' not in out
 
     def test_radiation_rads_is_fallout4_rads(self, converter, monkeypatch):
         """On Fallout 4, RestoreAV RadiationRads heals FO4's Rads, as vanilla doctors do."""

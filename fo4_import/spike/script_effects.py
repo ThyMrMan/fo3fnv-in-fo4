@@ -187,10 +187,12 @@ class ScriptEffects:
         self._write_spell(fid, edid, '', (0, MANUAL_COST, FIRE_AND_FORGET, delivery), effect_pair(effect, 0.0, 0, 0))
         return fid
 
-    def vmad_effect(self, edid: str, vmad: bytes, delivery: int, cast: int = FIRE_AND_FORGET) -> int:
-        """Write script effect `edid`Effect carrying `vmad`, cast so; its FormID."""
+    def vmad_effect(self, edid: str, vmad: bytes, delivery: int, cast: int = FIRE_AND_FORGET, flags: int = 0) -> int:
+        """Write script effect `edid`Effect carrying `vmad`, cast so, with MGEF `flags`; its FormID."""
         effect = self.builder.writer.derive_formid(SITE, f'{edid} effect')
-        self._write_effect(effect, f'{edid}Effect', '', vmad, self.effect_data(cast, delivery))
+        data = bytearray(self.effect_data(cast, delivery))
+        struct.pack_into('<I', data, FLAGS_AT, flags)
+        self._write_effect(effect, f'{edid}Effect', '', vmad, bytes(data))
         return effect
 
     def ability(self, edid: str, pairs: bytes) -> int:
