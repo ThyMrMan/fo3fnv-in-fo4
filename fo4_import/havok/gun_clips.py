@@ -61,7 +61,6 @@ See: docs/fork/fo4_spikes.md#spike-4-gun-clips
 """
 
 import collections
-import copy
 import hashlib
 import json
 import math
@@ -955,8 +954,8 @@ class GunClips:
                           if n[len(ANIM_TEXT):-4].isdigit()}
         self.rigs, self.added, self.headers, self.written = {}, [], {}, []
         self.third = fo4_skeleton(self.archives.read(THIRD_SKELETON))[0]
-        #: {vanilla third-person clip path, lower case: its parsed clip or None} (_third_anim).
-        self.third_clips = {}
+        #: {vanilla third-person clip path, lower case: its left-hand target's translations or None} (_third_target).
+        self.third_targets = {}
         #: The clip file stamps (read_stamps, write_stored), read on first use.
         self.stamps = None
         #: The SNDR EditorIDs the gun being converted plays (heard), for Converted.sounds.
@@ -1138,32 +1137,36 @@ class GunClips:
         return Converted(replaces, lift, written, gun.moved, tuple(sorted(self.heard)))
 
     def _third_anim(self, path: str):
-        """A fresh copy of _third_parsed(path)."""
-        return copy.deepcopy(self._third_parsed(path))
-
-    def _third_parsed(self, path: str):
-        """Vanilla third-person clip `path` when it is a whole pose (or WPNAssemblyPose) on the human third-person
-        skeleton with a left-hand target track, else None; parsed once, shared: don't change it."""
+        """Vanilla third-person clip `path`, parsed, when it is a whole pose (or WPNAssemblyPose) on the human
+        third-person skeleton with a left-hand target track, else None."""
         key = path.lower()
-        if key not in self.third_clips:
-            header = self._header(path)
-            anim = parse_fo4_animation(self.archives.read('meshes\\' + key)) \
-                if header is not None and (header.blend_hint == NORMAL or key.endswith(ASSEMBLY.lower() + '.hkx')) \
-                else None
-            ik = self.third.index[IK_LEFT]
-            ok = anim is not None and len(anim.tracks) == len(self.third.names) and anim.tracks[ik].rotations
-            self.third_clips[key] = anim if ok else None
-        return self.third_clips[key]
+        header = self._header(path)
+        anim = parse_fo4_animation(self.archives.read('meshes\\' + key)) \
+            if header is not None and (header.blend_hint == NORMAL or key.endswith(ASSEMBLY.lower() + '.hkx')) \
+            else None
+        ik = self.third.index[IK_LEFT]
+        ok = anim is not None and len(anim.tracks) == len(self.third.names) and anim.tracks[ik].rotations
+        return anim if ok else None
+
+    def _third_target(self, path: str) -> 'np.ndarray | None':
+        """The left-hand target's translations in _third_anim(path), else None; kept per clip, not the clip.
+        See: docs/fork/fo4_build_resources.md#gun-clip-memory
+        """
+        key = path.lower()
+        if key not in self.third_targets:
+            anim = self._third_anim(path)
+            self.third_targets[key] = None if anim is None else \
+                np.asarray(anim.tracks[self.third.index[IK_LEFT]].translations, float)
+        return self.third_targets[key]
 
     def _on_gun(self, path: str, assembly: np.ndarray) -> bool:
         """Whether third-person clip `path`'s left-hand target stays within ON_GUN of `assembly` (WPNAssemblyPose's
         target), outside paired folders: the clips whose target the IK follows onto the gun.
         See: docs/fork/fo4_gun_animation.md#measured
         """
-        anim = self._third_parsed(path)
-        if anim is None or path.lower().rsplit('\\', 2)[-2] == PAIRED:
+        at = self._third_target(path)
+        if at is None or path.lower().rsplit('\\', 2)[-2] == PAIRED:
             return False
-        at = np.asarray(anim.tracks[self.third.index[IK_LEFT]].translations, float)
         return float(np.linalg.norm(at - assembly, axis=1).max()) <= ON_GUN
 
     def _with_targets(self, gun: Gun, edid: str, entry: dict, made: dict, ours: 'tuple | None' = None) -> dict:
@@ -1176,10 +1179,10 @@ class GunClips:
         files = self._resolved(entry)
         resolved = self._clip_paths(files)
         path = resolved.get(ASSEMBLY.lower())
-        pose = self._third_parsed(path) if path and gun.left else None
+        pose = self._third_target(path) if path and gun.left else None
         mine = {name: ours[0] for name in ours[1] if name in resolved} if ours else {}
-        if pose:
-            self._carried_targets(gun, edid, resolved, made, pose, mine)
+        if pose is not None:
+            self._carried_targets(gun, edid, resolved, made, pose[0], mine)
         moved = {**{n: made[p.lower()] for n, p in resolved.items() if n not in mine and made.get(p.lower())}, **mine}
         if not moved:
             return entry
@@ -1191,11 +1194,10 @@ class GunClips:
         self._anim_text(entry, paths, files, moved)
         return dict(entry, paths=paths)
 
-    def _carried_targets(self, gun: Gun, edid: str, resolved: dict, made: dict, pose, mine: dict) -> None:
-        """Into `made`, a gun_folder copy of WPNAssemblyPose (`pose`) and of every clip of `resolved` but `mine`
-        whose target stays on the gun (_on_gun), each written once per gun with its left-hand target moved onto
-        ours (carried_target)."""
-        assembly = np.asarray(pose.tracks[self.third.index[IK_LEFT]].translations[0], float)
+    def _carried_targets(self, gun: Gun, edid: str, resolved: dict, made: dict, assembly, mine: dict) -> None:
+        """Into `made`, a gun_folder copy of WPNAssemblyPose (its left-hand target at `assembly`) and of every clip
+        of `resolved` but `mine` whose target stays on the gun (_on_gun), each written once per gun with its
+        left-hand target moved onto ours (carried_target)."""
         for name, clip in resolved.items():
             key = clip.lower()
             if name in mine or key in made:
