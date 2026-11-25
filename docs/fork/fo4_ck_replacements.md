@@ -95,7 +95,9 @@ as loose files and heard no problems.
 
 **Built in (2026-11-24).** The encoder lives in `native/src/xwma/`
 (`xwma_encoder.c` with the four changes written in, upstream's
-`wma_tables.h`, and `main.c` taking xWMAEncode's `-b <rate> in out`).
+`wma_tables.h`, and `main.c` taking xWMAEncode's `-b <rate> in out`, or
+several `in out` pairs encoded in one launch, each file's memory freed after
+it: [voice batches](fo4_build_speed.md#voice-batches)).
 `python -m tools.generators.gen_native_c xwma_enc` builds the committed
 `native/dist/xwma_enc.exe`, and `voice.convert` runs it for every voice
 line and sound file. Those always come in as mono 44.1 kHz 16-bit

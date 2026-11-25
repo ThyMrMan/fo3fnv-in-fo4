@@ -4,12 +4,14 @@ See: docs/fork/research/lip_format.md#conversion
 """
 
 import struct
+import wave
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from asset_convert.audio.audio_converter import pack_fuz
+from asset_convert.audio.audio_converter import WAV_RATE, encode_xwm, pack_fuz
+from asset_convert.paths import XWMA_ENC
 from fo4_import.base import lip
 from fo4_import.pipeline import work_cache
 from fo4_import.spike import voice
@@ -81,7 +83,7 @@ def test_a_recording_with_its_own_lip_skips_lipgenerator(tmp_path, monkeypatch):
     monkeypatch.setattr(work_cache, 'CACHE', tmp_path / 'work')
     dest = tmp_path / 'out' / 'Type' / '00000001_1.fuz'
     dest.parent.mkdir(parents=True)
-    assert voice._convert_shared((recording, 'Hi.'), [dest], ('ffmpeg', 'xwma', 'lipgen')) == 1
+    assert voice._convert_shared((recording, 'Hi.'), [dest], ('ffmpeg', 'xwma', 'lipgen'), ('key',)) == 1
     assert calls == [('ffmpeg', 'xwma')]
     assert dest.read_bytes() == pack_fuz(lip.fo4_lip(-3, shapes, modifiers), b'XWMA')
     assert not dest.with_suffix('.xwm').exists()
@@ -116,9 +118,37 @@ def test_a_line_lipgenerator_cannot_lip_gets_a_loudness_lip(tmp_path, monkeypatc
     monkeypatch.setattr(work_cache, 'CACHE', tmp_path / 'work')
     dest = tmp_path / 'out' / 'Type' / '00000001_1.fuz'
     dest.parent.mkdir(parents=True)
-    assert voice._convert_shared((recording, 'Hi.'), [dest], ('ffmpeg', 'xwma', str(tmp_path / 'none.exe'))) == 1
+    tools = ('ffmpeg', 'xwma', str(tmp_path / 'none.exe'))
+    assert voice._convert_shared((recording, 'Hi.'), [dest], tools, ('key',)) == 1
     assert calls == [('ffmpeg', 'xwma', None, 'Hi.')]
     assert dest.read_bytes() == pack_fuz(b'LIP', b'XWMA') and not dest.with_suffix('.xwm').exists()
+
+
+@pytest.mark.skipif(not XWMA_ENC.is_file(), reason='needs the built xWMA encoder')
+def test_a_batch_is_encoded_in_one_run_and_kept(tmp_path, monkeypatch):
+    """A line with its own lip (.fuz) and a silent line (.xwm) are encoded by one encoder run, each the same bytes
+    as the encoder makes alone, kept in the work cache and written once; a line without its own lip is left to
+    the one-line path."""
+    monkeypatch.setattr(work_cache, 'CACHE', tmp_path / 'work')
+    wav = tmp_path / 'decoded.wav'
+    with wave.open(str(wav), 'wb') as out:
+        out.setnchannels(1), out.setsampwidth(2), out.setframerate(WAV_RATE)
+        out.writeframes((np.sin(np.arange(WAV_RATE) * 0.05) * 9000).astype('<i2').tobytes())
+    own, silent, bare = (tmp_path / f'{n}_00104bee_1.ogg' for n in ('own', 'silent', 'bare'))
+    shapes, modifiers = frames(10, 4)
+    own.with_suffix('.lip').write_bytes(fnv_lip(0, shapes, modifiers))
+    monkeypatch.setattr(voice, 'decode', lambda recordings, folder, ffmpeg: {r: wav for r in recordings})
+    runs, alone = [], []
+    monkeypatch.setattr(voice, 'encode_xwm', lambda exe, pairs: runs.append(len(pairs)) or encode_xwm(exe, pairs))
+    monkeypatch.setattr(voice, '_convert_shared', lambda source, *rest: alone.append(source[0]) or 0)
+    dests = [tmp_path / 'out' / f'{n}.fuz' for n in ('a', 'c')] + [tmp_path / 'out' / 'b.xwm']
+    batch = [((own, 'Hi.'), [dests[0]], ('own',)), ((bare, 'Yo.'), [dests[1]], ('bare',)),
+             ((silent, None), [dests[2]], ('silent',))]
+    assert voice._convert_batch(batch, ('ffmpeg', str(XWMA_ENC), 'none.exe')) == 2
+    audio = encode_xwm(str(XWMA_ENC), [(wav, tmp_path / 'alone.xwm')])[0]
+    assert runs == [2] and alone == [bare] and dests[2].read_bytes() == audio
+    assert dests[0].read_bytes() == pack_fuz(lip.from_fnv(own.with_suffix('.lip').read_bytes()), audio)
+    assert work_cache.lookup_versioned(voice.VOICE_SITE, voice.VOICE_VERSION, ('own',)) == ('.fuz', dests[0].read_bytes())
 
 
 def test_built_lips_are_redone_once(tmp_path):

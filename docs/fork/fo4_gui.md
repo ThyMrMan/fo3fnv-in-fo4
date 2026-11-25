@@ -365,7 +365,7 @@ passes `--light` ([the policy](research/fo4_light_plugins.md#policy)).
   | FO4 Papyrus compiler (Creation Kit) | Build: the scripts Caprica fails on | those scripts stay uncompiled (`papyrus.compile_folder` returns nothing) |
   | Elric (Creation Kit) | no longer used (2026-11-24): our physics writer finishes every mesh; one it does not cover has no collision ([seam](fo4_hknp_writer.md#seam)) | — |
   | Creation Kit FaceGen | no longer used (2026-11-24): an NPC our own FaceGen fails on has no FaceGen ([own stage](fo4_facegen_plan.md#own-stage)) | — |
-  | `xwma_enc.exe` (ours, `native/src/xwma`, shipped) | Build: every voice and sound file (`voice.convert` through `audio_converter.convert_file_to_xwm`); no Linux build yet, and `convert_file_to_xwm` would hand a native one Wine paths | no voice or sound files |
+  | `xwma_enc.exe` (ours, `native/src/xwma`, shipped) | Build: every voice and sound file (`voice.convert` through `audio_converter.encode_xwm`); no Linux build yet, and `convert_file_to_xwm` would hand a native one Wine paths | no voice or sound files |
   | LipGenerator (Creation Kit) | Build: a voice line with no FNV `.lip`, when installed | the lip comes from the recording's loudness (`voice.loudness_lip`) |
   | `LODGenx64.exe` (bundled) | Build: object LOD, under Wine off Windows | no object LOD |
   | `texconv.exe` (Elric folder) | no longer used: our own encoder writes face and terrain LOD textures ([encoder](fo4_facegen_plan.md#own-dds-encoder)) | — |

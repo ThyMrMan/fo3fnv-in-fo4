@@ -606,10 +606,35 @@ that keeps every worker busy, and under 24,000 characters of command line),
 and `decode_to_wav` copies a WAV already in the voice format instead of
 decoding it. A batch whose run fails decodes each recording alone, as
 before. On 300 recordings on the desktop: 4.6 s per-file, 3.2 s batched,
-the same files but LipGenerator's own lips. The encoder is still one launch a
-line: xWMAEncode had no batch mode, and our own encoder
-([xwma_enc](fo4_ck_replacements.md#xwma-spike)), which replaced it, takes
-the same one-file command line.
+the same files but LipGenerator's own lips.
+
+**One encoder run per batch (2026-11-25).** The laptop's fresh New Vegas
+build spent 3,313 s on 73,600 voice files (52,936 recordings, 355 without
+their own `.lip`). Measured on the laptop (Ryzen 7 6800HS, 8 cores,
+Windows Defender scanning in real time) and the desktop:
+
+| Per line | Laptop | Desktop |
+|---|---|---|
+| Starting an empty process | 29 ms | 18 ms |
+| The encoder alone, one at a time | 57 ms | 30 ms |
+| The encoder alone, 12 at a time | 10.8 ms | |
+| `voice.convert`, 600 lines, before | 23.4–26.7 ms | 10.3–10.4 ms |
+| `voice.convert`, 600 lines, after | 12.7 ms | 5.2 ms |
+
+Before, each line also hashed its recording and lip twice (cache lookup,
+then store), copied its decoded WAV into a second temporary folder, wrote
+the `.xwm` into the output folder, read it back, wrote the `.fuz` there,
+and then wrote it again to every destination. Now our encoder
+([xwma_enc](fo4_ck_replacements.md#xwma-spike)) takes several `in out`
+pairs, and `voice._convert_batch` encodes every line of a batch that has its
+own lip (or is a silent `.xwm`) in one run (`audio_converter.encode_xwm`),
+straight from the batch's decoded WAVs. It packs each `.fuz` in memory, and
+keeps and writes it once. `voice.convert` hashes each recording once. A line
+without its own lip, one with no decoded WAV, or one the encoder stopped
+before goes through the one-line path as before. On the 600 lines, every
+file comes out byte-identical to before on both machines, so
+`VOICE_VERSION` stays. What is left is the encoder's own work (15 ms per
+second of audio on the laptop, single-threaded).
 
 | Cost | Seen before the fixes above | Lead |
 |---|---|---|

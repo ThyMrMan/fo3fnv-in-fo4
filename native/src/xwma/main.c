@@ -1,9 +1,10 @@
 /*
  * xwma_enc: a WAV to xWMA encoder taking xWMAEncode's arguments.
  *
- *     xwma_enc [-b <bits per second>] <in.wav> <out.xwm>
+ *     xwma_enc [-b <bits per second>] <in.wav> <out.xwm> [<in.wav> <out.xwm> ...]
  *
- * The bitrate defaults to 48000. Exits 1 with a message on stderr on failure.
+ * Each pair is encoded in turn in this one process (one launch for a batch of voice lines). The bitrate defaults
+ * to 48000. Exits 1 with a message on stderr on the first failure; the pairs before it are written.
  * See docs/fork/fo4_ck_replacements.md#xwma-spike.
  */
 #include <stdio.h>
@@ -31,10 +32,11 @@ int main(int argc, char **argv)
         bit_rate = atoi(argv[2]);
         first = 3;
     }
-    if (argc != first + 2) {
-        fprintf(stderr, "usage: xwma_enc [-b <bits per second>] <in.wav> <out.xwm>\n");
+    if (argc < first + 2 || (argc - first) % 2) {
+        fprintf(stderr, "usage: xwma_enc [-b <bits per second>] <in.wav> <out.xwm> [<in.wav> <out.xwm> ...]\n");
         return 1;
     }
-    xwma_encode_file(argv[first], argv[first + 1], bit_rate);
+    for (int i = first; i < argc; i += 2)
+        xwma_encode_file(argv[i], argv[i + 1], bit_rate);
     return 0;
 }

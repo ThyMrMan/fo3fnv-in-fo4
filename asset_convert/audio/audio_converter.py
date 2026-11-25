@@ -305,90 +305,62 @@ def decode_to_wav(src_path, wav_path, ffmpeg: str) -> bool:
     return done.returncode == 0 and Path(wav_path).is_file()
 
 
-def convert_file_to_xwm(src_path, dst_path, ffmpeg: str,
-                         xwmaencode: 'str | None' = None,
-                         lipgenerator: 'str | None' = None,
-                         lip_text: 'str | None' = None) -> bool:
-    """Convert a single audio file to XWM — or, with a transcript, to FUZ.
-
-    Stages (xWMAEncode required; there is no ASF fallback):
-      1. ffmpeg: source → WAV (PCM mono 44100 Hz) in a private temp dir
-      2. LipGenerator: WAV + lip_text → .lip  (only when dst is .fuz)
-      3. xWMAEncode: WAV → XWM
-      4. dst .fuz: FUZE container (lip + xwm); dst .xwm: the xwm itself.
-         If lip generation fails, the audio is preserved as .xwm next to
-         the intended .fuz.
-
-    Args:
-        src_path:      Source audio (.mp3/.wav or any ffmpeg-readable format).
-        dst_path:      Destination path (.xwm, or .fuz for voice+lip).
-        ffmpeg:        Path to the ffmpeg executable.
-        xwmaencode:    Path to xWMAEncode.exe (None = failure).
-        lipgenerator:  Path to LipGenerator.exe (needed for .fuz output).
-        lip_text:      Spoken transcript for lip sync (needed for .fuz).
-
-    Returns:
-        True if a non-empty output file was produced, False on any failure.
+def encode_xwm(xwmaencode: str, pairs: list, bit_rate: int = 48000, timeout: float = 60) -> list:
+    """Encode each (WAV, .xwm path) of `pairs` with `xwmaencode` in one launch, each path through to_wine_path (the
+    encoder reads a leading '/' as a switch under Wine); the .xwm bytes of each, None where none was written (a
+    run stops at its first failure).
+    See: docs/fork/fo4_build_speed.md#voice-batches
     """
-    src_path = Path(src_path)
+    cmd = [xwmaencode, '-b', str(bit_rate), *(to_wine_path(str(path)) for pair in pairs for path in pair)]
+    try:
+        subprocess.run(windows_cmd(cmd), capture_output=True, timeout=timeout * len(pairs), **POPEN_FLAGS)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return [_written(Path(out)) for _, out in pairs]
+
+
+def _written(path: Path) -> 'bytes | None':
+    """The bytes of the file at `path`, None when it is missing or empty."""
+    data = path.read_bytes() if path.is_file() else b''
+    return data or None
+
+
+def convert_file_to_xwm(src_path, dst_path, ffmpeg: str, xwmaencode: 'str | None' = None,
+                        lipgenerator: 'str | None' = None, lip_text: 'str | None' = None) -> bool:
+    """Convert `src_path` to `dst_path`: an .xwm, or with a transcript `lip_text` a .fuz (LipGenerator's lip and
+    the audio). Decoded to WAV_FORMAT in a private folder (LipGenerator writes into its working folder); raises
+    SilentSource when it holds no audio. A .fuz whose lip fails is kept as an .xwm beside it. Whether a non-empty
+    file was written."""
     dst_path = Path(dst_path)
     dst_path.parent.mkdir(parents=True, exist_ok=True)
-
     if not xwmaencode:
-        # xWMAEncode not available — cannot produce proper xWMA
         return False
-
-    # Private temp dir per job: LipGenerator writes tmp16khz.wav into its CWD.
     tmp_dir = Path(tempfile.mkdtemp(prefix='voice_'))
     wav_path = tmp_dir / 'voice.wav'
-    xwm_path = tmp_dir / 'voice.xwm'
     try:
         if not decode_to_wav(src_path, wav_path, ffmpeg):
             return False
         if not has_samples(wav_path):
-            raise SilentSource(src_path.name)
-
-        # Stage 2: lip sync track (only meaningful for .fuz destinations)
-        lip_bytes = None
-        if dst_path.suffix.lower() == '.fuz' and lipgenerator and lip_text:
-            lip_bytes = generate_lip(lipgenerator, wav_path, lip_text)
-
-        # Stage 3: xWMAEncode → XWM
-        # xWMAEncode parses its own argv and treats a leading '/' as a switch
-        # prefix (same bug as hkxcmd, verified under Wine 11.0) -- to_wine_path
-        # no-ops on Windows and on the relative names above.
-        cmd_xwm = [
-            xwmaencode,
-            '-b', '48000',          # 48 kbps (good balance for voice)
-            to_wine_path(str(wav_path)),
-            to_wine_path(str(xwm_path)),
-        ]
-        r2 = subprocess.run(windows_cmd(cmd_xwm), capture_output=True, timeout=60,
-                            **POPEN_FLAGS)
-        if (r2.returncode != 0 or not xwm_path.is_file()
-                or xwm_path.stat().st_size == 0):
-            return False
-
-        # Stage 4: write destination
-        if dst_path.suffix.lower() == '.fuz':
-            if lip_bytes:
-                dst_path.write_bytes(pack_fuz(lip_bytes, xwm_path.read_bytes()))
-                # A pre-lip-sync run may have left the same line as .xwm;
-                # remove it so the engine unambiguously picks the .fuz.
-                stale = dst_path.with_suffix('.xwm')
-                if stale.exists():
-                    stale.unlink()
-            else:
-                # No lip track — keep the audio playable as a bare .xwm
-                dst_path = dst_path.with_suffix('.xwm')
-                shutil.copyfile(xwm_path, dst_path)
-        else:
-            shutil.copyfile(xwm_path, dst_path)
-        return dst_path.is_file() and dst_path.stat().st_size > 0
+            raise SilentSource(Path(src_path).name)
+        fuz = dst_path.suffix.lower() == '.fuz'
+        lip_bytes = generate_lip(lipgenerator, wav_path, lip_text) if fuz and lipgenerator and lip_text else None
+        audio = encode_xwm(xwmaencode, [(wav_path, tmp_dir / 'voice.xwm')])[0]
+        return audio is not None and _place(dst_path, lip_bytes, audio)
     except (subprocess.TimeoutExpired, OSError):
         return False
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _place(dst_path: Path, lip_bytes: 'bytes | None', audio: bytes) -> bool:
+    """Write `audio` to `dst_path`: a .fuz with `lip_bytes` (an .xwm beside it removed), else the .xwm alone (a
+    .fuz without a lip becomes an .xwm beside it); True."""
+    if dst_path.suffix.lower() == '.fuz' and lip_bytes:
+        dst_path.write_bytes(pack_fuz(lip_bytes, audio))
+        dst_path.with_suffix('.xwm').unlink(missing_ok=True)
+    else:
+        dst_path.with_suffix('.xwm').write_bytes(audio)
+    return True
 
 
 # ---------------------------------------------------------------------------

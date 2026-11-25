@@ -468,6 +468,23 @@ static void enc_init(EncState *s, int channels, int sample_rate, int bit_rate)
     init_coef_tables(s);
 }
 
+static void enc_free(EncState *s)
+{
+    free(s->win);
+    mdct_free(&s->mdct);
+    free(s->mdct_in);
+    free(s->mdct_out);
+    for (int ch = 0; ch < s->channels; ch++) {
+        free(s->coefs[ch]);
+        free(s->prev_win[ch]);
+    }
+    for (int t = 0; t < 2; t++) {
+        free(s->run_table[t]);
+        free(s->level_table[t]);
+        free(s->int_table[t]);
+    }
+}
+
 static void apply_window_and_mdct(EncState *s, float *const *audio, int off, int avail)
 {
     int N = s->frame_len;
@@ -934,4 +951,16 @@ void xwma_encode_file(const char *in_path, const char *out_path, int bit_rate)
     write_xwma(out_path, s, data, data_bytes, dpds, npk);
     printf("%s: %d ch %d Hz %d bps, %d frames, %d packets, %d bytes\n",
            out_path, s->channels, s->sample_rate, bit_rate, nframes, npk, data_bytes);
+
+    bb_free(&pending);
+    free(pkt);
+    free(dpds);
+    free(data);
+    free(frames);
+    for (int ch = 0; ch < audio.channels; ch++) {
+        free(ext[ch]);
+        free(audio.pcm[ch]);
+    }
+    enc_free(s);
+    free(s);
 }

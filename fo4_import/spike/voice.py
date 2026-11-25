@@ -25,8 +25,8 @@ import numpy as np
 
 from core.build_resources import profile_cores
 
-from asset_convert.audio.audio_converter import (WAV_FORMAT, SilentSource, convert_file_to_xwm, find_ffmpeg,
-                                                  pack_fuz)
+from asset_convert.audio.audio_converter import (WAV_FORMAT, SilentSource, convert_file_to_xwm, encode_xwm,
+                                                  find_ffmpeg, has_samples, pack_fuz)
 from asset_convert.paths import XWMA_ENC
 from core.subprocess_flags import POPEN_FLAGS
 from fo4_import.base import lip
@@ -286,19 +286,21 @@ def _made(source: tuple, first: Path, tools: tuple, wav: 'Path | None') -> 'tupl
     return written.suffix.lower(), written.read_bytes()
 
 
-def _convert_shared(source: tuple, destinations: list, tools: tuple, wav: 'Path | None' = None) -> int:
-    """`source` (recording, transcript) converted once (_made, kept in the work cache under VOICE_SITE), then
-    written to every one of `destinations`; how many were written (none when it fails or decodes to silence)."""
-    made = _made(source, destinations[0], tools, wav)
-    if made is None:
-        return 0
-    store_versioned(VOICE_SITE, VOICE_VERSION, cache_inputs(source, destinations[0], Path(tools[2]).is_file()), made)
+def _keep(key: tuple, made: tuple, destinations: list) -> int:
+    """Keep `made` under VOICE_SITE `key`, then _write it to `destinations`."""
+    store_versioned(VOICE_SITE, VOICE_VERSION, key, made)
     return _write(made, destinations)
 
 
-def _from_cache(source: tuple, destinations: list, lipgen: bool) -> 'int | None':
-    """Files written from `source`'s VOICE_SITE entry; None when it has none."""
-    made = lookup_versioned(VOICE_SITE, VOICE_VERSION, cache_inputs(source, destinations[0], lipgen))
+def _convert_shared(source: tuple, destinations: list, tools: tuple, key: tuple, wav: 'Path | None' = None) -> int:
+    """_made `source` once, _keep it under `key` to `destinations`; how many."""
+    made = _made(source, destinations[0], tools, wav)
+    return 0 if made is None else _keep(key, made, destinations)
+
+
+def _from_cache(key: tuple, destinations: list) -> 'int | None':
+    """Files _write wrote from the VOICE_SITE entry `key`; None without one."""
+    made = lookup_versioned(VOICE_SITE, VOICE_VERSION, key)
     return None if made is None else _write(made, destinations)
 
 
@@ -332,11 +334,38 @@ def batches(groups: list, workers: int) -> list:
     return out + [run] if run else out
 
 
+def _batched_lip(source: tuple, first: Path, wav: 'Path | None') -> 'bytes | None':
+    """What a batch encode packs `source` with as `first`'s kind, from its decoded `wav`: b'' for an .xwm, its own
+    lip for a .fuz; None when it is converted alone (not decoded, no audio, or no lip of its own)."""
+    has_audio = wav is not None and has_samples(wav)
+    if not has_audio:
+        return None
+    return b'' if first.suffix.lower() != '.fuz' else own_lip(source[0])
+
+
 def _convert_batch(batch: list, tools: tuple) -> int:
-    """_convert_shared of each of `batch`, decoded first in one ffmpeg run."""
+    """Each of `batch` [(source, destinations, key: cache_inputs)] decoded in one ffmpeg run, and those with a
+    _batched_lip encoded in one encoder run and kept; the rest, and any the encoder left, by _convert_shared; how
+    many files were written.
+    See: docs/fork/fo4_build_speed.md#voice-batches
+    """
     with tempfile.TemporaryDirectory(prefix='voice_batch_') as folder:
-        wavs = decode([s[0] for s, _ in batch if Path(s[0]).suffix.lower() != '.wav'], Path(folder), tools[0])
-        return sum(_convert_shared(source, dests, tools, wavs.get(source[0])) for source, dests in batch)
+        folder = Path(folder)
+        wavs = decode([s[0] for s, _, _ in batch if Path(s[0]).suffix.lower() != '.wav'], folder, tools[0])
+        lips = [_batched_lip(source, dests[0], wavs.get(source[0])) for source, dests, _ in batch]
+        plain = [i for i, own in enumerate(lips) if own is not None]
+        encoded = encode_xwm(tools[1], [(wavs[batch[i][0][0]], folder / f'{i}.xwm') for i in plain]) if plain else []
+        audio = dict(zip(plain, encoded))
+        return sum(_finish(item, tools, wavs.get(item[0][0]), lips[i], audio.get(i)) for i, item in enumerate(batch))
+
+
+def _finish(item: tuple, tools: tuple, wav: 'Path | None', own: 'bytes | None', audio: 'bytes | None') -> int:
+    """Files written for `item` (source, destinations, key): its batch-encoded `audio`, packed with `own` lip into a
+    .fuz unless that is b'', kept; else _convert_shared from its `wav`."""
+    source, destinations, key = item
+    if audio is None:
+        return _convert_shared(source, destinations, tools, key, wav)
+    return _keep(key, ('.fuz', pack_fuz(own, audio)) if own else ('.xwm', audio), destinations)
 
 
 def _attempt(job: tuple) -> str:
@@ -378,7 +407,9 @@ def convert(job_list: list, lipgen_dir: Path) -> int:
         dests += [] if dest in dests else [dest]
     lipgen, workers = Path(tools[2]).is_file(), profile_cores()
     with ThreadPoolExecutor(workers) as pool:
-        kept = list(pool.map(lambda item: _from_cache(*item, lipgen), shared.items()))
-        todo = batches([item for item, n in zip(shared.items(), kept) if n is None], workers)
+        keys = pool.map(lambda item: cache_inputs(item[0], item[1][0], lipgen), shared.items())
+        items = [(source, dests, key) for (source, dests), key in zip(shared.items(), keys)]
+        kept = list(pool.map(lambda item: _from_cache(item[2], item[1]), items))
+        todo = batches([item for item, n in zip(items, kept) if n is None], workers)
         made = sum(counted(pool.map(lambda batch: _convert_batch(batch, tools), todo), len(todo), 'voice batches'))
     return made + sum(n for n in kept if n is not None)
