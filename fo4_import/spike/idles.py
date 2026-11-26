@@ -30,7 +30,6 @@ from fo4_import.base.source import plugin_stem
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.havok.human_clip import HumanClips
 from fo4_import.pipeline.export_index import asset_root, export_records
-from fo4_import.rig.table import rigs
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
 from fo4_import.spike.idle_props import IdleProps
@@ -112,7 +111,7 @@ class Idles:
     def _left_out(self, model: str) -> str:
         """Why an idle playing `model` is left out; '' when it converts (a human clip, or one in an own rig's folder),
         SEATED when it converts seated."""
-        if rig_of(model) and (self.meshes / model).is_file():
+        if rig_of(model, self.builder.creatures.routes) and (self.meshes / model).is_file():
             return ''
         if not model.lower().startswith(FNV_HUMAN) or not (self.meshes / model).is_file():
             return 'no human clip'
@@ -262,7 +261,7 @@ class Idles:
         seated, as the chair graph's flavor.
         See: docs/fork/fo4_own_rig.md#idles
         """
-        rig = None if group else rig_of(rec.get('Model.MODL', ''))
+        rig = None if group else rig_of(rec.get('Model.MODL', ''), self.builder.creatures.routes)
         if rig:
             name = rec['Model.MODL'][len(rig.folder) + 1:]
             clip = self.builder.creatures.own_rigs().idle_clip(rig, self.meshes / rec['Model.MODL'], name)
@@ -326,10 +325,10 @@ def random_chance(rec: dict) -> float:
     return chance
 
 
-def rig_of(model: str):
-    """The own rig (rig.table) whose FNV folder holds clip `model`, or None."""
-    low = model.lower()
-    return next((rig for folder, rig in rigs().items() if low.startswith(folder + '\\')), None)
+def rig_of(model: str, routes):
+    """The own rig (Routes.rig) of the nearest folder holding clip `model`."""
+    folders = model.lower().replace('/', '\\').split('\\')[:-1]
+    return next((rig for i in range(len(folders), 0, -1) if (rig := routes.rig('\\'.join(folders[:i])))), None)
 
 
 def loops_of(rec: dict) -> tuple:

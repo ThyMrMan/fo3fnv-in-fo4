@@ -6,14 +6,14 @@ workbench furniture: a COBJ lists its components (FVPA), what it makes, the
 workbench keyword (BNAM) whose furniture offers it and the recipe filter
 keywords (FNAM) that make the menu's tabs. So:
 
-- a recipe category with a station (STATIONS) becomes a workbench keyword;
-- an FNV activator whose script opens that category's menu becomes a copy of
-  the vanilla station furniture (its entry markers, workbench data and
-  script) with FNV's name, model and bounds and the category's keyword in
+- every recipe category becomes a workbench keyword, a mod's own too;
+- an FNV activator whose script opens a category's menu becomes a copy of
+  the category's vanilla bench (STATIONS, else BENCH; its entry markers,
+  workbench data and script) with FNV's name, model and bounds and the category's keyword in
   place of vanilla's, so the FNV recipes show at FNV stations only. The
   activator's script is not attached: its only work was opening the menu;
 - each sub-category becomes a recipe filter keyword (the menu tab, FNV's name);
-- each recipe of such a category becomes a COBJ on FNV's FormID: its
+- each recipe in a category becomes a COBJ on FNV's FormID: its
   ingredients as components, what it makes, and as conditions on the player
   FNV's skill requirement (the helper plugin's skill actor value) and its
   GetHasNote conditions (the note's book in inventory);
@@ -38,10 +38,10 @@ from fo4_import.spike.station_spot import CLEARANCE, cell_of, spots, triangles_b
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
-#: FNV recipe category -> (vanilla workbench furniture it is built as, its workbench keyword); benches as chem stations.
-STATIONS = {'CampfireRecipes': ('WorkbenchCookingFire', 0x102152),
-            'WorkbenchRecipes': ('WorkbenchChemistryA', 0x102158),
-            'ReloadingBenchRecipes': ('WorkbenchChemistryA', 0x102158)}
+#: Vanilla workbench furniture a station is a copy of -> the workbench keyword its copy swaps for its category's.
+BENCHES = {'WorkbenchCookingFire': 0x102152, 'WorkbenchChemistryA': 0x102158}
+#: FNV recipe category -> its bench (BENCHES); every other category, a mod's own included, is a BENCH.
+STATIONS, BENCH = {'CampfireRecipes': 'WorkbenchCookingFire'}, 'WorkbenchChemistryA'
 #: Units inside the open edge a template's marker stands: a bench's on its model's bounds (others outside the edge).
 INSETS = {'WorkbenchChemistryA': 0.0}
 #: KYWD TNAM types: none (a workbench keyword), recipe filter (a crafting menu tab).
@@ -76,20 +76,23 @@ class Crafting:
         for rec in export_records(export_dir, 'SCPT'):
             m = _MENU.search(str(rec.get('SCTX', '')))
             category = m and by_name.get(m[1].lower())
-            if category and self.categories[category]['EditorID'] in STATIONS:
+            if category:
                 self.menus[int(rec['FormID'], 16)] = category
         bases = {int(r['FormID'], 16) for r in export_records(export_dir, 'ACTI') if self.station_of(r)}
         self.placements, self.triangles, self.grid, self.export_dir, self.sides = {}, None, {}, export_dir, {}
         for ref in refs:
             if int(ref.get('NAME', '0'), 16) in bases:
                 self.placements.setdefault(int(ref['NAME'], 16), []).append(ref)
-        names = set(v[0] for v in STATIONS.values())
         self.templates = {_edid(r): list(subrecords(r.body)) for r, _ in walk(builder.fo4, b'FURN')
-                          if _edid(r) in names}
+                          if _edid(r) in BENCHES}
 
     def station_of(self, rec: dict) -> 'int | None':
-        """The station category whose menu `rec`'s script opens, else None."""
+        """The recipe category whose menu `rec`'s script opens, else None."""
         return self.menus.get(int(rec.get('SCRI', '0'), 16))
+
+    def bench(self, category: int) -> str:
+        """The vanilla bench (BENCHES) recipe category `category`'s stations are copies of."""
+        return STATIONS.get(self.categories[category]['EditorID'], BENCH)
 
     def station(self, fid: int, rec: dict, model: str, bounds: tuple) -> bytes:
         """FNV activator `rec` as a copy of its category's vanilla workbench furniture on `fid`, its one marker on
@@ -114,9 +117,9 @@ class Crafting:
     def _copy(self, fid: int, edid: str, rec: dict, mesh: tuple, mark: 'bytes | None') -> bytes:
         """Station `rec` as its vanilla template on `fid` named FNV_`edid`, marked at `mark` (template's if None)."""
         category = self.station_of(rec)
-        template, bench = STATIONS[self.categories[category]['EditorID']]
-        own = (edid, mark)
-        return pack_fo4_record('FURN', fid, 0, b''.join(self._part(tag, data, rec, (mesh, own), (category, bench))
+        template, own = self.bench(category), (edid, mark)
+        bench = (category, BENCHES[template])
+        return pack_fo4_record('FURN', fid, 0, b''.join(self._part(tag, data, rec, (mesh, own), bench)
                                                         for tag, data in self.templates[template]))
 
     def _part(self, tag: bytes, data: bytes, rec: dict, made: tuple, bench: tuple) -> bytes:
@@ -139,7 +142,7 @@ class Crafting:
         """The markers of station `rec` on its model's open sides (station_spot.spots); empty if none measures."""
         if self.triangles is None:
             self.triangles, self.grid = self._navmesh()
-        template = STATIONS[self.categories[self.station_of(rec)]['EditorID']][0]
+        template = self.bench(self.station_of(rec))
         marks = spots(bounds, self.placements.get(int(rec['FormID'], 16), []), self.triangles, self.grid,
                       INSETS.get(template, -CLEARANCE))
         self.builder.counts[f'station spots: {len(marks)} open side(s)' if marks else 'station spots left at the origin'] += 1
@@ -164,11 +167,19 @@ class Crafting:
         return self.keywords[category]
 
     def build(self) -> None:
-        """Write a COBJ for every recipe of a category with a station, then the quest swapping tokens."""
+        """Write a COBJ for every recipe in a category (one without is counted, as is one no station opens), then
+        the quest swapping tokens.
+        See: docs/fork/fo4_pipeline.md#mod-recipe-categories
+        """
+        opened = set(self.menus.values())
         for rec in self.recipes:
             category = int(rec.get('DATA.Category', '0'), 16)
-            if self.categories.get(category, {}).get('EditorID') in STATIONS:
-                self._recipe(rec, category)
+            if category not in self.categories:
+                self.builder.counts['recipe skipped (no category)'] += 1
+                continue
+            if category not in opened:
+                self.builder.counts['recipes of a category no station opens'] += 1
+            self._recipe(rec, category)
         if self.tokens:
             self._outputs_quest()
 

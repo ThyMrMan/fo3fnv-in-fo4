@@ -1,6 +1,7 @@
 """Own-rig creatures (fo4_import.rig): the pieces that run without the game or its tools."""
 
 import struct
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -9,7 +10,8 @@ import pytest
 from fo4_import.havok import graph as G
 from fo4_import.havok import packfile, packfile_write
 from fo4_import.rig import assets, behavior, build, reactions, records
-from fo4_import.rig import gun_mods
+from fo4_import.rig import derive, gun_mods
+from fo4_import.base.install import FALLOUTNV_ESM
 from fo4_import.rig.table import Rig, rigs, weapon_node
 from fo4_import.nif.blocks import Reader, read_tri_shape
 from fo4_import.spike.talking_machines import bone_worlds, part_pose
@@ -19,7 +21,8 @@ from tests.test_script_converter import conv_lines
 from fo4_import.spike.ammo_mods import ADD, FORM, FORM_VALUE2, omod_data, prop
 from fo4_import.spike import creatures as C
 from fo4_import.spike import idles as ID
-from tes5_import.base.tes5_reader import subrecords
+from fo4_import.spike.creature_routes import Routes
+from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
 GECKO = 'creatures\\nvgecko'
@@ -276,8 +279,9 @@ def test_a_dynamic_idle_plays_on_a_tagging_generator_and_returns_to_idle():
 def test_an_idle_in_a_rig_folder_plays_on_that_rig_with_the_creature_events():
     """A Think Tank special idle belongs to its rig and sends vanilla creatures' dynamicAnim; a human clip has no
     rig; a forever loop sends the looping event."""
-    assert ID.rig_of('NVDLC03\\Creatures\\BrainBot\\idleanims\\mtspecialidle_angry.kf').project == 'FNVBrainBot'
-    assert ID.rig_of('characters\\_male\\idleanims\\talk.kf') is None
+    routes = Routes(Path('.'), {}, {}, lambda recs: (False, False), Counter())
+    assert ID.rig_of('NVDLC03\\Creatures\\BrainBot\\idleanims\\mtspecialidle_angry.kf', routes).project == 'FNVBrainBot'
+    assert ID.rig_of('characters\\_male\\idleanims\\talk.kf', routes) is None
     rec = {'EditorID': 'X', 'DATA.LoopMin': '255', 'DATA.LoopMax': '255'}
     subs = dict(subrecords(ID.pack_idle(1, rec, b'', ('G.hkx', 'C.hkx', ID.RIG_EVENTS), (0, 0))[24:]))
     assert subs[b'ENAM'].rstrip(b'\0') == b'dynamicAnimLooping' and subs[b'DNAM'].rstrip(b'\0') == b'G.hkx'
@@ -536,6 +540,24 @@ def test_a_skeleton_comes_out_byte_identical_its_ragdoll_in_node_order(tmp_path,
               if k == 'NiNode' and b['collision'] >= 0
               and struct.unpack_from('<iHiI', nif.blocks[b['collision']][1])[2] == system]
     assert bodies == list(range(len(bodies)))
+
+
+@pytest.mark.skipif(not RAT.exists() or not FALLOUTNV_ESM.is_file(), reason='needs FalloutNV.esm and its export')
+def test_a_derived_rig_matches_the_hand_entries_clips_attacks_and_pose_bones():
+    """For four hand rigs, the entry worked out from FNV's files (derive.derived) has the hand entry's clips,
+    attacks and pose bones.
+    See: docs/fork/fo4_auto_rig_plan.md#derive
+    """
+    parts = {}
+    for rec, _ in walk(FALLOUTNV_ESM.read_bytes(), b'BPTD'):
+        found = list(subrecords(rec.body))
+        folder = records.text(dict(found).get(b'MODL', b'')).lower().rpartition('\\')[0]
+        parts.setdefault(folder, []).extend(records.record_parts(found))
+    for folder in (GECKO, 'creatures\\nightstalker', 'creatures\\nvmantis', 'creatures\\centaur'):
+        hand = rigs()[folder]
+        rig, why = derive.derived(folder, EXPORT_MESHES / folder, parts[folder], (False, bool(hand.guns)))
+        assert why == '' and rig.clips == hand.clips and rig.pose_bones == hand.pose_bones, folder
+        assert {k: tuple(v) for k, v in rig.attacks.items()} == {k: tuple(v) for k, v in hand.attacks.items()}
 
 
 def test_a_dlc_build_leaves_a_rig_its_master_ships_to_the_master(tmp_path):

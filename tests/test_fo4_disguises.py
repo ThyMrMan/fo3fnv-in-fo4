@@ -13,6 +13,7 @@ from fo4_import.spike import items as IT
 from fo4_import.spike import quest_scope as QS
 from fo4_import.spike import replacements as RP
 from fo4_import.spike import script_effects as SE
+from fo4_import.spike.weapon_routes import WeaponRoutes
 from script_convert.converter import ScriptConverter
 from script_convert.cross_ref import CrossRefGraph
 from tes5_import.base.tes5_reader import subrecords
@@ -39,6 +40,7 @@ def test_an_outfit_copy_carries_fnv_s_own_script_after_its_editor_id():
     eq = E.Equipment.__new__(E.Equipment)
     eq.builder, eq.fnv, eq.vanilla, eq.by_anim, eq.strings = builder, {}, {'BaseballBat': template}, {}, {1: b'Bat'}
     eq.table = {'WeapScripted': RP.Replacement('Fallout4.esm', 'BaseballBat', 'stats')}
+    eq.routes = WeaponRoutes(eq.table, (), collections.Counter())
     eq.weapon_mods = eq.ammo_mods = SimpleNamespace(wire=lambda fnv, subs: subs)
     eq.condition = SimpleNamespace(wire=lambda fnv, fid, subs: subs)
     eq.fired = {}

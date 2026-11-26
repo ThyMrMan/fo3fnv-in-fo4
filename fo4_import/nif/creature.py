@@ -106,10 +106,10 @@ HEAD_BONE = 'head'
 PUSH_MARGIN, PUSH_PASSES = 0.5, 3
 
 
-def creature_fit(export_dir: Path, folder: str, archives: Archives) -> BodyFit:
-    """The fit of FNV creature skeleton folder `folder` onto its FO4 pair: bone moves, and FO4's body (every
-    shape's surface, weights on one bone list, bind data) to weight from."""
-    pair = PAIRS[folder]
+def creature_fit(export_dir: Path, folder: str, archives: Archives, pair: 'Pair | None' = None) -> BodyFit:
+    """The fit of FNV creature skeleton folder `folder` onto its FO4 pair (`pair`, else PAIRS'): bone moves, and
+    FO4's body (every shape's surface, weights on one bone list, bind data) to weight from."""
+    pair = pair or PAIRS[folder]
     body = nif_file.read(archives.read(pair.body))
     bones, nodes, bind, parts = [], [], [], []
     for kind, raw in body.blocks:

@@ -12,9 +12,9 @@ movie, **P** = played, **S** = from the wiki or other text only.
 `station`, `base_of`, and `_gameplay` → `crafting.build()`):
 
 - **Stations.** An FNV activator whose script runs `ShowRecipeMenu` on a
-  category in `STATIONS` becomes a copy of a vanilla workbench FURN with
-  FNV's name, model and bounds. Campfires copy `WorkbenchCookingFire`; the
-  workbench and the reloading bench copy `WorkbenchChemistryA`. The copy's
+  category (any RCCT, a mod's own too) becomes a copy of a vanilla workbench FURN with
+  FNV's name, model and bounds. Campfires copy `WorkbenchCookingFire`; every
+  other category copies `WorkbenchChemistryA` ([mod categories](fo4_pipeline.md#mod-recipe-categories)). The copy's
   workbench keyword is swapped for the category's own keyword
   (`FNV_<category>`), so each bench lists only its own recipes and vanilla's
   are untouched. The activator's script is dropped.
@@ -47,7 +47,7 @@ Gaps in today's build (V, from the census below):
 
 | Gap | Recipes or placements | Why |
 |---|---|---|
-| Dead Money's vending machines | 49 recipes, 22 placed machines | `NVDLC01VendingMachineRecipes` isn't in `STATIONS`; the machine's script also shows a first-use message, which a dropped script loses |
+| Dead Money's vending machines | 49 recipes, 22 placed machines | Built as chem copies since 2026-11-26 (not played); the machine's script also shows a first-use message and the broken one's repair gate, which a dropped script loses |
 | Conditions other than skill, note, perk | Lonesome Road 14 with `GetItemCount`, 2 `GetDeadCount`; Honest Hearts 4 `GetStage`, 3 `GetMapMarkerVisible`; Dead Money 3 `GetInCell`, 1 each `GetEquipped`, `GetItemCount`, `GetQuestVariable` | `_condition` converts only `HasPerk` and `GetHasNote` |
 | `ShowRecipeMenu` from dialogue | Veronica and ED-E as mobile workbenches (1 FNV INFO), Lonesome Road's 4 INFOs | the [script functions plan](fo4_plan_script_functions.md) gives it a hidden placed workbench; not built |
 | DLC builds | every DLC recipe | `export_records` layers the masters, so a DLC build also walks FalloutNV.esm's 105 recipes; whether it rewrites them as overrides is unchecked (the level-up tables solved the same thing with `builder.ids.is_own`) |
@@ -144,7 +144,7 @@ it (S, the game's loading screen quoted in the wiki).
 FNV's meshes as FO4 type-5 furniture, FNV's recipes as COBJ under our own
 keywords: what we build today. To finish it:
 
-1. Dead Money's vending machine as a fourth `STATIONS` entry (a chem copy).
+1. ~~Dead Money's vending machine as a chem copy~~ (built: every category, [mod categories](fo4_pipeline.md#mod-recipe-categories)).
 2. Convert the missing conditions to their FO4 functions (`GetItemCount`,
    `GetStage`, `GetInCell`, `GetEquipped`, `GetDeadCount`, map marker,
    quest variable as the converted script's property).

@@ -1,5 +1,5 @@
 {
-  "_about": "What stands in for each FNV/FO3 form, by category, keyed by the source EditorID. use: 'Plugin|EditorID'. as: item (that record itself), stats (a copy with the source's name and stats), fnv (the source's own mesh), rig (a creature on its own FNV skeleton, behaviour and race, from data/creature_rigs.json; the copy's NPC on that race). mods: OMOD EditorIDs replacing a gun's default parts at the same attach points. _rules: what forms the table leaves out get (creatures by skeleton folder, NPC bodies, armor by biped slot, melee weapons by animation type). A profile (--profile) and then a user file (--replacements) of the same shape are laid over this one entry by entry. See docs/fork/fo4_replacements.md and docs/fork/fo4_gui.md#replacement-data.",
+  "_about": "What stands in for each FNV/FO3 form, by category, keyed by the source EditorID. use: 'Plugin|EditorID'. as: item (that record itself), stats (a copy with the source's name and stats), fnv (the source's own mesh), rig (a creature on its own FNV skeleton, behaviour and race, from data/creature_rigs.json; the copy's NPC on that race). mods: OMOD EditorIDs replacing a gun's default parts at the same attach points. _rules: what forms the table leaves out get (creatures by skeleton folder, NPC bodies, armor by biped slot, weapons by animation type when the table, a same-model listed weapon and a gun of their own leave them out). A profile (--profile) and then a user file (--replacements) of the same shape are laid over this one entry by entry. See docs/fork/fo4_replacements.md and docs/fork/fo4_gui.md#replacement-data.",
 
   "consumable": {
     "Stimpak": {"use": "Fallout4.esm|Stimpak", "as": "item"},
@@ -276,6 +276,7 @@
       "creatures\\deathclaw": {"use": "Fallout4.esm|EncDeathclaw01Template", "as": "stats"},
       "creatures\\radroach": {"use": "Fallout4.esm|EncRadRoach", "as": "stats"},
       "creatures\\ghoul": {"use": "Fallout4.esm|encFeralGhoul01Template", "as": "stats"},
+      "dlcpitt\\creatures\\streettrog": {"use": "Fallout4.esm|encFeralGhoul01Template", "as": "stats"},
       "creatures\\brahmin": {"use": "Fallout4.esm|EncBrahminTemplate", "as": "stats"},
       "creatures\\nvbighorner": {"use": "Fallout4.esm|EncBrahminTemplate", "as": "stats"},
       "creatures\\eyebot": {"use": "Fallout4.esm|EncEyeBot", "as": "stats"},
@@ -328,12 +329,27 @@
       {"covers": ["Head", "Headband", "Hat"], "use": "Fallout4.esm|ClothesMobsterhat", "as": "fnv"},
       {"covers": ["Eye Glasses"], "use": "Fallout4.esm|ClothesEyeGlasses", "as": "fnv"},
       {"covers": ["Mask", "Mouth Object"], "use": "Fallout4.esm|Clothes_Raider_SurgicalMask", "as": "fnv"},
-      {"covers": ["Necklace", "Choker"], "use": "Fallout4.esm|ClothesEyeGlasses", "as": "fnv"}
+      {"covers": ["Necklace", "Choker"], "use": "Fallout4.esm|ClothesEyeGlasses", "as": "fnv"},
+      {"covers": ["Hair"], "use": "Fallout4.esm|ClothesMobsterhat", "as": "fnv"},
+      {"covers": ["Backpack", "PipBoy", "Weapon", "Body AddOn 1", "Body AddOn 2", "Body AddOn 3", "Nose Ring",
+                  "Earrings"], "use": "Fallout4.esm|ClothesEyeGlasses", "as": "fnv"},
+      {"covers": ["Left Hand", "Right Hand"], "use": "Fallout4.esm|Armor_WeddingRing", "as": "fnv"}
     ],
-    "melee": {
+    "weapon": {
       "hand_to_hand": {"use": "Fallout4.esm|Knuckles", "as": "stats"},
       "one_hand": {"use": "Fallout4.esm|TireIron", "as": "fnv"},
-      "two_hand": {"use": "Fallout4.esm|BaseballBat", "as": "fnv"}
+      "two_hand": {"use": "Fallout4.esm|BaseballBat", "as": "fnv"},
+      "pistol_ballistic": {"use": "Fallout4.esm|10mm", "as": "stats"},
+      "pistol_energy": {"use": "Fallout4.esm|LaserGun", "as": "stats"},
+      "rifle_ballistic": {"use": "Fallout4.esm|HuntingRifle", "as": "stats"},
+      "rifle_automatic": {"use": "Fallout4.esm|AssaultRifle", "as": "stats"},
+      "rifle_energy": {"use": "Fallout4.esm|LaserGun", "as": "stats"},
+      "handle": {"use": "Fallout4.esm|Flamer", "as": "stats"},
+      "launcher": {"use": "Fallout4.esm|MissileLauncher", "as": "stats"},
+      "grenade": {"use": "Fallout4.esm|fragGrenade", "as": "stats"},
+      "land_mine": {"use": "Fallout4.esm|fragMine", "as": "stats"},
+      "mine_drop": {"use": "Fallout4.esm|fragMine", "as": "stats"},
+      "thrown": {"use": "Fallout4.esm|fragGrenade", "as": "fnv"}
     }
   }
 }

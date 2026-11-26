@@ -5,6 +5,50 @@ alpha. Download the zip named `fo3fnv-in-fo4-<release>.zip` from the
 [Releases page](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases), not
 "Source code".
 
+## f3nv-0.13 (2026-11-26)
+
+**After upgrading:** rebuild your converted games and DLC ("Rebuild what
+changed"), because the creature, weapon, armor, crafting, effect and
+idle-marker code changed. Saves keep working: no existing record moved.
+
+### New
+- **Creatures with no rule convert.** A creature folder nobody wrote a rule
+  for (the Fallout 3 DLC's, and any mod's) now picks a route itself: the rule
+  of a folder with the same skeleton, else a rig built from its own files,
+  else a stand-in by creature type. Anchorage's chimera and spider mines and
+  Point Lookout's swamp folk get rigs of their own; Broken Steel's
+  Bonecrusher plays as a super mutant.
+- **Weapons with no rule convert.** Each weapon takes the first route that
+  works: its hand entry, a listed weapon with the same model, its own mesh
+  (if it passes the muzzle and rifle-aim checks), the Fallout 4 gun's mesh,
+  else a stand-in by animation type. Each build writes a
+  `<plugin>.weapons.tsv` report of every weapon's route.
+- **Semi-automatic guns fire at their own rate**, from the source's shots
+  per second.
+- **An unlisted projectile** takes a stand-in of its kind (bullet, missile,
+  grenade, beam, flame).
+- **Armor in any slot.** Gloves, backpacks, Pip-Boy items, hair pieces and
+  face jewelry no rule covered now convert, on their own mesh or with no worn
+  model, each in a slot of its own; never the player's Pip-Boy slot.
+- **Mod crafting categories.** Recipes in a mod's own category, and the
+  benches that open it, convert (Dead Money's vending machines: 49 recipes).
+- **Mod consumable effects.** A new effect that changes a stat becomes Fallout
+  4's effect on the same stat (New Vegas' Rebound now gives its 5 AP).
+- **Mod explosions, debris, effect shaders and idle markers** route to the
+  nearest listed one, or convert as themselves, instead of being left out.
+- **Terrain LOD from the land itself** (off by default; set
+  `F3NV_TERRAIN_FROM_LAND=1`): distant land built from each cell's heights,
+  with tile edges that meet.
+
+### Fixed
+- **The Pitt's reference check.** Its trogs and the marker creatures built on
+  them were skipped, leaving 10 references naming records never written.
+- **Hardcore's last stage** of thirst, hunger and sleep loss kills, as in New
+  Vegas; its damage was dropped.
+
+### Known
+- Not played in game yet. Automatic guns keep the Fallout 4 gun's fire rate.
+
 ## f3nv-0.12 (2026-11-26)
 
 ### New

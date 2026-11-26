@@ -105,12 +105,16 @@ class TalkingMachines:
         return self.speaker
 
     def statics(self, rec: dict) -> list:
-        """The activators showing FNV creature `rec`'s body parts (its NIFZ) posed on its skeleton, written once."""
-        folder = '\\'.join(rec['Model.MODL'].replace('/', '\\').split('\\')[:-1]).lower()
-        names = [rec[f'NIFZ[{i}]'].lower() for i in range(int(rec.get('NIFZCount', 0) or 0))]
+        """The activators showing FNV creature `rec`'s body parts (its NIFZ) posed on its skeleton, written once; with
+        no skeleton (a model alone: creature_routes' STILL), its model unposed."""
+        folder, _, model = rec['Model.MODL'].replace('/', '\\').lower().rpartition('\\')
         skeleton = export_file(self.export_dir, 'meshes', folder, 'skeleton.nif')
-        rig = idle_rig(skeleton, export_file(self.export_dir, 'meshes', folder, IDLE_CLIP))
-        worlds = bone_worlds(skeleton) if rig is None else {}
+        names = [rec[f'NIFZ[{i}]'].lower() for i in range(int(rec.get('NIFZCount', 0) or 0))]
+        if not skeleton.is_file():
+            names, rig, worlds = [model], None, {}
+        else:
+            rig = idle_rig(skeleton, export_file(self.export_dir, 'meshes', folder, IDLE_CLIP))
+            worlds = bone_worlds(skeleton) if rig is None else {}
         present = [name for name in names if export_file(self.export_dir, 'meshes', folder, name).is_file()]
         self.builder.counts['talking machine part left out (no file)'] += len(names) - len(present)
         made = [self._part(folder, name, (worlds, rig), rec.get('FULL', '')) for name in present]

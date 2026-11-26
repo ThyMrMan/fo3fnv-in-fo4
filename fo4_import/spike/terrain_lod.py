@@ -10,11 +10,15 @@ in both games, FNV's x, y, z in RGB and FO4's x, z, y, so green and blue swap.
 The tile's LOD water (its unshaded shapes) becomes vanilla's WATER node: one
 flat, effect-shaded shape, cut by cell into 16 segments at level 4 so the
 engine hides the loaded cells' water, as Commonwealth tiles are laid out.
-LODSettings/<FO4 world>.lod names the tile grid.
+LODSettings/<FO4 world>.lod names the tile grid. With FROM_LAND_ENV set, a tile's land shape and normal map
+come from its cells' LAND instead (terrain_land), its diffuse and water still from FNV's tile.
 
 See: docs/fork/fo4_pipeline.md#terrain-lod
+See: docs/fork/fo4_terrain_lod_plan.md#p4
 """
 
+import hashlib
+import os
 import re
 import struct
 from concurrent.futures import ThreadPoolExecutor
@@ -31,6 +35,8 @@ from fo4_import.nif import file as F
 from fo4_import.nif.blocks import SHADER_LOD_LAND, pack_tri_shape
 from fo4_import.pipeline.work_cache import cached
 from fo4_import.pipeline.export_index import asset_root
+from fo4_import.spike import terrain_land
+from fo4_import.spike.terrain_land import CELL, MIN_LEVEL
 from pyffi.formats.nif import NifFormat
 
 apply_patches()
@@ -39,8 +45,6 @@ apply_patches()
 TILE_RE = re.compile(r'\.level(\d+)\.x(-?\d+)\.y(-?\d+)\.nif$', re.I)
 #: Every vanilla .btr's vertex layout: half-float position (unused W) and UV, 12 bytes.
 VERTEX_DESC = 0x300000000203
-#: Lowest LOD level FO4 draws (every vanilla LODSettings file's).
-MIN_LEVEL = 4
 #: The work cache's site of a converted tile.
 SITE = 'terrain_lod'
 #: Bumped when the written files change; part of each texture's signature.
@@ -67,8 +71,8 @@ SEGMENT_CELLS = 4
 NO_PARENT = 0xFFFFFFFF
 #: Vanilla's skirt depth per level step, world units (Commonwealth tiles: 1,000 at level 4 to 4,000 at 32).
 SKIRT_STEP = 1000
-#: World units a cell spans.
-CELL = 4096
+#: Environment variable that, set to 1, builds the land of every tile from its cells' LAND (terrain_land).
+FROM_LAND_ENV = 'F3NV_TERRAIN_FROM_LAND'
 
 
 def tiles(export_dir: Path, world: str) -> list:
@@ -172,12 +176,11 @@ def skirt_depth(level: int) -> int:
     return SKIRT_STEP * (level.bit_length() - MIN_LEVEL.bit_length() + 1)
 
 
-def border_edges(pos: np.ndarray, tris: np.ndarray) -> np.ndarray:
-    """[(a, b)] of `tris`' edges on the tile's outer edge, each as its triangle runs it (a to b); triangles with
-    no area seen from above (strip stitches) give none.
+def border_edges(pos: np.ndarray, tris: np.ndarray, lo: np.ndarray, hi: np.ndarray) -> np.ndarray:
+    """[(a, b)] of `tris`' edges on the tile's outer edge (the square `lo` to `hi`), each as its triangle runs it
+    (a to b); triangles with no area seen from above (strip stitches) give none.
     See: docs/fork/fo4_terrain_lod_plan.md#p0
     """
-    lo, hi = pos[:, :2].min(axis=0), pos[:, :2].max(axis=0)
     tris = tris[seen_area(pos, tris) != 0]
     edges = np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]])
     a, b = pos[edges[:, 0], :2], pos[edges[:, 1], :2]
@@ -186,13 +189,20 @@ def border_edges(pos: np.ndarray, tris: np.ndarray) -> np.ndarray:
 
 
 def with_skirts(pos: np.ndarray, uv: np.ndarray, tris: np.ndarray, level: int) -> tuple:
-    """(positions, uvs, triangles) of a tile's land with FNV's skirts swapped for vanilla's: every border point
-    repeated skirt_depth(level) below itself with its UV, each border edge closed down to it, facing out; only
-    the vertices kept triangles use, in their order.
+    """hang_skirts() of an FNV tile's land, its own skirts gone.
     See: docs/fork/fo4_terrain_lod_plan.md#p0
     """
-    tris = without_skirts(pos, tris)
-    edges = border_edges(pos, tris)
+    return hang_skirts(pos, uv, without_skirts(pos, tris), level, pos[:, :2].min(axis=0), pos[:, :2].max(axis=0))
+
+
+def hang_skirts(pos: np.ndarray, uv: np.ndarray, tris: np.ndarray, level: int, lo: np.ndarray,
+                hi: np.ndarray) -> tuple:
+    """(positions, uvs, triangles) of a tile's land with vanilla's skirts: every point on the square `lo` to `hi`'s
+    edge repeated skirt_depth(level) below itself with its UV, each border edge closed down to it, facing out;
+    only the vertices kept triangles use, in their order.
+    See: docs/fork/fo4_terrain_lod_plan.md#p0
+    """
+    edges = border_edges(pos, tris, lo, hi)
     hung, index = np.unique(edges.ravel(), return_inverse=True)
     a, b = edges.T
     a2, b2 = len(pos) + index.reshape(-1, 2).T
@@ -274,15 +284,35 @@ def _water_blocks(data, level: int, first: int, origin: np.ndarray) -> list:
 
 
 def btr(path: Path, level: int, textures: tuple) -> bytes:
-    """The .btr of the FNV tile at `path` of `level`, textured by (diffuse, normal) Data paths: the land, then the
-    WATER node when the tile has water, in vanilla's block order."""
+    """The .btr of the FNV tile at `path` of `level`, textured by (diffuse, normal) Data paths (_tile())."""
     data = read_tile(path)
     pos, uv, tris = land_shape(data)
     origin = tile_origin(pos, path)
     pos, uv, tris = with_skirts(pos - origin, uv, tris, level)
     local, tris = tile_units(pos, tris, level)
-    uv = 1 - uv
-    water = _water_blocks(data, level, 4, origin)
+    return _tile(local, 1 - uv, tris, level, textures, _water_blocks(data, level, 4, origin))
+
+
+def land_btr(heights: np.ndarray, level: int, textures: tuple, path: 'Path | None') -> bytes:
+    """The .btr of a level-`level` tile built from its land grid `heights` (terrain_land.tile_heights), with the
+    water of the FNV tile at `path` when there is one (_tile()).
+    See: docs/fork/fo4_terrain_lod_plan.md#p2
+    """
+    pos, tris = terrain_land.tile_mesh(heights, level)
+    span = level * CELL
+    uv = np.stack([pos[:, 0], span - pos[:, 1]], axis=1) / span
+    pos, uv, tris = hang_skirts(pos, uv, tris, level, np.zeros(2), np.full(2, span))
+    local, tris = tile_units(pos, tris, level)
+    water = []
+    if path:
+        data = read_tile(path)
+        water = _water_blocks(data, level, 4, tile_origin(land_shape(data)[0], path))
+    return _tile(local, uv, tris, level, textures, water)
+
+
+def _tile(local: np.ndarray, uv: np.ndarray, tris: np.ndarray, level: int, textures: tuple, water: list) -> bytes:
+    """The .btr of land `local` (tile units) with `uv` and `tris` at `level`, textured by (diffuse, normal) Data
+    paths, then the WATER node's blocks `water` (_water_blocks) when any, in vanilla's block order."""
     nif = F.NifFile(strings=['chunk', 'Land', ''] + ['WATER'] * bool(water))
     land = _shape(1, local, tris, level, 2, (VERTEX_DESC, [{'position': tuple(p), 'bitangent_x': 0, 'uv': tuple(t)}
                                                            for p, t in zip(local, uv)]))
@@ -310,20 +340,52 @@ def _signature(path: Path) -> str:
     return f'terrain lod {VERSION} {stat.st_size} {stat.st_mtime_ns}'
 
 
-def _texture_jobs(export_dir: Path, world: str, fo4_world: str, tile: tuple) -> list:
-    """[(rel under Textures, plan)] of one tile's diffuse and normal map (stage_texture plans)."""
+def _texture_jobs(export_dir: Path, world: str, fo4_world: str, tile: tuple, heights: dict) -> list:
+    """[(rel under Textures, plan)] of one tile's diffuse and normal map (stage_texture plans), the normal map
+    from the land `heights` (normal_plan)."""
     level, x, y, _ = tile
     source = asset_root(export_dir, 'textures', 'landscape', 'lod', world.lower())
     name = f'{world.lower()}.n.level{level}.x{x}.y{y}.dds'
     stem = f'Terrain\\{fo4_world}\\{fo4_world}.{level}.{x}.{y}'
     diffuse, normals = source / 'diffuse' / name, source / 'normals' / name
     return [(f'{stem}.dds', lambda: (_signature(diffuse), lambda t: lod_texture(diffuse, t, False))),
-            (f'{stem}_msn.dds', lambda: (_signature(normals), lambda t: lod_texture(normals, t, True)))]
+            (f'{stem}_msn.dds', lambda: normal_plan(heights, tile, normals))]
 
 
-def write(export_dir: Path, data_dir: Path, world: str, fo4_world: str) -> int:
+def normal_plan(heights: dict, tile: tuple, normals: Path) -> tuple:
+    """The stage_texture plan of `tile`'s normal map: from its land in `heights` (terrain_land.normal_map) when
+    it has any there, else FNV's `normals` in FO4's layout.
+    See: docs/fork/fo4_terrain_lod_plan.md#p3
+    """
+    level, x, y, _ = tile
+    land = terrain_land.tile_heights(heights, level, x, y, 1) if heights else None
+    if land is None or not np.isfinite(land).any():
+        return _signature(normals), lambda t: lod_texture(normals, t, True)
+    signature = f'terrain lod land {VERSION} {hashlib.sha1(land.tobytes()).hexdigest()}'
+    return signature, lambda t: t.write_bytes(encode(terrain_land.normal_map(land), BC1))
+
+
+def made(heights: dict, level: int, x: int, y: int, path: Path, names: tuple) -> bytes:
+    """The work-cached .btr of FNV tile `path` (level, x, y) textured by `names`: its land from the cells' land
+    `heights` (terrain_land.filled) when the tile has any there, else FNV's own.
+    See: docs/fork/fo4_terrain_lod_plan.md#p4
+    """
+    grid = terrain_land.tile_heights(heights, level, x, y) if heights else None
+    if grid is not None and np.isfinite(grid).any():
+        key = ('land', grid.tobytes(), path.read_bytes(), level, names)
+        return cached(SITE, __name__, key, lambda: land_btr(grid, level, names, path))
+    return cached(SITE, __name__, (path.read_bytes(), level, names), lambda: btr(path, level, names))
+
+
+def ground_heights(ground: tuple) -> dict:
+    """Filled heights of `ground` (cells, LAND) when FROM_LAND_ENV is 1, else {}."""
+    return terrain_land.filled(terrain_land.cell_heights(*ground)) if os.environ.get(FROM_LAND_ENV) == '1' else {}
+
+
+def write(export_dir: Path, data_dir: Path, world: str, fo4_world: str, ground: tuple = ({}, {})) -> int:
     """Write FNV worldspace `world`'s terrain LOD as FO4 worldspace EditorID `fo4_world`'s into `data_dir`
-    (meshes loose and work-cached, textures staged for the texture BA2); the tile count, 0 when FNV has none."""
+    (meshes loose and work-cached, textures staged for the texture BA2); the tile count, 0 when FNV has none.
+    `ground` is the worldspace's (grid cells, {CELL FormID: LAND}) for ground_heights()."""
     found = tiles(export_dir, world)
     if not found:
         return 0
@@ -332,13 +394,13 @@ def write(export_dir: Path, data_dir: Path, world: str, fo4_world: str) -> int:
     settings = Path(data_dir) / 'LODSettings' / f'{fo4_world}.lod'
     settings.parent.mkdir(parents=True, exist_ok=True)
     settings.write_bytes(lod_settings(found))
-    jobs = [job for tile in found for job in _texture_jobs(export_dir, world, fo4_world, tile)]
+    heights = ground_heights(ground)
+    jobs = [job for tile in found for job in _texture_jobs(export_dir, world, fo4_world, tile, heights)]
     stage_texture(data_dir, *jobs[0])
     with ThreadPoolExecutor(profile_cores()) as pool:
         list(pool.map(lambda job: stage_texture(data_dir, *job), jobs[1:]))
     for level, x, y, path in found:
         stem = f'Data\\Textures\\Terrain\\{fo4_world}\\{fo4_world}.{level}.{x}.{y}'
         names = (f'{stem}.dds', f'{stem}_msn.dds')
-        made = cached(SITE, __name__, (path.read_bytes(), level, names), lambda: btr(path, level, names))
-        (meshes / f'{fo4_world}.{level}.{x}.{y}.btr').write_bytes(made)
+        (meshes / f'{fo4_world}.{level}.{x}.{y}.btr').write_bytes(made(heights, level, x, y, path, names))
     return len(found)

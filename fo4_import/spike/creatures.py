@@ -2,7 +2,8 @@
 
 Each creature takes the replacement table's creature entry for its
 EditorID, else the rule for an ability of its own (`_rules.ability`), else
-the rule for its skeleton folder (`_rules.creature`), in one of three modes:
+the rule for its skeleton folder (`_rules.creature`), else its folder's route
+(creature_routes: same skeleton, derived rig, stand-in), in one of these modes:
 
 - **`fnv`, FNV's body on its FO4 counterpart** (only where nif.creature.PAIRS
   has the folder): a copy of the target NPC (Dogmeat for dogs, the super
@@ -38,7 +39,7 @@ from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.base.source_fault import without_fault
 from fo4_import.nif import file as nif_file
-from fo4_import.nif.creature import PAIRS, creature_fit, creature_mesh, skeleton_parents, skin_texture
+from fo4_import.nif.creature import creature_fit, creature_mesh, skeleton_parents, skin_texture
 from fo4_import.spike import records as R
 from fo4_import.spike.actor_data import (ACBS_ALLOW_PC_DIALOGUE, BASE_DATA_FLAGS, CREATURE_FLAGS, HEALTH, UNARMED_DAMAGE,
                                         UNIQUE, StatTables, added_health, hit_proof, race_unarmed, with_actor_data)
@@ -49,7 +50,7 @@ from fo4_import.spike.attack_spells import AttackSpells
 from fo4_import.spike.creature_attacks import attack_list, fnv_groups, race_attacks, with_attacks
 from fo4_import.rig.build import Rigs
 from fo4_import.rig.gun_mods import GunMods
-from fo4_import.rig.table import rigs
+from fo4_import.spike.creature_routes import TARGETS, Routes
 from fo4_import.spike.creature_speed import Fo4Speeds, fnv_run_speed, heights, with_height, with_speed_mult
 from fo4_import.spike.replacements import CREATURE_TYPES, creature_entry, targets
 from fo4_import.spike.npcs import (USE_AI_DATA, USE_BASE_DATA, USE_FACTIONS, USE_INVENTORY, USE_SCRIPT, USE_STATS,
@@ -133,7 +134,9 @@ class Creatures:
         self.builder, self.export_dir, self.data_dir = builder, export_dir, data_dir
         self.records = {int(r['FormID'], 16): r for r in export_records(export_dir, 'CREA')}
         table = builder.table
-        keyed = {**table.rules.creature, **table.rules.ability, **table.creatures}
+        keyed = {**TARGETS, **table.rules.creature, **table.rules.ability, **table.creatures}
+        self.routes = Routes(export_dir, table.rules.creature, _members(self.records.values()), self._people,
+                             builder.counts)
         self.npcs, self.worn, self.stat_tables, self.gear, self.ranged = self._index(builder.fo4, keyed)
         self.as_is = targets({k: e for k, e in keyed.items() if e.mode == 'item'}, builder.fo4, builder.masters,
                              builder.plugin_dirs, CREATURE_TYPES)
@@ -187,6 +190,11 @@ class Creatures:
         doft = next((struct.unpack('<I', d)[0] for t, d in found if t == b'DOFT'), 0)
         return with_inventory(doft if outfit else 0, gear + self._carried(source, armed))
 
+    def _people(self, recs: list) -> tuple:
+        """(one of `recs` may talk, one carries a ranged weapon: _shoots)."""
+        return (any(int(r.get('ACBS.Flags', 0) or 0) & ACBS_ALLOW_PC_DIALOGUE for r in recs),
+                any(self._shoots(r) for r in recs))
+
     def _shoots(self, rec: dict) -> bool:
         """Whether FNV creature `rec`'s inventory holds a ranged weapon (fnv_ranged)."""
         items = self.builder.items.records
@@ -230,9 +238,11 @@ class Creatures:
         return [(ammo, own[0] if own else ARMED_AMMO, None)] if ammo else []
 
     def _entry(self, rec: dict) -> tuple:
-        """(entry, key) of FNV creature `rec` (replacements.creature_entry)."""
-        return creature_entry(self.builder.table, rec, skeleton_folder(rec.get('Model.MODL', '')),
-                              self.builder.perks.spell_names)[:2]
+        """(entry, key) of FNV creature `rec` (replacements.creature_entry), else its folder's route (Routes)."""
+        folder = skeleton_folder(rec.get('Model.MODL', ''))
+        entry, key, _ = creature_entry(self.builder.table, rec, folder, self.builder.perks.spell_names)
+        route = self.routes.of(folder) if entry is None and not _model_templated(rec) else None
+        return (route.entry, folder) if route else (entry, key)
 
     def converts(self, fnv: int) -> bool:
         """Whether FNV creature `fnv` has an entry whose target is there (and, for `fnv`, a rig pair)."""
@@ -242,9 +252,10 @@ class Creatures:
             return False
         if entry.mode == 'item':
             return key in self.as_is
+        folder = skeleton_folder(rec.get('Model.MODL', ''))
         if entry.mode == 'fnv':
-            return entry.edid.lower() in self.worn and skeleton_folder(rec.get('Model.MODL', '')) in PAIRS
-        if entry.mode == 'rig' and skeleton_folder(rec.get('Model.MODL', '')) not in rigs():
+            return entry.edid.lower() in self.worn and self.routes.pair(folder) is not None
+        if entry.mode == 'rig' and self.routes.rig(folder) is None:
             return False
         return entry.edid.lower() in self.npcs
 
@@ -330,7 +341,7 @@ class Creatures:
         See: docs/fork/fo4_own_rig.md#modules
         """
         self.own_rigs()
-        rig = rigs()[skeleton_folder(rec['Model.MODL'])]
+        rig = self.routes.rig(skeleton_folder(rec['Model.MODL']))
         members = [r for r in self.records.values() if skeleton_folder(r.get('Model.MODL', '')) == rig.folder]
         style = self.builder.combat_styles.record(self.source(rec, USE_TRAITS))
         talks = any(int(r.get('ACBS.Flags', 0) or 0) & ACBS_ALLOW_PC_DIALOGUE for r in members)
@@ -520,7 +531,7 @@ class Creatures:
         npc, write, edid = self.worn[entry.edid.lower()][0], self.builder.writer, f'FNV_{rec["EditorID"]}'
         armo = self._skin(int(rec['FormID'], 16), entry)
         face = self.faces.get(int(rec['FormID'], 16))
-        human = PAIRS[skeleton_folder(rec['Model.MODL'])].human
+        human = self.routes.pair(skeleton_folder(rec['Model.MODL'])).human
         edit = composed(R.packages_edit(packages), self._actor_data(rec),
                         self._own_voice(rec) if human else self._voice(rec), self._keywords(rec),
                         self._combat_style(rec), self._attacks(rec, npc), *self.own_parts(rec),
@@ -546,7 +557,7 @@ class Creatures:
                 self.skins[fnv] = None
                 return None
             model, bare = made
-            head = functools.partial(_with_slot, slot=FX_SLOT if bare else PAIRS[folder].head_slots)
+            head = functools.partial(_with_slot, slot=FX_SLOT if bare else self.routes.pair(folder).head_slots)
             arma, armo = (write.derive_formid(SITE, f'{fnv:08X} {part}') for part in ('ARMA', 'ARMO'))
             write.add_record('ARMA', copy_record(addon, arma, f'{edid}AA', {
                 b'MOD2': _zstr(model), b'MOD3': _zstr(model), **head(addon)}, MODEL_TEXTURES))
@@ -568,7 +579,7 @@ class Creatures:
             write, name = self.builder.writer, f'FNV_{Path(bare).stem}'
             if self.tint_archives is None:
                 self.tint_archives = Archives(FALLOUT4_DIR / 'Data')
-            pairs = tinted(self.tint_archives, self.export_dir, self.data_dir, PAIRS[folder].body, bare)
+            pairs = tinted(self.tint_archives, self.export_dir, self.data_dir, self.routes.pair(folder).body, bare)
             swap, arma = write.derive_formid(SITE, f'{key} MSWP'), write.derive_formid(SITE, f'{key} ARMA')
             write.add_record('MSWP', R.pack_mswp(swap, f'{name}_BodySwap', pairs))
             ms = struct.pack('<I', swap)
@@ -600,7 +611,7 @@ class Creatures:
         names = [rec[f'NIFZ[{i}]'].lower() for i in range(int(rec.get('NIFZCount', 0)))]
         rel = f'{folder}\\{"_".join(n.rsplit(".", 1)[0] for n in names)}.nif'
         if rel not in self.meshes:
-            meshes, pair = asset_root(self.export_dir, 'meshes', folder), PAIRS[folder]
+            meshes, pair = asset_root(self.export_dir, 'meshes', folder), self.routes.pair(folder)
             parts = [(cached_convert(meshes / n, self.export_dir, animated=False), meshes / n) for n in names]
             inputs = (folder, [_part_key(c) for c, _ in parts], (meshes / 'skeleton.nif').read_bytes(),
                       export_file(self.export_dir, 'meshes', folder, 'skeleton.nif').read_bytes(),
@@ -614,12 +625,26 @@ class Creatures:
         texture or None: _mesh).
         See: docs/fork/fo4_build_speed.md#creature-bodies
         """
+        pair = self.routes.pair(folder)
         if folder not in self.fits:
-            self.fits[folder] = creature_fit(self.export_dir, folder, self.archives)
-        bare = (skin_texture([path for _, path in parts]) or None) if PAIRS[folder].fo4_body else None
+            self.fits[folder] = creature_fit(self.export_dir, folder, self.archives, pair)
+        bare = (skin_texture([path for _, path in parts]) or None) if pair.fo4_body else None
         root = asset_root(self.export_dir, 'meshes', folder)
-        return creature_mesh(parts, self.fits[folder], PAIRS[folder].rig.root, skeleton_parents(root / 'skeleton.nif'),
-                             bare), bare
+        return creature_mesh(parts, self.fits[folder], pair.rig.root, skeleton_parents(root / 'skeleton.nif'), bare), bare
+
+
+def _model_templated(rec: dict) -> bool:
+    """Whether FNV creature `rec` takes its model from its template."""
+    return 'TPLT.Template' in rec and bool(int(rec.get('ACBS.TemplateFlags', 0) or 0) & USE_MODEL)
+
+
+def _members(recs) -> dict:
+    """{skeleton folder: [FNV creatures of `recs` whose own model is in it]}."""
+    out = {}
+    for rec in recs:
+        if rec.get('Model.MODL') and not _model_templated(rec):
+            out.setdefault(skeleton_folder(rec['Model.MODL']), []).append(rec)
+    return out
 
 
 def _part_key(converted) -> bytes:

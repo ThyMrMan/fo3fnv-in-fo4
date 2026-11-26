@@ -47,7 +47,9 @@ from fo4_import.nif import headgear, outfit, weapon
 from fo4_import.nif.hair_mesh import fallout4_hat_field, sits_on_hair
 from fo4_import.pipeline.elric_cache import mesh_bytes, write_new
 from fo4_import.pipeline.work_cache import cached, versioned
-from fo4_import.spike.gun_choice import DNAM_FLAGS, FO4_AUTOMATIC, FO4_NOT_PLAYABLE, GUN_TYPES, fnv_wants
+from fo4_import.spike.gun_choice import DNAM_FLAGS, FO4_AUTOMATIC, FO4_NOT_PLAYABLE, fnv_wants, paced
+from fo4_import.spike.weapon_checks import WeaponChecks
+from fo4_import.spike.weapon_routes import WeaponRoutes, anim_type, attack_gear, own_gun
 from fo4_import.spike.aim_models import AimModels
 from fo4_import.spike.weapon_vats import WeaponVats
 from fo4_import.spike.guns import Guns
@@ -96,8 +98,11 @@ ADDON_RACES = (b'RNAM', b'MODL')
 SEXES = ('male', 'female')
 #: FNV biped flag of the upper body (an outfit).
 UPPER_BODY = 0x4
-#: FNV biped flags of the neck (Necklace, Choker) and FO4's neck slot: a neck-only item goes on the body (_outfit).
-NECK, NECK_SLOTS = 0x100 | 0x8000, (50,)
+#: FNV accessory biped bit -> FO4 slot. See: docs/fork/fo4_replacements.md#armor-rules
+ACCESSORY_SLOTS = {0x100: 50, 0x8000: 50, 0x8: 51, 0x10: 51, 0x80: 54, 0x40: 55, 0x20000: 56, 0x40000: 57,
+                   0x80000: 58, 0x20: 58, 0x1000: 59, 0x2000: 59}
+#: FNV biped bits of the hands (shown in first person too) and of face jewelry (nose ring, earrings: _headgear).
+HANDS, FACE = 0x8 | 0x10, 0x1000 | 0x2000
 #: FO4 armor addon model subrecords: third person male, female; first person male, female.
 THIRD_PERSON, FIRST_PERSON = (b'MOD2', b'MOD3'), (b'MOD4', b'MOD5')
 #: FNV ARMO alternate textures: male worn, male world, female worn model.
@@ -121,9 +126,10 @@ def _rigid(path) -> bool:
 
 
 def default_entry(rec: dict, rules: Rules) -> 'Replacement | None':
-    """An unlisted FNV armor's or melee weapon's entry from the table's `rules` (armor, melee); else None."""
+    """An unlisted FNV armor's entry from the table's `rules`, or a weapon's by its animation type unless it is a
+    gun with a model (spike.gun_choice builds those first) or creature attack gear (weapon_routes); else None."""
     if rec.get('Signature') == 'WEAP':
-        return rules.melee.get(int(rec.get('DNAM.FalloutAnimType', -1)))
+        return None if own_gun(rec) or attack_gear(rec) else rules.weapon.get(anim_type(rec))
     covers = int(rec.get('BMDT.BipedFlags', 0)) if rec.get('Signature') == 'ARMO' else 0
     return next((entry for bits, entry in rules.armor if covers & bits), None)
 
@@ -142,6 +148,24 @@ def _on_template(rec: dict) -> str:
     if headgear.slots(flags):
         return 'headgear not on the head'
     return 'rigid upper body' if flags & UPPER_BODY else 'other slots'
+
+
+def accessory_slots(flags: int) -> 'tuple | None':
+    """FO4 slots of FNV biped `flags` all in ACCESSORY_SLOTS, sorted; else None."""
+    if not flags or flags & ~sum(ACCESSORY_SLOTS):
+        return None
+    return tuple(sorted({slot for bit, slot in ACCESSORY_SLOTS.items() if flags & bit}))
+
+
+def _dropped(own: 'dict | None', subs: dict) -> tuple:
+    """Template subrecords an armor copy with `subs` leaves out: none on the template's models (`own` None); with
+    no addon (_unshown) its addon and world model too; else its model data, its world model's kept when FNV has
+    none."""
+    if own is None:
+        return ()
+    if b'MODL' not in own:
+        return OWN_MODEL_DROPPED + (b'INDX', b'MODL', b'MOD2')
+    return tuple(s for s in OWN_MODEL_DROPPED if b'MOD2' in subs or s not in WORLD_MODEL_DATA)
 
 
 def _bod2(slots: tuple) -> bytes:
@@ -206,8 +230,10 @@ class Equipment:
         self.by_anim = {kind: set() for kind in WEAPON_ANIM_LISTS}
         self.weapon_ammo, self.creature_guns, self.fired = {}, {}, {}
         rules = self.table.rules
-        wanted = {r.edid for r in [*self.table.values(), *(e for _, e in rules.armor), *rules.melee.values()]
+        wanted = {r.edid for r in [*self.table.values(), *(e for _, e in rules.armor), *rules.weapon.values()]
                   if r.base and r.mode != 'item'}
+        self.routes = WeaponRoutes(self.table, export_records(builder.export_dir, 'WEAP'), builder.counts)
+        self.checks = WeaponChecks(self.guns)
         self.vanilla, self.addons = {}, {}
         for rec, _ in walk(builder.fo4, b'WEAP', b'ARMO', b'ARMA'):
             subs = list(subrecords(rec.body))
@@ -221,8 +247,9 @@ class Equipment:
         self.unwritten, self.perks_written = [], False
 
     def _entry(self, rec: dict):
-        """FNV `rec`'s Fallout4.esm-copy entry (else its _default), or None."""
-        entry = self.table.get(rec.get('EditorID')) or default_entry(rec, self.table.rules)
+        """FNV `rec`'s Fallout4.esm-copy entry (a weapon's route's), or None."""
+        entry = self.routes.entry(rec) if rec.get('Signature') == 'WEAP' else (
+            self.table.get(rec.get('EditorID')) or default_entry(rec, self.table.rules))
         return entry if entry and entry.base and entry.mode != 'item' and entry.edid in self.vanilla else None
 
     def draws_on(self, rec: dict, race: int) -> bool:
@@ -334,16 +361,39 @@ class Equipment:
         self.guns.write_subgraphs()
         write_mutant_subgraphs(self.builder, self.guns)
 
+    def _weapon_route(self, rec: dict) -> tuple:
+        """(entry, choose()'s answer or None) of FNV WEAP `rec` by its route (weapon_routes), recorded there: a gun
+        on its own mesh with no entry passes the checks (weapon_checks) or goes on its FO4 gun's own mesh; one no
+        FO4 gun takes goes on its type's stand-in.
+        See: docs/fork/fo4_weapon_routes_plan.md#order
+        """
+        entry, found = self._entry(rec), self.routes.listed(rec)
+        how = found[1] if found else 'type rule'
+        if not own_gun(rec) or (entry is not None and entry.mode != 'fnv'):
+            self.routes.note(rec, how if entry else 'left out (attack gear)' if attack_gear(rec) else 'no rule',
+                             entry.edid if entry else '')
+            return entry, None
+        chosen = self.guns.choose(rec, entry.edid if entry else None, entry.mods if entry else ())
+        if chosen is None:
+            stand_in = entry or self.routes.stand_in(rec)
+            route = how if entry else 'stand-in by type'
+            return self.routes.decide(rec, stand_in, route, 'no FO4 gun takes its mesh'), None
+        if entry is not None:
+            self.routes.note(rec, f'{how} on its own mesh', entry.edid)
+            return entry, chosen
+        why, checks = self.checks.failed(rec, chosen)
+        if why:
+            self.vanilla.setdefault(chosen[0].weapon, chosen[1])
+            return self.routes.demoted(rec, chosen[0].weapon, why, checks), None
+        self.routes.note(rec, 'own mesh', chosen[0].weapon, checks=checks)
+        return None, chosen
+
     def _weapon(self, fnv: int, rec: dict) -> 'int | None':
-        """The FO4 weapon for FNV WEAP `rec` (FormID `fnv`) on its table entry's target; a gun the table
-        leaves out converts as an `fnv` one (its own mesh and clips) on the FO4 gun spike.gun_choice picks, when one
-        matches; None without either.
+        """The FO4 weapon for FNV WEAP `rec` (FormID `fnv`) on its route's entry, or as an `fnv` gun (its own mesh
+        and clips) on the FO4 gun spike.gun_choice picks (_weapon_route); None without either.
         See: docs/fork/fo4_spikes.md#spike-4-gun-clips
         """
-        entry = self._entry(rec)
-        gun = int(rec.get('DNAM.FalloutAnimType', -1)) in GUN_TYPES and 'Model.MODL' in rec
-        chosen = self.guns.choose(rec, entry.edid if entry else None, entry.mods if entry else ()) if gun and (
-            entry is None or entry.mode == 'fnv') else None
+        entry, chosen = self._weapon_route(rec)
         if entry is None and chosen is None:
             return None
         source = chosen[1] if chosen else self.vanilla[entry.edid]
@@ -358,6 +408,8 @@ class Equipment:
             struct.pack_into('<I', dnam, DNAM_FLAGS, flags | (FO4_AUTOMATIC if fnv_wants(rec)[1] else 0))
             self.guns.sounded(fnv, rec, dnam, self.weapon_mods.silenced(fnv))
         is_gun = dnam[DNAM_ANIM] == ANIM_GUN
+        if is_gun and paced(dnam, rec):
+            self.builder.counts['guns paced to FNV fire rate'] += 1
         data, own = self._gun(fnv, rec, template, dnam) if is_gun else (self._thrown(rec, template, dnam), None)
         data[b'DNAM'], data[b'CRDT'], marks = bytes(dnam), crdt, self.builder.type_keywords.of(fnv)
         if dnam[DNAM_ANIM] == ANIM_GUN and len(template.get(b'WAMD', b'')) == 4:
@@ -433,23 +485,32 @@ class Equipment:
         subs = {b'DATA': data, b'FNAM': bytes(fnam)}
         own = self._own_models(fnv, rec, template) if self._entry(rec).mode == 'fnv' else None
         subs.update(own or {})
-        dropped = tuple(s for s in OWN_MODEL_DROPPED if b'MOD2' in subs or s not in WORLD_MODEL_DATA) if own else ()
-        copy = self._enchant(fnv, rec, self._copy(rec, subs, [] if own else None, dropped))
+        copy = self._enchant(fnv, rec, self._copy(rec, subs, None if own is None else [], _dropped(own, subs)))
         slots = self.builder.type_keywords.slots(int(rec.get('BMDT.BipedFlags', 0)))
         return self._write('ARMO', fnv, with_keywords(copy, slots, ARMO_KEYWORDS_AFTER))
 
     def _own_models(self, fnv: int, rec: dict, template: dict) -> 'dict | None':
-        """_headgear() or _outfit() of FNV ARMO `rec`; None, counted by why (_on_template, or a source fault, which
-        is counted too), when it keeps the template's models."""
+        """_headgear() or _outfit() of FNV ARMO `rec`; else an accessory's _unshown(); None, counted by why
+        (_on_template, or a source fault, which is counted too), when it keeps the template's models."""
         why = None
         try:
             own = self._headgear(fnv, rec, template) or self._outfit(fnv, rec, template)
         except SourceFault as fault:
             count(fault)
             own, why = None, 'a source fault'
+        slots = accessory_slots(int(rec.get('BMDT.BipedFlags', 0)))
+        if own is None and slots:
+            self.builder.counts[f'ARMO with no worn model ({why or "accessory not on the body or head"})'] += 1
+            return self._unshown(fnv, rec, slots)
         if own is None:
             self.builder.counts[f"ARMO on the template's models ({why or _on_template(rec)})"] += 1
         return own
+
+    def _unshown(self, fnv: int, rec: dict, slots: tuple) -> dict:
+        """FNV accessory `rec` in `slots` with no addon and FNV's world model.
+        See: docs/fork/fo4_replacements.md#armor-rules
+        """
+        return {b'BOD2': _bod2(slots), **self._world_model(fnv, rec)}
 
     def _enchant(self, fnv: int, rec: dict, subs: list) -> list:
         """Armor copy `subs` with FNV ARMO `rec`'s own object effect (EITM) in place of the template's, which is
@@ -507,9 +568,10 @@ class Equipment:
         return frame is not None, frame
 
     def _headgear(self, fnv: int, rec: dict, template: dict) -> 'dict | None':
-        """{sig: body} putting FNV headgear `rec` on its own meshes (with its alternate textures) and armor addon;
-        None when it is not headgear drawn on the head (_on_head)."""
-        slots = headgear.slots(int(rec.get('BMDT.BipedFlags', 0)))
+        """{sig: body} putting FNV headgear `rec` (or face jewelry alone: FACE) on its own meshes (with its alternate
+        textures) and armor addon; None when it is not headgear drawn on the head (_on_head)."""
+        flags = int(rec.get('BMDT.BipedFlags', 0))
+        slots = headgear.slots(flags) or (accessory_slots(flags) if flags and not flags & ~FACE else None)
         worn = rec.get('Male.BipedModel.MODL')
         models = {sex: rec.get(f'{sex.title()}.BipedModel.MODL') or worn for sex in SEXES}
         heads = {sex: self._on_head(model, sex) for sex, model in models.items()} if slots and worn else {}
@@ -538,12 +600,15 @@ class Equipment:
                 for sex, sig in zip(SEXES, (FNV_MALE_SWAP, FNV_FEMALE_SWAP))]
 
     def _world(self, fnv: int, rec: dict, addon: int) -> dict:
-        """{sig: body} of FNV ARMO `rec`'s one addon and its world model with its alternate textures; without an
-        FNV world model the template's stays (counted)."""
-        world = rec.get('Male.WorldModel.MODL')
-        out = {b'INDX': bytes(2), b'MODL': struct.pack('<I', addon)}
-        if not world:
+        """Addon `addon` and _world_model() (none: the template's stays, counted)."""
+        if not rec.get('Male.WorldModel.MODL'):
             self.builder.counts["ARMO on the template's world model (FNV has none)"] += 1
+        return {b'INDX': bytes(2), b'MODL': struct.pack('<I', addon), **self._world_model(fnv, rec)}
+
+    def _world_model(self, fnv: int, rec: dict) -> dict:
+        """{sig: body} of FNV ARMO `rec`'s world model with its bounds and alternate textures; {} without one."""
+        world, out = rec.get('Male.WorldModel.MODL'), {}
+        if not world:
             return out
         path, bounds = self.builder.mesh(world)
         if not path:
@@ -590,25 +655,25 @@ class Equipment:
         return path, headgear.worn(static, self._fit(sex), slots, frame)
 
     def _outfit(self, fnv: int, rec: dict, template: dict) -> 'dict | None':
-        """{sig: body} putting FNV outfit `rec` (upper body, or neck only; skinned) on its own meshes moved onto
-        FO4's body and its own armor addon, with the template addon's slots (a neck item: NECK_SLOTS, third person
-        only); None when it is not one (nif.outfit).
+        """{sig: body} putting FNV outfit `rec` (upper body, or accessories only; skinned) on its own meshes moved
+        onto FO4's body and its own armor addon, with the template addon's slots (an accessory: accessory_slots(),
+        third person only unless on the hands; face jewelry is headgear's); None when it is not one (nif.outfit).
         See: docs/fork/fo4_pipeline.md#neck-items
         """
         worn, flags = rec.get('Male.BipedModel.MODL'), int(rec.get('BMDT.BipedFlags', 0))
-        neck = bool(flags) and not flags & ~NECK
+        neck = not flags & FACE and accessory_slots(flags) is not None
         if not (flags & UPPER_BODY or neck) or not worn or _rigid(self._fnv_path(worn)):
             return None
         models, sexes = {}, {sex: rec.get(f'{sex.title()}.BipedModel.MODL') or worn for sex in SEXES}
         for sex, third, first in zip(SEXES, THIRD_PERSON, FIRST_PERSON):
             models[third], models[first] = self._body_worn(sexes[sex], sex)
-        kept = THIRD_PERSON if neck else THIRD_PERSON + FIRST_PERSON
+        kept = THIRD_PERSON if neck and not flags & HANDS else THIRD_PERSON + FIRST_PERSON
         models = {sig: path for sig, path in models.items() if sig in kept}
         swaps = {SWAP_OF[sig]: swap for third, first, swap in zip(THIRD_PERSON, FIRST_PERSON,
                                                                    self._worn_swaps(fnv, rec, sexes))
                  for sig in (third, first) if swap and sig in kept}
         vanilla = struct.unpack('<I', template[b'MODL'])[0]
-        bod2 = _bod2(NECK_SLOTS) if neck else dict(self.addons[vanilla])[b'BOD2']
+        bod2 = _bod2(accessory_slots(flags)) if neck else dict(self.addons[vanilla])[b'BOD2']
         world = self._world(fnv, rec, self._addon(fnv, rec, vanilla, bod2, models, swaps))
         return {b'BOD2': bod2, **world} if neck else world
 

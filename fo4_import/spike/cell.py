@@ -385,10 +385,12 @@ class CellBuilder:
         return self.items.item(fnv_fid)
 
     def idle(self, fnv_fid: int, _sig, rec: dict) -> 'int | None':
-        """Converter: idle marker `rec`'s vanilla stand-in, else the empty marker."""
+        """Converter: idle marker `rec`'s vanilla stand-in, else itself on its own idles, else the empty marker."""
         made, plays = self.idle_markers.of(rec)
-        self.counts['idle marker placed' if made else f'idle marker placed empty: {plays}'] += 1
-        return made or self.idle_markers.vanilla[EMPTY]
+        own = None if made else self.idle_markers.own(rec, self)
+        self.counts['idle marker placed' if made else 'idle marker placed on its own idles' if own
+                    else f'idle marker placed empty: {plays}'] += 1
+        return made or own or self.idle_markers.vanilla[EMPTY]
 
     def sound(self, fnv_fid: int, _sig, _rec) -> int:
         """Converter: an FNV sound marker (spike.sounds)."""
@@ -1097,7 +1099,7 @@ def _world_groups(builder: CellBuilder, worlds: list, placing: tuple) -> None:
             continue
         builder.counts['object LOD references'] += builder.object_lod.write(placing[1])
         builder.counts['terrain LOD tiles'] += terrain_lod.write(world.export_dir, placing[1], world.world['EditorID'],
-                                                                 world.fo4_edid)
+                                                                 world.fo4_edid, (world.cells, world.land))
     drop_land()
 
 

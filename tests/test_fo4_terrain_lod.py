@@ -117,6 +117,27 @@ def test_a_tile_becomes_one_scaled_land_shape_facing_up():
     assert nif.blocks[2][1]['shader_type'] == 18 and nif.blocks[3][1]['textures'][:2] == ['d.dds', 'n_msn.dds']
 
 
+def test_a_tile_built_from_land_has_today_s_layout_uvs_and_skirts():
+    """Land, lighting shader and texture set, then the multi-bound, as an FNV tile without water; positions 0 to
+    4,096 tile units at scale 8, UVs u = x, v = 1 - y, every border point hung 2,000 units at level 8."""
+    rng = np.random.default_rng(2)
+    heights = {(x, y): rng.uniform(0, 3000, (33, 33)) for x in range(8) for y in range(8)}
+    grid = T.terrain_land.tile_heights(heights, 8, 0, 0)
+    nif = F.read(T.land_btr(grid, 8, ('d.dds', 'n_msn.dds'), None))
+    assert [k for k, _ in nif.blocks] == ['BSMultiBoundNode', 'BSTriShape', 'BSLightingShaderProperty',
+                                          'BSShaderTextureSet', 'BSMultiBound', 'BSMultiBoundAABB']
+    shape = nif.blocks[1][1]
+    pos = np.array([v['position'] for v in shape['vertices']], float)
+    uv = np.array([v['uv'] for v in shape['vertices']], float)
+    assert shape['scale'] == 8.0 and pos[:, :2].min() == 0 and pos[:, :2].max() == 4096
+    assert np.abs(uv - np.stack([pos[:, 0] / 4096, 1 - pos[:, 1] / 4096], axis=1)).max() < 1e-3
+    border = np.any((pos[:, :2] == 0) | (pos[:, :2] == 4096), axis=1)
+    columns = {}
+    for p in pos[border]:
+        columns.setdefault(tuple(p[:2]), []).append(p[2])
+    assert len(columns) == 4 * 32 and all(len(z) == 2 and abs(max(z) - min(z) - 250) < 1 for z in columns.values())
+
+
 def test_a_tile_in_world_coordinates_moves_to_its_own_frame():
     """A tile whose land lies in its world square (Fallout 3's washmontop) loses its corner; one in its own frame,
     or at the origin, keeps its positions."""

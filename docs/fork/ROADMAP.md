@@ -94,6 +94,7 @@ Most of what is left is play-testing and fixing what testers find.
 | Talking machines (Mr. House, Yes Man, Festus) | Partial | Idles, Yes Man and Festus not played | [machines](fo4_creature_audit.md#talking-machines) |
 | Securitrons | Partial | Face screen not played | [screens](fo4_build_next.md#screens) |
 | Think Tanks | Built, not played | | [think tank](fo4_own_rig.md#think-tank) |
+| Creatures with no rule (FO3 DLC, mods) | Built, not played | Chimera, spider mine and swamp folk get rigs derived from their files; Bonecrusher shares the super mutant's; derived gun rigs unchecked | [routes](fo4_auto_rig_plan.md#order) |
 
 ### Dialogue
 
@@ -163,6 +164,7 @@ Most of what is left is play-testing and fixing what testers find.
 | Thrown weapons and explosives | Works | | [thrown](fo4_thrown_weapons.md#built) |
 | Melee and unarmed | Partial | Fallout 4's animations; no unarmed special moves | [melee](fo4_spikes.md#spike-4-melee) |
 | Projectiles, combat styles | Built, not played | Fallout 4 stand-in looks and sounds | [projectiles](fo4_pipeline.md#projectile-copies) |
+| Weapons with no rule (DLC, mods) | Built, not played | Only creatures' modelless attack gear is left out; checks are muzzle and rifle aim view only; automatic fire rate is the template's | [routes](fo4_weapon_routes_plan.md#order) |
 | No combat sprinting | Works | | [sprint](fo4_pipeline.md#combat-sprint) |
 | Allies join a scripted fight | Built, not played | | [allies](fo4_pipeline.md#allies-join) |
 
@@ -264,7 +266,9 @@ designed.
 
 - **Precombines and previs,** so dense places like Freeside and the Strip
   draw faster ([research](research/fo4_precombines_previs.md#own-precombines)).
-- **Distant terrain of our own,** built from the land itself
+- **Distant terrain of our own,** built from the land itself: shapes and
+  normal maps built behind `F3NV_TERRAIN_FROM_LAND=1`, not played; the
+  diffuse and mods' land in a master's world still to do
   ([plan](fo4_terrain_lod_plan.md#phases)).
 - **Body choice: CBBE and BodySlide,** with outfits fitted to the chosen
   body ([plan](fo4_bodies_cbbe.md#plan)).

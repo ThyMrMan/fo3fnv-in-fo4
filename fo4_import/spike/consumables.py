@@ -18,7 +18,7 @@ import struct
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.base.install import source_walk
 from fo4_import.spike.addiction import COUNTERPARTS, SHAPES, Addictions
-from fo4_import.spike.consumable_effects import WANTED, Effects
+from fo4_import.spike.consumable_effects import WANTED, Effects, value_key
 from fo4_import.spike.records import pack_keywords
 from fo4_import.spike.weapon_poisons import WeaponPoisons
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
@@ -51,11 +51,14 @@ class Consumables:
                   *(k for _, k in CATEGORIES.values() if k)}
         self.vanilla, self.fnv = {}, _fnv_consumables()
         self.projectiles, self.pending, self.fired_by, chems, names, shapes = {}, {}, {}, {}, {}, {}
+        values = {}
         for rec, _ in walk(builder.fo4, b'MGEF', b'ALCH', b'AMMO', b'KYWD', b'BOOK', b'GLOB', b'QUST', b'SPEL', b'AVIF'):
             subs = dict(subrecords(rec.body))
             edid = subs.get(b'EDID', b'').rstrip(b'\0').decode()
             if rec.sig == b'AMMO':
                 self.projectiles[rec.form_id] = subs[b'DNAM'][:PROJECTILE_SIZE]
+            if rec.sig == b'MGEF' and value_key(subs):
+                values.setdefault(value_key(subs), rec.form_id)
             if edid in wanted:
                 self.vanilla[edid] = (rec.form_id, subs)
             if rec.sig == b'ALCH' and edid in COUNTERPARTS.values():
@@ -63,7 +66,7 @@ class Consumables:
             if edid in SHAPES:
                 shapes[edid] = list(subrecords(rec.body))
             names[rec.form_id] = edid
-        self.effects = Effects(builder, helper_index, self.vanilla, builder.hardcore)
+        self.effects = Effects(builder, helper_index, self.vanilla, builder.hardcore, values)
         self.poisons = WeaponPoisons(builder, builder.export_dir)
         self.addictions = Addictions(builder, chems, names, shapes)
 

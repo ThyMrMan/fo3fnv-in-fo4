@@ -1,5 +1,5 @@
 {
-  "_about": "The Fallout4.esm projectile (EditorID) each FNV/FO3 projectile (EditorID) becomes: bullets as FO4's tracer of the nearest caliber, lasers as its red beams, plasma as its bolts, grenades as the Broadsider's arcing shell (explodes on impact), missiles as its missile. A converted gun carries its own projectile's as its FNAM Override Projectile, a round its own (AMMO DAT2) override's on its ammo mod. A projectile left out is counted ('projectile not mapped'). See docs/fork/fo4_pipeline.md#nv-ammo.",
+  "_about": "The Fallout4.esm projectile (EditorID) each FNV/FO3 projectile (EditorID) becomes: bullets as FO4's tracer of the nearest caliber, lasers as its red beams, plasma as its bolts, grenades as the Broadsider's arcing shell (explodes on impact), missiles as its missile. A converted gun carries its own projectile's as its FNAM Override Projectile, a round its own (AMMO DAT2) override's on its ammo mod. A projectile left out flies the 'kinds' entry of its kind (FNV PROJ DATA Type, Hitscan and Explosion flags: each kind's most common target above), counted ('projectile by kind'); one of a kind with none is counted ('projectile not mapped'). See docs/fork/fo4_pipeline.md#nv-ammo.",
   "projectiles": {
     "9mmBulletProjectile": "Projectile10mm",
     "10mmBulletProjectile": "Projectile10mm",
@@ -118,5 +118,17 @@
   "own_models": {
     "_about": "FNV explosions (EditorID) whose copy shows FNV's own model, not its stand-in's: effects that are not a blast (gas and smoke clouds, the stun grenade's spray, the flashbang), which the frag stand-in would draw as a short blast. See docs/fork/fo4_thrown_weapons.md#explosion-models.",
     "explosions": ["GrenadeGasExplosion", "NVDLC01GhostGasBombExplosion", "GrenadeStunExplosion", "NVDLC04FlashBangExplosion", "MQ08FlashBangExplosion"]
+  },
+  "kinds": {
+    "_about": "FNV projectile kind -> the Fallout4.esm projectile most of the listed ones of that kind become (ties: the first met). See docs/fork/fo4_weapon_routes_plan.md#projectiles.",
+    "bullet": "Projectile45Caliber",
+    "bullet explosive": "GaussRifleProjectile",
+    "missile": "RailwayRifleProjectile",
+    "missile explosive": "BroadsiderProjectile",
+    "lobber": "BaseballGrenadeProjectile",
+    "lobber explosive": "fragGrenadeProjectile",
+    "beam": "LaserRifleBeamRed",
+    "beam explosive": "LaserPowerBeamLtBlue",
+    "flame": "FlamerProjectileStreamMedium"
   }
 }

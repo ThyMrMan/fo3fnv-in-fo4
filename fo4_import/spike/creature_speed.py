@@ -23,12 +23,13 @@ from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.havok.kf_cache import decoded
 from fo4_import.pipeline.export_index import asset_root
+from fo4_import.spike.creature_attacks import clip_groups, group_name
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
 
 #: Fallout4.esm AVIF SpeedMult.
 SPEED_MULT = 0x2DA
-#: FNV's run group (FastForward, 7) by its clip name, cut at the first '_' as FNV loads it.
+#: FNV's run group (FastForward, 7): creature_attacks.group_name of its clip's sequence.
 RUN_GROUP = 'fastforward'
 #: SPED forward-run float by size (form version 104+: 112 bytes, 7 x 4 floats; older 40 to 68 bytes: f5).
 FORWARD_RUN = {112: 10}
@@ -59,13 +60,10 @@ def fnv_run_speed(export_dir: Path, folder: str, stats: dict, scale: float) -> '
 @functools.cache
 def run_clip_speeds(export_dir: Path, folder: str) -> tuple:
     """Root speeds (units/s) of skeleton folder `folder`'s FastForward clips, hurt variants left out."""
-    root = asset_root(export_dir, 'meshes', folder)
     out = []
-    for kf in sorted(root.rglob(f'*{RUN_GROUP}*.kf')) if root.is_dir() else ():
-        if 'hurt' in (p.lower() for p in kf.parts):
-            continue
+    for kf in clip_groups(Path(asset_root(export_dir, 'meshes', folder))).get(RUN_GROUP, ()):
         for clip in decoded(str(kf)):
-            motion = split_root_motion(clip) if clip.name.lower().split('_', 1)[0] == RUN_GROUP else None
+            motion = split_root_motion(clip) if group_name(clip.name) == RUN_GROUP else None
             if motion and motion['translations'] is not None and clip.duration > 0:
                 travel = motion['translations'][-1] - motion['translations'][0]
                 out.append(float((travel ** 2).sum() ** 0.5) / clip.duration)

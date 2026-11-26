@@ -22,7 +22,7 @@ from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
-from fo4_import.spike.consumable_effects import AV_AT, Effects
+from fo4_import.spike.consumable_effects import AV_AT, DETRIMENTAL, RECOVER, Effects
 from fo4_import.spike.say_topics import conditions_of
 from fo4_import.spike.script import QUEST, prefix
 from fo4_import.spike.teammates import Teammates, companion_gate
@@ -53,8 +53,8 @@ OWNER_TABS = 1
 SPELL_TEMPLATE, RAISE, LOWER, RESTORE = 'AbPerkQuickHands', 'AbFortifyStrength', 'AbReduceCarryWeight', 'abRestoreHealth'
 #: The copied template by (lowers, recovers): raise, lower, and restore (raise per second, without Recover).
 TEMPLATES = {(False, True): RAISE, (True, True): LOWER, (False, False): RESTORE}
-#: Fallout4.esm's constant value effects by EditorID prefix (any case); FNV's and FO4's Recover, Detrimental flags.
-CONSTANT_PREFIXES, RECOVER, DETRIMENTAL = ('abfortify', 'abreduce', 'abrestore'), 0x2, 0x4
+#: Fallout4.esm's constant value effects by EditorID prefix (any case).
+CONSTANT_PREFIXES = ('abfortify', 'abreduce', 'abrestore')
 #: Fallout4.esm's attack spell shape and touch effects (lowers; lowers and recovers), read for attack_spells.
 ATTACK_TEMPLATES = ('PoisonRadscorpion', 'crPoisonEffect', 'StingwingPoisonEffectNPC')
 #: FNV effect -> Fallout4.esm constant effect of the same archetype (Chameleon: vanilla's NPC cloak ability's).

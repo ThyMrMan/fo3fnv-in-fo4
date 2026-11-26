@@ -22,11 +22,12 @@ def _atkd(chance=1.0, flags=0, angle=0.0, damage=2.0) -> bytes:
     return CA.ATKD.pack(damage, chance, 0, flags, angle, 35.0, 0.0, 0.0, 0.0, 1.0, 0)
 
 
-def test_a_kf_names_its_group_without_prefixes_or_variant():
-    """h2hattackleft_a.kf is AttackLeft; the hand prefix and the _A/_B variant go (FalloutNV.exe 0x5f38d0)."""
-    assert [CA.kf_group(n) for n in ('h2hattackleft_a.kf', 'H2HAttackForwardPower.kf', 'attackright__midbite.kf',
-                                     '2hlattackspin.kf', 'mtidle.kf')] == [
-        'attackleft', 'attackforwardpower', 'attackright', 'attackspin', 'mtidle']
+def test_a_sequence_names_its_group_and_the_file_its_hand_type():
+    """The group is the sequence's name without its _variant; the file name gives only the hand type."""
+    assert [CA.group_name(n) for n in ('AttackLeft_Cross', 'AttackForwardPower', 'Forward', 'turnLeft')] == [
+        'attackleft', 'attackforwardpower', 'forward', 'turnleft']
+    assert [CA.weapon_prefix(n) for n in ('h2hattackleft_a.kf', '2HLAttackSpin.kf', 'forwardwalk.kf')] == [
+        'h2h', '2hl', '']
 
 
 def test_power_directions_follow_the_groups_and_the_styles_chance():

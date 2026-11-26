@@ -3,7 +3,9 @@
 Each FNV effect becomes the Fallout4.esm effects EFFECTS names (FO4's own of the
 same actor value and kind), a copy of a vanilla effect on another actor value
 where FO4 has the mechanism but not the effect (RETARGETED, and every skill
-boost IncreaseSkill* on its FNV skill), or nothing: drift, counted per effect.
+boost IncreaseSkill* on its FNV skill), its converted script, else, for any
+other Value Modifier effect, Fallout4.esm's plain effect of its actor value and
+kind (by_value), or nothing: drift, counted per effect with the reason.
 Magnitude and duration stay FNV's, except where FNV's magnitude is a flag or
 lives in a script (MAGNITUDES). An effect conditioned on a perk carries the
 perk test (perks.Perks); one conditioned on Hardcore mode (HARDCORE) carries that test as a read of the
@@ -17,10 +19,12 @@ See: docs/fork/fo4_pipeline.md#consumable-effects
 import re
 import struct
 
+from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.helpers_plugin import actor_value_form
 from fo4_import.spike import conditions as C
 from fo4_import.spike import records as R
+from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
 #: Limb condition actor values (both games' names).
@@ -77,9 +81,22 @@ NO_EFFECT = 'FortifyHealth'
 AV_AT = 0x44
 #: derive_formid sites of the copies (key: the skill's name; FNV effect EditorID and actor value).
 SITES = {'skill': 'FNV skill boost', 'copy': 'FNV effect copy'}
+#: FNV's Value Modifier archetype, routed by actor value (by_value); FNV's and FO4's Recover and Detrimental flags.
+VALUE_MODIFIER, RECOVER, DETRIMENTAL = 0, 0x2, 0x4
+#: MGEF DATA offset of the archetype, the actor value after it (both games); FO4's casting type and delivery.
+ARCHETYPE_AT, CAST_AT = 0x40, 0x50
+#: Fallout4.esm's plain value effects: archetypes Value Modifier and Peak Value Modifier, cast as a consumable is.
+FO4_VALUE_ARCHETYPES, VALUE_PREFIXES, CONSUMED = (0, 34), ('fortify', 'reduce', 'restore', 'damage'), (1, 0)
+#: FO4 MGEF flags Hide in UI; the subrecords a plain value effect has none of.
+HIDDEN, NOT_PLAIN = 0x8000, (b'VMAD', b'CTDA', b'KWDA')
+#: The copied template by (lowers, recovers) where Fallout4.esm has no plain effect of that kind on the actor value.
+VALUE_TEMPLATES = {(False, True): SKILL_TEMPLATE, (True, True): 'ReduceStrength',
+                   (False, False): 'RestoreHealthFood', (True, False): 'DamageHealth'}
+#: Why an effect has no FO4 effect, by FNV archetype (None: no MGEF record, as UMON); others name their number.
+DROP_REASONS = {None: 'no record', 1: 'script did not convert', VALUE_MODIFIER: 'actor value FO4 lacks'}
 #: Every Fallout4.esm magic effect this module reads.
 WANTED = {*(e for fo4 in EFFECTS.values() for e in fo4), *(t for t, _ in RETARGETED.values()),
-          SKILL_TEMPLATE, NO_EFFECT}
+          *VALUE_TEMPLATES.values(), NO_EFFECT}
 
 
 def fnv_effects(rec: dict) -> list:
@@ -96,13 +113,39 @@ def fnv_effects(rec: dict) -> list:
     return out
 
 
+def value_key(subs: dict) -> 'tuple | None':
+    """(actor value, lowers, recovers) of Fallout4.esm effect `subs` ({tag: data}) when it is a plain value effect a
+    consumable casts (VALUE_PREFIXES, FO4_VALUE_ARCHETYPES, CONSUMED, shown, no NOT_PLAIN); None otherwise."""
+    data = subs.get(b'DATA', b'')
+    edid = subs.get(b'EDID', b'').rstrip(b'\0').decode().lower()
+    if not edid.startswith(VALUE_PREFIXES) or any(t in subs for t in NOT_PLAIN) or len(data) < CAST_AT + 8:
+        return None
+    flags, (archetype, av) = struct.unpack_from('<I', data)[0], struct.unpack_from('<II', data, ARCHETYPE_AT)
+    if archetype not in FO4_VALUE_ARCHETYPES or flags & HIDDEN or struct.unpack_from('<II', data, CAST_AT) != CONSUMED:
+        return None
+    return av, bool(flags & DETRIMENTAL), bool(flags & RECOVER)
+
+
+def fnv_value_effects() -> dict:
+    """{FNV effect EditorID: (archetype, actor value, flags)} of the source stack's MGEF DATA, the source's first
+    (the export drops the archetype and actor value)."""
+    out = {}
+    for rec, _ in source_walk(b'MGEF'):
+        subs = dict(subrecords(rec.body))
+        data = subs.get(b'DATA', b'')
+        if len(data) >= ARCHETYPE_AT + 8:
+            kind = (*struct.unpack_from('<Ii', data, ARCHETYPE_AT), struct.unpack_from('<I', data)[0])
+            out.setdefault(subs.get(b'EDID', b'').rstrip(b'\0').decode(), kind)
+    return out
+
+
 class Effects:
     """FO4 effects for FNV consumables; copies are written once through the cell builder."""
 
-    def __init__(self, builder, helper_index: int, vanilla: dict, hardcore=None):
-        """`vanilla`: {EditorID: (FormID, data)}; `hardcore`: a hardcore.Hardcore."""
+    def __init__(self, builder, helper_index: int, vanilla: dict, hardcore=None, values: 'dict | None' = None):
+        """`vanilla`: {EditorID: (FormID, data)}; `values`: {value_key(): FormID}."""
         self.builder, self.helper_index, self.vanilla, self.hardcore = builder, helper_index, vanilla, hardcore
-        self.copies = {}
+        self.copies, self.values, self.fnv_values = {}, values or {}, None
 
     def subs(self, rec: dict) -> bytes:
         """EFID/EFIT pairs for FNV consumable `rec`; NO_EFFECT at magnitude 0 when none carries."""
@@ -119,7 +162,7 @@ class Effects:
         for edid, magnitude, area, duration, av, perks, hardcore, values in fnv_effects(rec):
             fo4 = self.targets(edid, av, magnitude)
             if not fo4:
-                self.builder.counts[f'effect dropped ({edid})'] += 1
+                self.builder.counts[f'effect dropped ({edid}: {self.drop_reason(edid)})'] += 1
             tests = self._hardcore_tests(hardcore)
             perk_tests = self._perk_tests(perks)
             tests = None if tests is None or perk_tests is None else tests + perk_tests + self._value_tests(values)
@@ -180,7 +223,38 @@ class Effects:
             skill = C.FNV_AV_NAMES[av].replace(' ', '')
             return [self.copy(SKILL_TEMPLATE, skill, 'skill', skill, f'FNV_Fortify{skill}')]
         scripted = self.builder.scripts.effects.consumed(edid)
-        return [scripted] if scripted else []
+        return [scripted] if scripted else self.by_value(edid, av)
+
+    def _fnv_value(self, edid: str) -> tuple:
+        """(archetype, actor value, flags) of FNV effect `edid`; (None, -1, 0) for none."""
+        if self.fnv_values is None:
+            self.fnv_values = fnv_value_effects()
+        return self.fnv_values.get(edid, (None, -1, 0))
+
+    def by_value(self, edid: str, av: int) -> list:
+        """[FO4 effect] of FNV Value Modifier effect `edid` on its actor value (the effect item's `av`, else its own),
+        of its kind (lowers, recovers): Fallout4.esm's plain one, else a VALUE_TEMPLATES copy; [] for another
+        archetype or an actor value FO4 lacks.
+        See: docs/fork/fo4_pipeline.md#effects-by-actor-value
+        """
+        archetype, own, flags = self._fnv_value(edid)
+        av = av if av >= 0 else own
+        name = C.fnv_av_name(av) if archetype == VALUE_MODIFIER and 0 <= av < len(C.FNV_AV_NAMES) else ''
+        fo4_av = actor_value_form(name, self.helper_index) if name else None
+        if fo4_av is None:
+            return []
+        kind = (bool(flags & DETRIMENTAL), bool(flags & RECOVER))
+        if (fo4_av, *kind) in self.values:
+            return [self.values[(fo4_av, *kind)]]
+        template = VALUE_TEMPLATES[kind]
+        return [self.copy(template, name, 'copy', f'{template} {name}', f'FNV_{template}_{name}')]
+
+    def drop_reason(self, edid: str) -> str:
+        """Why FNV effect `edid` has no FO4 effect (DROP_REASONS by its archetype)."""
+        if edid in NEEDS:
+            return 'Hardcore off'
+        archetype = self._fnv_value(edid)[0]
+        return DROP_REASONS.get(archetype, f'archetype {archetype}')
 
     def copy(self, template: str, av: str, site: str, key: str, edid: str) -> int:
         """FormID of a copy of vanilla effect `template` changing FO4 actor value `av`; written on first use."""

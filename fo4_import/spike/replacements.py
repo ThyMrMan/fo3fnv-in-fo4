@@ -11,7 +11,8 @@ source EditorID: `{"use": "Plugin|EditorID", "as": mode, "mods": [...]}`:
 - `fnv`: a copy showing the source's own mesh.
 
 `_rules` says what forms the table leaves out get: creatures by an ability
-of their own (the glowing one's glow), else by skeleton folder, NPC bodies, armor by biped slot, melee weapons by animation type.
+of their own (the glowing one's glow), else by skeleton folder, NPC bodies, armor by biped slot, weapons by
+animation type (spike.weapon_routes).
 
 Fallout4.esm targets take any mode. Another plugin's record (a DLC's, a
 mod's) is used only as an `item`: copying it would mean renumbering every
@@ -49,8 +50,12 @@ BIPED = {'Head': 0x1, 'Hair': 0x2, 'Upper Body': 0x4, 'Left Hand': 0x8, 'Right H
          'PipBoy': 0x40, 'Backpack': 0x80, 'Necklace': 0x100, 'Headband': 0x200, 'Hat': 0x400,
          'Eye Glasses': 0x800, 'Nose Ring': 0x1000, 'Earrings': 0x2000, 'Mask': 0x4000, 'Choker': 0x8000,
          'Mouth Object': 0x10000, 'Body AddOn 1': 0x20000, 'Body AddOn 2': 0x40000, 'Body AddOn 3': 0x80000}
-#: Melee rule keys -> FNV WEAP DNAM animation type.
-MELEE_ANIMS = {'hand_to_hand': 0, 'one_hand': 1, 'two_hand': 2}
+#: Weapon rule keys -> FNV WEAP DNAM animation type (xEdit's wbWeaponAnimTypeEnum).
+WEAPON_ANIMS = {'hand_to_hand': 0, 'one_hand': 1, 'two_hand': 2, 'pistol_ballistic': 3, 'pistol_energy': 4,
+                'rifle_ballistic': 5, 'rifle_automatic': 6, 'rifle_energy': 7, 'handle': 8, 'launcher': 9,
+                'grenade': 10, 'land_mine': 11, 'mine_drop': 12, 'thrown': 13}
+#: The rules' key a weapon rule had when only melee had one, still read from older layers.
+OLD_WEAPON_RULES = 'melee'
 BODY_KINDS = ('human_male', 'human_female', 'ghoul_male', 'ghoul_female', 'child_male', 'child_female')
 
 
@@ -86,12 +91,12 @@ class Rules:
     creature: dict
     body: dict
     armor: tuple
-    melee: dict
+    weapon: dict
     ability: dict
 
     def entries(self) -> list:
         """Every rule's entry."""
-        return [*self.creature.values(), *self.body.values(), *(e for _, e in self.armor), *self.melee.values(),
+        return [*self.creature.values(), *self.body.values(), *(e for _, e in self.armor), *self.weapon.values(),
                 *self.ability.values()]
 
 
@@ -137,7 +142,7 @@ def load(user: 'Path | None' = None, profile: 'str | Path | None' = None, dirs: 
     """The defaults, then `profile`'s and `user`'s entries laid over them; plugins looked for in `dirs`."""
     present, warnings = presence(dirs), []
     items, creatures = {}, {}
-    rules = {'creature': {}, 'body': {}, 'armor': (), 'melee': {}, 'ability': {}}
+    rules = {'creature': {}, 'body': {}, 'armor': (), 'weapon': {}, 'ability': {}}
     for data, origin in layers(user, profile):
         warnings += _missing_requirements(data, present)
         kept = _Layer(origin, present, warnings)
@@ -204,18 +209,23 @@ class _Layer:
 
 
 def _lay_rules(rules: dict, layer: dict, kept: _Layer) -> None:
-    """Lay one layer's `_rules` over `rules`: creature, ability, body and melee entry by entry, armor as a whole
-    list."""
+    """Lay one layer's `_rules` over `rules`: creature, ability, body and weapon entry by entry, armor as a whole
+    list. An older layer's `melee` rules are read as weapon rules (logged DEPRECATED).
+    See: docs/fork/fo4_weapon_routes_plan.md#order
+    """
     for kind in ('creature', 'ability'):
         rules[kind].update({k.lower(): v for k, v in kept.entries(layer.get(kind, {}), 'creature').items()})
     for kind in layer.get('body', {}):
         if kind not in BODY_KINDS:
             raise ValueError(f'replacement body {kind!r} is not one of {BODY_KINDS}')
     rules['body'].update(kept.entries(layer.get('body', {}), 'body'))
-    for key in layer.get('melee', {}):
-        if key not in MELEE_ANIMS:
-            raise ValueError(f'replacement melee rule {key!r} is not one of {tuple(MELEE_ANIMS)}')
-    rules['melee'].update({MELEE_ANIMS[k]: v for k, v in kept.entries(layer.get('melee', {}), 'weapon').items()})
+    if OLD_WEAPON_RULES in layer:
+        kept.warnings.append(f'DEPRECATED: {kept.origin} _rules.{OLD_WEAPON_RULES} is read as _rules.weapon')
+    weapon = {**layer.get(OLD_WEAPON_RULES, {}), **layer.get('weapon', {})}
+    unknown = sorted(set(weapon) - set(WEAPON_ANIMS))
+    if unknown:
+        raise ValueError(f'replacement weapon rules {unknown} are not among {tuple(WEAPON_ANIMS)}')
+    rules['weapon'].update({WEAPON_ANIMS[k]: v for k, v in kept.entries(weapon, 'weapon').items()})
     if 'armor' in layer:
         armor = [(_bits(rule['covers']), kept.entry(f'covers {rule["covers"]}', rule, 'armor'))
                  for rule in layer['armor']]

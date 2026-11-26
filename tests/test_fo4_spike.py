@@ -39,6 +39,7 @@ from fo4_import.spike import say_once as SO1
 from fo4_import.base import vmad as VM
 from tools.validate import fo4_audit as AU
 from fo4_import.spike import replacements as RP
+from fo4_import.spike import weapon_routes as WR
 from fo4_import.spike import imods as I
 from fo4_import.spike import imagespace as IM
 from fo4_import.spike import lighting_template as LT
@@ -263,8 +264,10 @@ def test_weapon_copy_takes_fnv_stats_and_resolves_template_strings():
     eq.condition = SimpleNamespace(wire=lambda fnv, fid, subs: subs)
     eq.vats = SimpleNamespace(apply=lambda rec, dnam, template: template.get(b"CRDT", b""))
     eq.table = {'WeapBaseballBat': RP.Replacement('Fallout4.esm', 'BaseballBat', 'stats')}
+    eq.routes = WR.WeaponRoutes(eq.table, (), Counter())
     eq.strings = {1: b'Baseball Bat', 2: b'Swing it', 3: b'Default'}
-    rec = {'EditorID': 'WeapBaseballBat', 'FULL': 'Bat', 'DATA.Weight': '3.0', 'DATA.Value': '250', 'DATA.Damage': '22'}
+    rec = {'EditorID': 'WeapBaseballBat', 'FormID': '00001234', 'FULL': 'Bat', 'DATA.Weight': '3.0', 'DATA.Value': '250',
+           'DATA.Damage': '22'}
     assert eq.weap(0x1234, rec) == 0x01ABCDEF
     subs = list(subrecords(written[0][24:]))
     assert [s for s, _ in subs] == [b'EDID', b'FULL', b'DESC', b'OBTE', b'FULL', b'DNAM']
@@ -295,7 +298,9 @@ def test_melee_weapon_on_fnv_mesh_drops_template_model_and_mods():
     eq.condition = SimpleNamespace(wire=lambda fnv, fid, subs: subs)
     eq.vats = SimpleNamespace(apply=lambda rec, dnam, template: template.get(b"CRDT", b""))
     eq.table = {'WeapRollingPin': RP.Replacement('Fallout4.esm', 'RollingPin', 'fnv')}
-    eq.weap(1, {'EditorID': 'WeapRollingPin', 'FULL': 'Rolling Pin', 'Model.MODL': 'Weapons/RollingPin.NIF'})
+    eq.routes = WR.WeaponRoutes(eq.table, (), Counter())
+    eq.weap(1, {'EditorID': 'WeapRollingPin', 'FormID': '00000001', 'FULL': 'Rolling Pin',
+                'Model.MODL': 'Weapons/RollingPin.NIF'})
     subs = list(subrecords(written[0][24:]))
     assert [s for s, _ in subs] == [b'EDID', b'OBND', b'FULL', b'MODL', b'MOD4', b'DNAM']
     assert dict(subs)[b'MODL'] == dict(subs)[b'MOD4'] == b'fnv/weapons/rollingpin.nif\0'
@@ -1885,11 +1890,12 @@ def test_seated_idles_are_built_as_the_chair_graphs_flavor(monkeypatch):
     """Seated and standing idles are both built; a seated one plays on the furniture graph's flavor events, a
     clipless one is left out."""
     idles = ID.Idles.__new__(ID.Idles)
-    idles.builder = SimpleNamespace(fnv_id=lambda fnv: 0x0B000000 | fnv, counts=Counter())
+    idles.builder = SimpleNamespace(fnv_id=lambda fnv: 0x0B000000 | fnv, counts=Counter(),
+                                    creatures=SimpleNamespace(routes=None))
     idles.records = {0x1: {'EditorID': 'SeatedShrug'}, 0x2: {'EditorID': 'StandingWave'}, 0x3: {'EditorID': 'Gone'}}
     idles.used, idles.counted, idles.checked = {}, set(), {0x1: ID.SEATED, 0x2: '', 0x3: 'no human clip'}
     assert idles.idle(0x1) == 0x0B000001 and idles.idle(0x2) == 0x0B000002 and idles.idle(0x3) is None
-    monkeypatch.setattr(ID, 'rig_of', lambda model: None)
+    monkeypatch.setattr(ID, 'rig_of', lambda model, routes: None)
     monkeypatch.setattr(idles, '_clip', lambda rec, data_dir: Path('c.hkx'))
     assert idles._played(0x1, {}, False, Path('.')) == (ID.FURNITURE_GRAPH, 'c.hkx', ID.FLAVOR_EVENTS)
     assert idles._played(0x2, {}, False, Path('.')) == (ID.ROOT_GRAPH, 'c.hkx', ID.HUMAN_EVENTS)

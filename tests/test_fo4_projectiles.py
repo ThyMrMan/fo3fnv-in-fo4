@@ -37,13 +37,24 @@ EXPORT = {
 }
 
 
-def _projectiles(monkeypatch, table: dict = TABLE) -> P.Projectiles:
-    """Projectiles over EXPORT and a Fallout4.esm of the table's three targets."""
+def _projectiles(monkeypatch, table: dict = TABLE, kinds: dict = None, export: dict = None) -> P.Projectiles:
+    """Projectiles over `export` (EXPORT) and a Fallout4.esm of the table's three targets; no kinds by default."""
     fo4 = [(SimpleNamespace(sig=b'PROJ', form_id=f, body=pack_subrecord('EDID', f'{e}\0'.encode())), None)
            for f, e in ((BEAM, 'LaserRifleBeamRed'), (BOLT, 'PlasmaProjectileLarge'), (SHOT, 'ProjectileShotgun'))]
     monkeypatch.setattr(P, 'walk', lambda raw, *sigs: fo4)
-    monkeypatch.setattr(P, 'export_records', lambda export, sig: EXPORT[sig])
-    return P.Projectiles(SimpleNamespace(fo4=b'', export_dir='x', counts=Counter()), table)
+    monkeypatch.setattr(P, 'export_records', lambda export_dir, sig: (export or EXPORT)[sig])
+    return P.Projectiles(SimpleNamespace(fo4=b'', export_dir='x', counts=Counter()), table, kinds or {})
+
+
+def test_an_unlisted_projectile_takes_its_kinds_stand_in(monkeypatch):
+    """A beam the table leaves out flies the kinds table's beam, counted by kind; a hitscan missile is a bullet."""
+    odd = {'FormID': f'{ODD:08X}', 'EditorID': 'OddProjectile', 'DATA.Type': '4', 'DATA.Flags': '0'}
+    export = {**EXPORT, 'PROJ': EXPORT['PROJ'][:3] + [odd]}
+    found = _projectiles(monkeypatch, kinds={'beam': 'LaserRifleBeamRed'}, export=export)
+    assert found.of(ODD) == BEAM
+    assert found.builder.counts == Counter({'projectile by kind, beam (OddProjectile)': 1})
+    assert P.kind_of({'DATA.Type': '1', 'DATA.Flags': '3'}) == 'bullet explosive'
+    assert P.kind_of({'DATA.Type': '2', 'DATA.Flags': '0'}) == 'lobber' and P.kind_of({}) == ''
 
 
 def test_a_gun_flies_its_own_fnv_projectile(monkeypatch):
@@ -235,7 +246,7 @@ def test_a_script_named_explosion_takes_the_stand_in_for_its_art():
     copies = SimpleNamespace(explosions={0x51: nuke}, explosion=lambda stand_in, fnv: made.append((stand_in, fnv)) or 0x900)
     builder = SimpleNamespace(projectiles=SimpleNamespace(copies=copies), counts=Counter())
     dest = Destruction.__new__(Destruction)
-    dest.builder, dest.explosions = builder, {'CGPrewarNuke': 0x70}
+    dest.builder, dest.explosions, dest.routes, dest.stand_ins = builder, {'CGPrewarNuke': 0x70}, None, {}
     builder.destruction = dest
     scripts = A.ObjectScripts.__new__(A.ObjectScripts)
     scripts.builder, scripts.explosion_names = builder, None

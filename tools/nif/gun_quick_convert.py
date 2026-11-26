@@ -23,22 +23,17 @@ from asset_convert.havok.gun_vocabulary_falloutnv import ANIM_TYPE_CLASS
 from external.pynifly_hkx.anim_fo4 import parse_fo4_animation
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR, FALLOUT4_ESM
-from fo4_import.havok.gun_clips import (FO4_VIEW_FOV, GRIP_FINGER, VIEW_ASPECT, VIEWS, WEAPON, GunClips,
-                                        fo4_skeleton, vanilla_worlds)
+from fo4_import.havok.gun_clips import FO4_VIEW_FOV, GRIP_FINGER, VIEW_ASPECT, VIEWS, WEAPON, GunClips, vanilla_worlds
+from fo4_import.havok.gun_view import Arms, shapes
 from fo4_import.nif import file as nif_file
 from fo4_import.nif import gun
 from fo4_import.spike import replacements
 from fo4_import.spike.guns import Guns, gun_mesh
 from tes5_import.base.tes5_reader import first_sub, walk
 from tes5_import.base.text_reader import parse_export_file
-from tools.nif.gun_pose_scene import FO4_ARMS, fo4_skinned, shapes, with_helpers
 
 B = chr(92)
 EXPORT = Path('export/FalloutNV.esm')
-#: The right hand bone and the reach from it counted as hand and wrist (aim_hand).
-HAND, HAND_REACH = 'RArm_Hand', 9.0
-#: How much wider a 16:9 screen sees than the 4:3 one FO4's first-person FOV is taken as measured on.
-WIDE = (16 / 9) / (4 / 3)
 #: FNV WEAP DNAM.Flags1's Non-Playable bit (creature and turret guns).
 NON_PLAYABLE = 0x80
 
@@ -102,36 +97,19 @@ def hold(out: Path, rec: dict, skeleton) -> 'tuple | None':
     return float(inside.mean()), float(np.linalg.norm(placed[:, :3] - finger, axis=1).min())
 
 
-def aim_hand(out: Path, rec: dict, rig: tuple, lift: float) -> 'float | None':
-    """The share of the right hand's (and wrist's) vertices on a 16:9 screen (FO4's first-person FOV taken as
-    measured on 4:3: 96 degrees across) in our WPNIdleSighted's first frame under `out`, the camera moved by
-    the aiming `lift`; `rig`: (skeleton, skeleton NIF bytes, arm NIF bytes); None without the clip.
-    See: docs/fork/fo4_spikes.md#spike-4-gun-clips
-    """
+def aim_hand(out: Path, rec: dict, arms: Arms, lift: float) -> 'float | None':
+    """Arms.hand_share of our WPNIdleSighted under `out`; None without it."""
     clip = out / 'Meshes' / VIEWS[0].folder.replace(B, '/') / rec['EditorID'] / 'WPNIdleSighted.hkx'
-    if not clip.is_file():
-        return None
-    skeleton, skeleton_nif, arms = rig
-    world = vanilla_worlds(parse_fo4_animation(clip.read_bytes()), skeleton, 0)
-    worlds = with_helpers({n: world[i] for i, n in enumerate(skeleton.names)}, skeleton_nif)
-    hand = worlds[HAND][3, :3]
-    verts = np.vstack([v for raw in arms for _, v, _ in fo4_skinned(raw, worlds)])
-    near = verts[np.linalg.norm(verts - hand, axis=1) < HAND_REACH]
-    seen = (np.hstack([near, np.ones((len(near), 1))]) @ np.linalg.inv(worlds[VIEWS[0].camera[1]]))[:, :3]
-    seen[:, 1] -= lift
-    ahead = -seen[:, 2]
-    across = math.tan(math.radians(FO4_VIEW_FOV / 2)) * WIDE
-    inside = (ahead > 0) & (np.abs(seen[:, 0]) < ahead * across) & (np.abs(seen[:, 1]) < ahead * across * VIEW_ASPECT)
-    return float(inside.mean())
+    return arms.hand_share(clip.read_bytes(), lift) if clip.is_file() else None
 
 
-def report(guns: Guns, clips: GunClips, rec: dict, only: tuple, out: Path, rig: tuple) -> list:
+def report(guns: Guns, clips: GunClips, rec: dict, only: tuple, out: Path, arms: Arms) -> list:
     """Convert FNV gun `rec` on `only` and measure it: [EditorID, class, template, moved, on screen, left gap,
     right hand on screen while aiming]."""
     made = convert(guns, clips, rec, only, out)
     done = made and made[1]
-    measured = hold(out, rec, rig[0]) if done else None
-    aiming = aim_hand(out, rec, rig, made[1].lift or 0.0) if done else None
+    measured = hold(out, rec, arms.skeleton) if done else None
+    aiming = aim_hand(out, rec, arms, made[1].lift or 0.0) if done else None
     return [rec['EditorID'], ANIM_TYPE_CLASS[int(rec['DNAM.FalloutAnimType'])], made[0] if made else '-',
             'yes' if done and made[1].moved else 'no', f'{measured[0]:.0%}' if measured else '-',
             f'{measured[1]:.1f}' if measured else '-', f'{aiming:.0%}' if aiming is not None else '-']
@@ -151,8 +129,7 @@ def main() -> None:
         parser.error('name guns or pass --all')
     table, base, data = replacements.load(), builder(args.export), Archives(FALLOUT4_DIR / 'Data')
     guns, clips = Guns(base, {}), GunClips(base.fo4, args.export / 'meshes', args.out)
-    rig = (fo4_skeleton(data.read(VIEWS[0].skeleton))[0], data.read(VIEWS[0].skeleton[:-len('.hkx')] + '.nif'),
-           [data.read('meshes' + B + p.replace('/', B)) for p in FO4_ARMS])
+    rig = Arms(data.read)
     rows = ['\t'.join(('gun', 'class', 'template', 'moved', 'on_screen', 'left_gap', 'aim_hand'))]
     for rec in gun_records(args.export, args.guns):
         entry = table.get(rec['EditorID'])

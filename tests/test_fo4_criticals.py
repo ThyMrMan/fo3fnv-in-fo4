@@ -273,6 +273,7 @@ def test_a_stand_in_drops_fo4s_clothing_bonus_and_carries_fnvs_own_effects():
 def test_a_consumable_effect_with_no_fo4_match_falls_back_to_its_converted_script():
     """An unmapped FNV effect is its script effect when the script converted, else nothing."""
     effects = CE.Effects.__new__(CE.Effects)
+    effects.fnv_values = {}
     scripted = {'StealthBoyEffect': 0x0B000200}
     effects.builder = SimpleNamespace(scripts=SimpleNamespace(effects=SimpleNamespace(consumed=scripted.get)))
     assert effects._fo4('StealthBoyEffect', -1) == [0x0B000200] and effects._fo4('NothingEffect', -1) == []

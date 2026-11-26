@@ -34,6 +34,8 @@ GUN_TYPES = range(3, 10)
 ANIM_GUN, DNAM_ANIM, DNAM_FLAGS = 9, 54, 48
 FO4_AUTOMATIC, FO4_NOT_PLAYABLE, FO4_EMBEDDED = 0x8000, 0x100000, 0x80000
 NON_PLAYABLE_RECORD = 0x4
+#: FO4 WEAP DNAM: Speed and Attack Delay offsets; the Bolt Action flag.
+DNAM_SPEED, DNAM_ATTACK_DELAY, FO4_BOLT_ACTION = 4, 24, 0x400000
 #: OMOD DATA: include and property counts, the attach point; a property is 24 bytes, its kind at 8.
 DATA_ATTACH_POINT, PROPERTY_SIZE = 16, 24
 #: Where a property's first value sits in it.
@@ -100,6 +102,18 @@ def fnv_wants(rec: dict) -> tuple:
     """(stance or None, automatic, shotgun) of an FNV WEAP export record."""
     return (STANCES.get(int(rec.get('DNAM.FalloutAnimType', -1))), bool(int(rec.get('DNAM.Flags1', 0)) & FNV_AUTOMATIC),
             int(rec.get('DNAM.ProjectileCount', 1)) > 1)
+
+
+def paced(dnam: bytearray, rec: dict) -> bool:
+    """Set FO4 gun copy `dnam`'s Attack Delay so semi-automatic FNV gun `rec` fires DNAM.ShotsPerSec shots a
+    second (FO4: Speed / Attack Delay); False, untouched, for an automatic gun, a bolt-action copy or no rate.
+    See: docs/fork/fo4_weapon_routes_plan.md#fire-rate
+    """
+    rate = float(rec.get('DNAM.ShotsPerSec', 0.0))
+    if rate <= 0 or fnv_wants(rec)[1] or struct.unpack_from('<I', dnam, DNAM_FLAGS)[0] & FO4_BOLT_ACTION:
+        return False
+    struct.pack_into('<f', dnam, DNAM_ATTACK_DELAY, struct.unpack_from('<f', dnam, DNAM_SPEED)[0] / rate)
+    return True
 
 
 def built_in_scope(rec: dict) -> bool:

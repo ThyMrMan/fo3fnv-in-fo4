@@ -21,10 +21,14 @@ weighted to give power attacks FNV's share of attacks.
 See: docs/fork/fo4_pipeline.md#creature-attacks
 """
 
+import functools
 import re
 import struct
-from fo4_import.pipeline.export_index import asset_root
 from pathlib import Path
+
+from fo4_import.havok.kf_cache import decoded
+from fo4_import.nif.file import sequence_names
+from fo4_import.pipeline.export_index import asset_root
 
 from tes5_import.base.tes5_reader import subrecords, walk
 from tes5_import.base.writer import pack_subrecord
@@ -38,7 +42,7 @@ POWER, CHARGE = 0x4, 0x8
 #: The tags the attack list goes before (vanilla NPC_ order after RNAM/WNAM/ANAM).
 ATTACKS_BEFORE = (b'SPOR', b'OCOR', b'GWOR', b'ECOR', b'PRKZ', b'PRKR', b'PRPS', b'FTYP', b'NTRM', b'COCT', b'CNTO',
                   b'AIDT')
-#: FNV .kf name prefixes (hand type, then movement) before the group name (FalloutNV.exe 0x5f38d0).
+#: FNV .kf file name prefixes (hand type, then movement: FalloutNV.exe 0x5f38d0); the group is the sequence's name.
 KF_PREFIX = re.compile(r'^(?:pa)?(?:h2h|1hm|2hm|1hp|2hr|2ha|2hh|2hl|1gt|1md|1lm)?(?:sneak|swim|fly)?')
 #: FNV normal-attack groups (0x1A..0x44, Attack9) and power-attack groups by direction (0x5C..0x60).
 NORMAL_GROUPS = frozenset({'attackleft', 'attackright', *(f'attack{n}' for n in range(3, 10))})
@@ -48,16 +52,40 @@ POWER_GROUPS = {'attackpower': 'Normal', 'attackforwardpower': 'Forward', 'attac
 CHOOSE_BY_CHANCE = 0x1
 
 
-def kf_group(name: str) -> str:
-    """The FNV animation group of .kf file `name` (prefixes off, cut at the first '_')."""
-    stem = Path(name).stem.lower()
-    return KF_PREFIX.sub('', stem, count=1).split('_', 1)[0]
+def group_name(sequence: str) -> str:
+    """The FNV group of a .kf sequence named `sequence`.
+    See: docs/fork/fo4_auto_rig_plan.md#groups
+    """
+    return sequence.lower().split('_', 1)[0]
+
+
+def weapon_prefix(name: str) -> str:
+    """.kf file name `name`'s KF_PREFIX, lower case."""
+    return KF_PREFIX.match(Path(name).stem.lower()).group(0)
+
+
+@functools.cache
+def clip_groups(root: Path) -> dict:
+    """{FNV animation group: [its .kf files under `root`, sorted]}, hurt variants left out; {} without the folder."""
+    out = {}
+    for kf in sorted(root.rglob('*.kf')) if root.is_dir() else ():
+        if 'hurt' not in (p.lower() for p in kf.relative_to(root).parts):
+            for name in _sequences(kf):
+                out.setdefault(group_name(name), []).append(kf)
+    return out
+
+
+def _sequences(kf: Path) -> list:
+    """The sequence names of .kf `kf`: read from its string table, or decoded (an older file has none)."""
+    try:
+        return sequence_names(kf.read_bytes())
+    except ValueError:
+        return [clip.name for clip in decoded(str(kf))]
 
 
 def fnv_groups(export_dir: Path, folder: str) -> frozenset:
-    """The animation groups of skeleton folder `folder`'s .kf files."""
-    root = asset_root(export_dir, 'meshes', folder)
-    return frozenset(kf_group(p.name) for p in root.rglob('*.kf')) if root.is_dir() else frozenset()
+    """The animation groups of skeleton folder `folder`'s .kf files (clip_groups)."""
+    return frozenset(clip_groups(Path(asset_root(export_dir, 'meshes', folder))))
 
 
 def power_directions(groups: frozenset, style: dict) -> frozenset:

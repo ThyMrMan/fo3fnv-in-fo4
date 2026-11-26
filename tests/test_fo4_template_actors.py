@@ -12,6 +12,7 @@ from fo4_import.spike import npcs as N
 from fo4_import.spike.actor_data import StatTables
 from fo4_import.spike import void_actors as VA
 from fo4_import.spike.creatures import skeleton_folder
+from fo4_import.spike.creature_routes import Routes
 from script_convert.constants import FALLOUT4_HELPER_CREATURE_KEYWORD
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
@@ -433,6 +434,7 @@ def test_an_fnv_creatures_skin_shows_fo4s_head_over_fo4s_body_and_is_written_onc
     addon = vanilla('ARMA', ('EDID', b'SuperMutantBody\0'), ('BOD2', struct.pack('<I', 0x8)), ('MOD2', b'x.nif\0'))
     creatures = CR.Creatures.__new__(CR.Creatures)
     creatures.skins, creatures.faces, creatures.worn = {}, {}, {'encsupermutanttemplate': (None, skin, addon)}
+    creatures.routes = Routes(None, {}, {}, None, __import__('collections').Counter())
     creatures.records = {fid: {'FormID': f'{fid:08X}', 'EditorID': f'Cr{fid:X}',
                                'Model.MODL': 'Creatures\\SMSpineBreaker\\Skeleton.nif'} for fid in (0x3A147, 0x3A148)}
     creatures._mesh = lambda rec, folder: ('body.nif', 'textures\\skin.dds' if rec['FormID'] == '0003A147' else None)
@@ -471,6 +473,7 @@ def test_fo4s_body_addon_wears_the_tint_swap_after_each_model(monkeypatch):
     monkeypatch.setattr(CR, 'tinted', lambda *args: [('actors\\a.bgsm', 'fnv\\tinted\\a.bgsm')])
     creatures = CR.Creatures.__new__(CR.Creatures)
     creatures.tinted, creatures.tint_archives, creatures.export_dir, creatures.data_dir = {}, object(), None, None
+    creatures.routes = Routes(None, {}, {}, None, __import__('collections').Counter())
     creatures.builder = SimpleNamespace(writer=SimpleNamespace(
         derive_formid=lambda site, key: 0x0300_0000 + len(key), add_record=lambda sig, data: added.append((sig, data))))
     first = creatures._fo4_body(addon, 'creatures\\smspinebreaker', 'textures\\skin.dds')

@@ -417,6 +417,36 @@ dialogue, eat) through unchanged. Those values come from the Oblivion
 lineage. Vanilla FO4 tests only 47 and 50, and no FO4 value list exists
 offline.
 
+## <a id="own-markers"></a>Idle markers on their own idles (built 2026-11-26, not played)
+
+**Code:** `spike/idle_markers.py` (`IdleMarkers.own`, `pack_marker`),
+`spike/cell.py` (`CellBuilder.idle`).
+
+An FNV idle marker matched no vanilla FO4 marker unless its idles' clip names
+were in the `PLAYS` hand table, so a mod's marker listing its own new
+animations became `EmptyIdleMarker` and the NPC just stood. Now a marker with
+no stand-in is written as FO4's own IDLM on its FNV FormID (`fnv_id`), listing
+those of its idles this build converts (`Idles.idle`: human clips, seated
+ones as flavor, own-rig creature clips). Vanilla does the same: all 30 of
+Fallout4.esm's markers that list idles list loose `RaiderRootBehavior`
+dynamic idles on `dyn_Activation` / `dyn_DoNotInterrupt`
+(`NPCStandingExamineIdleMarker` → `IdleThinking`), which is what converted
+FNV idles are. FNV's and FO4's idle fields are the same (xEdit
+`wbIdleAnimation`: IDLF, IDLC, IDLT, IDLA); the record keeps FNV's bounds,
+flags and timer and adds IDLF bit 3, which all 30 vanilla markers set (FO76
+names it Loose Only). FO4's IDLC is one byte (FO3/FNV's had three unused
+after it). With none of its idles converting, the marker is still the empty
+one. Counted `IDLM (own idles)` and `idle marker placed on its own idles`.
+
+Census (markers with no stand-in now written / their placed references; still
+empty / references): FalloutNV.esm 26/38, 7/70 (protectron 55, Mr. Gutsy 15:
+no own rig); Fallout3.esm 11/63 (giant ants 43 on their own rig), 6/105
+(mirelurks, yao guai, brahmin, behemoth, protectron); Anchorage 19/8, 6/0;
+Broken Steel 14/10, 6/0; Point Lookout 15/6, 9/53; The Pitt 17/14, 9/23.
+Examples: watering plants (18 refs), Mesmetron daze, picking up from the
+ground, Anchorage's power armor and freezing idles, Dunwich's preacher.
+Markers with a `PLAYS`/`MARKERS` stand-in are unchanged.
+
 ## <a id="furniture"></a>3. Seated idles (Doc's chair)
 
 - Doc sits through FO4's own furniture: the chair keeps FNV's markers and

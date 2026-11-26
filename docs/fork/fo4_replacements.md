@@ -232,11 +232,69 @@ at the mod's record.
   it covers, by FNV's biped slots (the table's `_rules.armor`: upper body
   on ClothesPrewarShortSleeves, head, headband or hat on
   ClothesMobsterhat, eyeglasses on ClothesEyeGlasses, mask or mouth on
-  Clothes_Raider_SurgicalMask); a gun is the FO4 gun gun_choice picks for
-  it, with the parts it matched, under FNV's name (`fnv` since 2026-10-29); a
-  melee weapon by its animation type (`_rules.melee`): hand to hand on
-  FO4's Knuckles, one-handed on FNV's mesh on the TireIron, two-handed on
-  the BaseballBat. A table entry still wins.
+  Clothes_Raider_SurgicalMask, and since 2026-11-26 every other slot:
+  [armor rules](#armor-rules)); a gun is the FO4 gun gun_choice picks for
+  it, with the parts it matched, under FNV's name (`fnv` since 2026-10-29); any
+  other weapon takes the stand-in of its animation type (`_rules.weapon`, all
+  14 types; an older layer's `_rules.melee` is read as it, warned DEPRECATED):
+  hand to hand on FO4's Knuckles, one-handed on FNV's mesh on the TireIron,
+  two-handed on the BaseballBat, guns, grenades and mines on a FO4 one. A table
+  entry still wins; the full order is in the
+  [weapon routes](fo4_weapon_routes_plan.md#order).
+
+<a id="armor-rules"></a>**Armor rules cover every FNV biped slot (2026-11-26,
+not played).** The first five rules left a piece worn only in other slots
+with no template, counted `item skipped (ARMO)`: in the FO3/FNV exports
+17 pieces (4 Right Hand, 4 PipBoy, 4 Backpack, 2 Left Hand, 2 Hair, 1 Nose
+Ring), and any mod's gloves, backpacks or jewelry. Three rules now follow
+the first five (first match wins, so no piece an earlier rule caught
+changes template). The template gives the record (keywords, races); the
+look is always FNV's own mesh or nothing, never the template's object:
+
+| FNV slots | Template (Fallout4.esm) | Why that one |
+|---|---|---|
+| Hair | ClothesMobsterhat | the hat rule's; the headgear path maps Hair to 30 |
+| Backpack, PipBoy, Weapon, Body AddOn 1–3, Nose Ring, Earrings | ClothesEyeGlasses | no armor-type keyword, as the neck rule |
+| Left Hand, Right Hand | Armor_WeddingRing | FO4's only playable piece worn on the hand alone (`ArmorBodyPartHands`) |
+
+A piece whose slots are all accessories (`equipment.ACCESSORY_SLOTS`)
+gets its own FO4 slot per FNV slot, never one a vanilla human item uses:
+
+| FNV | FO4 | Vanilla use of that FO4 slot (Fallout4.esm and the six DLCs) |
+|---|---|---|
+| Necklace, Choker | 50 Neck | dog collars |
+| Left Hand, Right Hand | 51 Ring | the wedding rings |
+| Backpack | 54 | none |
+| PipBoy | 55 | two non-playable skins (Robobrain mask, armor rack) |
+| Body AddOn 1, 2 | 56, 57 | none |
+| Body AddOn 3, Weapon | 58 | Handy's FX (non-playable) |
+| Nose Ring, Earrings | 59 Shield | creature skins only |
+
+FO4 slot 60 is the player's Pip-Boy, so an FNV Pip-Boy item never takes it:
+equipping one would take the real Pip-Boy off. Weapon, Body AddOn 3 and the
+two face slots share a slot because FO4 has seven free ones for nine FNV
+slots, and none of the 695 FO3/FNV pieces uses Weapon, Earrings or any Body
+AddOn.
+
+How it is drawn:
+- Skinned, not face jewelry: the [neck-item](fo4_pipeline.md#neck-items)
+  outfit path on FO4's body, third person only, gloves first person too.
+- Face jewelry alone (no other head slot): the headgear path, on the head
+  in 59. Beside other head slots it keeps the earlier rule's route: the
+  three surgical masks (Nose Ring + Mask) would otherwise change.
+- Otherwise (rigid, no worn model, a source fault): no worn model, as
+  vanilla's `Armor_BoS_Ingram` (the one FO4 armor with no addon): no
+  `MODL`, its own BOD2, FNV's world model or none (`Equipment._unshown`,
+  counted `ARMO with no worn model (...)`).
+
+Measured over all 695 FO3/FNV armor pieces: 17 newly convert, 0 others
+change rule, headgear, body path or fallback. Their look: FNV's mesh on the
+body for the two Pip-Boy gloves, the metro car and steamboat armors (51) and
+the slave backpack (54); FNV's mesh on the head for the papakha helmet, the
+head scar (30) and the test head scar (59); no worn model for the four
+Pip-Boys and Pimp-Boys (rigid; 55, FNV's world model) and the five audio
+templates (no model at all; 51 or 54). A piece with no biped slot at all (5:
+FX and script tokens) still gets no rule: no FO4 armor has an empty BOD2.
 
 ## <a id="fallout34"></a>Prior art: Fallout 34's stand-ins (read 2026-11-06)
 

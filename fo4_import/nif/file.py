@@ -55,16 +55,43 @@ def _short(data: bytes, pos: int) -> tuple:
 
 def read_header(data: bytes) -> tuple:
     """(NifFile with its header strings, [(type, size)], first block position)."""
-    pos = len(HEADER_TEXT)
-    version, _, user, n_blocks, bs = struct.unpack_from('<IBIII', data, pos)
+    version, _, user, _, bs = struct.unpack_from('<IBIII', data, len(HEADER_TEXT))
     if (version, user, bs) != (VERSION, USER_VERSION, BS_VERSION):
         raise ValueError(f'not a Fallout 4 NIF: {version:#x} {user} {bs}')
+    return _tables(data)
+
+
+def sequence_names(data: bytes) -> list:
+    """The names of a .kf's NiControllerSequence blocks (block_names)."""
+    return block_names(data, 'NiControllerSequence')
+
+
+def block_names(data: bytes, wanted: str) -> list:
+    """The names (first field) of a 20.2.0.7 file's `wanted` blocks, any Bethesda game's (Fallout 3/NV too);
+    ValueError for another version."""
+    if not data.startswith(HEADER_TEXT):
+        raise ValueError(f'not a 20.2.0.7 file: {data[:40]!r}')
+    nif, entries, pos = _tables(data)
+    out = []
+    for kind, size in entries:
+        if kind == wanted:
+            at = struct.unpack_from('<i', data, pos)[0]
+            out.append(nif.strings[at] if 0 <= at < len(nif.strings) else '')
+        pos += size
+    return out
+
+
+def _tables(data: bytes) -> tuple:
+    """read_header() of any 20.2.0.7 file; the max filepath string is there from BS version 103."""
+    pos = len(HEADER_TEXT)
+    n_blocks, bs = struct.unpack_from('<I', data, pos + 9)[0], struct.unpack_from('<I', data, pos + 13)[0]
     pos += 17
     nif = NifFile()
     nif.author, pos = _short(data, pos)
     nif.process, pos = _short(data, pos)
     nif.export, pos = _short(data, pos)
-    nif.max_filepath, pos = _short(data, pos)
+    if bs >= 103:
+        nif.max_filepath, pos = _short(data, pos)
     n_types = struct.unpack_from('<H', data, pos)[0]
     pos += 2
     types = []

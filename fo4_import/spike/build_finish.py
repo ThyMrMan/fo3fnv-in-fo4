@@ -323,6 +323,7 @@ def finish(builder, export_dir: Path, data_dir: Path, out: Path, scripts_dir, he
     script_overrides.plan(builder, export_dir, scripts_dir)
     _compile(builder, data_dir, scripts_dir)
     _lists(builder, data_dir)
+    builder.counts['weapons in the route report'] = builder.equipment.routes.write(out)
     _write_plugin(builder, out, data_dir)
     _faces(builder, data_dir, out)
     builder.counts["files left to the master's folder"] = master_copies.drop_loose(data_dir,

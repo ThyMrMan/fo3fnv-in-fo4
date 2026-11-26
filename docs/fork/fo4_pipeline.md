@@ -3488,6 +3488,36 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
     it serves at it (`cell._placed`). The reloading bench: the station
     keeps the front marker for its 36 front-open placements, and Gun
     Runners' gets `FNV_ReloadingBench_Back`. No existing FormID moves.
+  - <a id="mod-recipe-categories"></a>*A mod's own recipe categories
+    (2026-11-26; not built, not played).* Only three FNV categories
+    (Campfire, Workbench, Reloading Bench) were converted; any other
+    category's recipes got no COBJ and its stations stayed activators.
+    Now every RCCT a recipe names as its `DATA.Category` gets its keyword
+    and COBJs, and every activator whose script runs `ShowRecipeMenu
+    <category>` becomes a station. The bench it copies: `CampfireRecipes`
+    the cooking fire, every other category the chemistry station
+    (`crafting.STATIONS`/`BENCH`, as Workbench and Reloading Bench
+    already were). FNV's menu has no stance, and the RCCT carries
+    nothing else to choose by: its `DATA` byte (xEdit: one flag,
+    "Subcategory?") reads 00/3C/FE on the three vanilla stations and
+    01/6B/FF on sub-categories, so it says nothing about the bench. Each
+    category keeps its own keyword (its FNV FormID), so its recipes show
+    only at its own stations. Census of the installed FNV plugins:
+    FalloutNV has 10 RCCT and 105 RCPE, all in the three listed
+    categories (no change there: same 105 COBJ, same 7 stations). Of
+    the DLC, only Dead Money adds a category,
+    `NVDLC01VendingMachineRecipes` (49 recipes; its two Sierra Madre
+    vending machines open it); Honest Hearts, Old World Blues, Lonesome
+    Road and Gun Runners' Arsenal (109 recipes) use FalloutNV's
+    categories, which a DLC export reads through its master (layered
+    export). Still left out, counted: a recipe with no category (`recipe
+    skipped (no category)`; Dead Money has 6, category 0, which no menu
+    lists in FNV either). Counted but built: `recipes of a category no
+    station opens` (only dialogue opens it, e.g. Lonesome Road's
+    `ShowRecipeMenu` in INFO result scripts, which are not converted).
+    Not converted: a station script's other work, such as Dead Money's
+    repair-50 gate on the broken vending machine
+    (`NVDLC01CraftingMachineRecipeOFFScript`); the station opens at once.
 
 <a id="voice-types"></a>**Voice types (played 2026-10-12: NPCs speak in
 their FNV voices).** `spike/voice_types.py` writes each FNV voice type an
@@ -4083,7 +4113,8 @@ else `STAND_INS`, else the one for the source explosion's art
 glowing one's burst, the Megaton nuke to `CGPrewarNuke`. The art table also
 covers damage stages whose explosion had no stand-in. Raven Rock's own art
 shows `CarExplosion`'s look; art with no entry (`FXGeckActivate01`, a flash
-with no force or damage) is still left out. The FO3 whole-map build named 29
+with no force or damage) takes a routed stand-in
+([explosion routes](#explosion-routes)). The FO3 whole-map build named 29
 explosions.
 
 <a id="effect-family-stand-ins"></a>**Effect families of replaced items
@@ -4157,8 +4188,42 @@ same way, on the mesh and on the record.
   Only `FireExtinguisherExplosion` has a namesake; the rest take
   `STAND_INS`: the cars' `SmallNukeExplosion` → `CarNukeLargeVehicles`
   and `MediumExplosion` → `CarExplosion`, as FO4's own cars blow up
-  ([drift](fo4_drift.md)). Debris takes Fallout4.esm's of the same name,
-  else none (the egg sacs' `InsectGoreBits01`).
+  ([drift](fo4_drift.md)). An explosion neither names is routed
+  ([explosion routes](#explosion-routes)). Debris takes Fallout4.esm's of
+  the same name, else FNV's own, converted (below).
+- <a id="explosion-routes"></a>**Explosion routes** (`spike/explosion_routes.py`,
+  2026-11-26, not played). The tables only name vanilla's explosions, so a
+  mod's own (and 44 of FalloutNV.esm's 154, 14 of Fallout3.esm's 78) were
+  left out. Order: namesake, `STAND_INS`, `MODEL_STAND_INS`, then three
+  routes onto a *listed* explosion's stand-in (one the first three place,
+  the masters' included): **same art**; **same kind** — its enchantment's
+  first effect's Resist Value (fire 52 alike), else that effect, else no
+  enchantment, and whether it does damage; **same damage** — damaging or
+  not alike. Among several, the same impact data set wins, then the
+  nearest outer radius. The copy still takes the source's force, damage
+  and radius, and its FormID hashes the source FormID with the stand-in's,
+  so no listed explosion moves. Counted `destruction explosion route
+  (<route>)`. The light was tried as the kind and dropped: FNV's
+  `Explosion768` lights frag, pulse, plasma and fire blasts alike, sending
+  incendiary grenades to the pulse grenade.
+- Census of every EXPL the routes now place (namesake / tables / same art /
+  same kind / same damage): FalloutNV.esm 5/105/11/29/4, Fallout3.esm
+  4/60/4/9/1, Anchorage 4/68/7/15/2, Broken Steel 4/70/5/16/6, Point
+  Lookout 4/77/8/20/3, The Pitt 4/60/4/9/1; none left out. Stage
+  explosions that change: Fallout3.esm's `BusNukeExplosion` (same art as
+  `VertibirdExplosion`) and `TRAPLaserTripwireDestroyed` (FakeForce);
+  Anchorage's carpet bomb, fuel tank and gun battery (same kind, the
+  nearest damaging unenchanted blast: Fat Man's); Point Lookout's muck
+  bubbles (the bloatfly's gore pop, the gas trap) and `LimbExplosion`.
+- **Debris** (FNV's and FO4's DEBR are the same, xEdit `wbDebrisModel`:
+  per model a DATA of percentage, model path, has-collision byte, then a
+  MODT). Fallout4.esm has 5 DEBR, none an FNV name, so every stage's debris
+  was dropped. Now an FNV debris with no namesake is written as FO4's
+  (`FNV_<EditorID>`, FormID hashed from FNV's at `FNV DEBR copy`), each
+  model an export holds converted like a stage model, MODT dropped
+  (texture hashes). Census: FalloutNV.esm's `InsectGoreBits01` (12 egg
+  sac stages, 7 of 7 models), Fallout3.esm's `GoreBits01` (3 of 3), and
+  Point Lookout's three, from Fallout3.esm.
 - Vanilla's cars (159 destructible MSTTs) write the same stages, plus a
   `stage2` sequence (DSTA) FNV's meshes don't have. Built 2026-11-09,
   not played.
@@ -4740,11 +4805,41 @@ each limb by 100).
   `HC_SippableWater`, `DamageRadiationChem` at 0). xEdit requires one
   effect and reports an empty list as a NULL MGEF; vanilla leaves the list
   empty only on its two survival status potions, never on an item.
+- <a id="effects-by-actor-value"></a>**By actor value (built 2026-11-26,
+  not yet played).** An effect no table lists and no converted script
+  carries, whose FNV archetype is Value Modifier (MGEF DATA 0x40, read from
+  the source plugin: the export drops it), becomes Fallout4.esm's plain
+  effect of the same actor value and kind (lowers = Detrimental, recovers =
+  Recover), as `perks.constant_target` does for abilities. Plain means a
+  `Fortify`/`Reduce`/`Restore`/`Damage` Value or Peak Value Modifier, fire
+  and forget on self, shown, with no script, condition or keyword (41 in
+  Fallout4.esm; the keyworded chem variants carry perk hooks). Without one,
+  a copy of the kind's template on that actor value: `FortifyStrength`,
+  `ReduceStrength`, `RestoreHealthFood`, `DamageHealth`. The tables still
+  come first, so no listed effect changes. Every drop is counted with its
+  reason (`effect dropped (<edid>: script did not convert | actor value FO4
+  lacks | archetype N | no record | Hardcore off)`). FNV's Addiction spells
+  (SPIT type 10, withdrawals) never become a consumable's fire-and-forget
+  spell: scripts only `RemoveSpell` them.
+  - Census of the ALCH effects no table listed: FalloutNV.esm 23 kinds (10
+    Value Modifier, now carried; 13 Script, carried when their script
+    converts), Fallout3.esm 2 (both Script). The DLC exports have no ALCH.
+  - Blast radius: FalloutNV.esm `NVReboundChem` gains `FortifyActionPoints`
+    5 for 60 s; the Hardcore 1000 stages (dehydration, starvation, sleep)
+    gain FNV's `DamageHealth` 10000, the death their design names
+    ([Hardcore](fo4_hardcore.md)); spells a converted script casts gain FNV's
+    fire damage (`FlamerNormalEffect`, `SpellFlamerEffect`, both games) and
+    creature poisons the antivenom script dispels gain their damage. The six
+    weapon poisons with such effects take the poison path first, unchanged.
+    Fallout3.esm consumables: none change.
+  - Not routed: the family stand-ins (`script_effects.FAMILY_STAND_INS`),
+    since a vanilla effect is shared by every source and a `HasMagicEffect`
+    on it would match them all.
 - Drift ([drift](fo4_drift.md#recorded)): addiction
   (FNV's `UMON` usage monitor and withdrawal spells), weapon poisons,
-  Damage Threshold, critical chance, Rebound, Cateye, and the script-only
-  effects (Fixer, antivenom, Steady, Super Stimpak's after-effect, repair
-  kit, Stealth Boy's stop-combat).
+  Damage Threshold, critical chance, Rebound's AP regeneration, Cateye, and
+  the script-only effects (Fixer, antivenom, Steady, Super Stimpak's
+  after-effect, repair kit, Stealth Boy's stop-combat).
 - Region build (Goodsprings to Primm, 125 consumables): effect kinds
   dropped 44 → 20 (34 drops, all drift: 10 `UMON`, 11 on weapon
   poisons); consumables with no effect 31 → 11, now carrying the zero
@@ -7280,7 +7375,9 @@ building and dialogue are above ([ledger](#formid-ledger),
   marker left out: <what it plays>`: protectron idles 55 (FO4 has no
   protectron marker), watering plants 18, Mr Gutsy 15, picking up from the
   ground 7, the Mesmetron daze 5, 8 single scene idles. References keep
-  FNV's FormIDs, and the 671 placed before keep their stand-in.
+  FNV's FormIDs, and the 671 placed before keep their stand-in. Since
+  2026-11-26 a marker with no stand-in is written as its own IDLM on the
+  idles the build converts ([own markers](fo4_idles.md#own-markers)).
 - *Creatures with no FO4 base* are counted by skeleton folder (`ACRE
   skipped (no FO4 base): <folder>`): 283 of FNV's 2,999 placed creatures
   in 32 folders (nvraven 43, smspinebreaker 38, mistergutsy 34, giantant
@@ -8397,6 +8494,15 @@ the textures skipped while staged and current. The first every-world build
 after this stopped on Lucky38World: 6 of its 135 tile meshes have no
 textures (level 4, x-16 y-12 among them). `tiles` now leaves out a tile
 missing its diffuse or normal map; every other world keeps all its tiles.
+
+<a id="terrain-lod-from-land"></a>**Tiles from the land (built 2026-11-26, off by default, not played).**
+With `F3NV_TERRAIN_FROM_LAND=1` each tile's land shape and normal map are
+built from its cells' `VHGT` (`spike/terrain_land.py`) instead of FNV's
+tile: same tile list, `LODSettings`, file layout and diffuse, the FNV
+tile's water carried over. Same-level neighbours share every edge point
+(0 gaps over all of WastelandNV) and the surface sits closer to the land
+than FNV's at every level. Design, measurements and the next phases:
+[terrain LOD plan](fo4_terrain_lod_plan.md#p2).
 
 <a id="terrain-lod-world-frame"></a>**Tiles authored in world coordinates (2026-11-23, not played).**
 Vanilla's `.btr` positions are the tile's own frame, 0 to 4,096 tile units

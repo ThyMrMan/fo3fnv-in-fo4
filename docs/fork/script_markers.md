@@ -350,6 +350,50 @@ All 15 shaders the scripts name now resolve. Five of FNV's 35 have no entry,
 and no script names them: `VTSFadeOut`, `HaroldLiniment`, `HaroldSap`,
 `effectReflect` and `effectAbsorb`.
 
+<a id="shader-routes"></a>**Routes for unlisted shaders (2026-11-26, not
+played).** The table names only vanilla's shaders, so a mod's own, and the
+DLCs' (Fallout3.esm's scripts name `HaroldLiniment`/`HaroldSap`, Anchorage's
+seven, Point Lookout's two), stayed empty. A shader the table leaves out
+is now routed (counted `EffectShader route (<route>)`; only a name no EFSH
+has, or an export with nothing listed, stays empty):
+- **stealth**: a shader a script plays (`PMS` / `PlayMagicShaderVisuals`)
+  in the same branch (between two `if`/`elseif`/`else`/`endif`/`begin`/`end`
+  lines) that adds or removes a spell with an effect on Invisibility or
+  Chameleon (FNV actor values 48, 49) plays as `StealthBoyInvisibilityEffect`.
+  Scripts read: SCPT sources, INFO result scripts, PACK event scripts.
+  No EFSH field marks a stealth shader: the nightkin cloak is a faint
+  membrane (fill alpha 0.2, particles off), Anchorage's
+  `DLC02StealthShader` a short energy-ring burst with no membrane, both
+  black or blue. What they share is how scripts play them, around
+  `StealthBoyInvisibilitySpell` (Chameleon). The census marks exactly
+  those two (FNV's 5 nightkin scripts, Anchorage's
+  `DLC02ArmorStealthWastelandScript`). The Dragoon scripts also change the
+  stealth spell, but play `DLC02DeRezDeathShader` in their death branch,
+  so DeRez is not marked; neither is Vault 106's `PuffOfSmokeVanish`.
+- else a *listed* shader's (the export's, its masters' too), one not playing
+  as the stealth boy (invisibility is not a look): the same particle texture
+  (ICO2), else fill texture (ICON), else any; the nearest in fill and edge
+  color, ties to the one with the same No Membrane / No Particle flags. A
+  first version matched those flags before color and sent FNV's green
+  `HaroldLiniment` to the stealth boy (the nightkin cloak is also
+  membrane-only); color first sends it, in every game, to `RadDamageFXS`.
+
+| Unlisted (census) | Route | FO4 shader |
+|---|---|---|
+| `HaroldSap`, `VTSFadeOut` | particle texture of `GooShader01`/`02` | `CritPlasmaFXS` |
+| `HaroldLiniment` | color of `NukeAtomShader` | `RadDamageFXS` |
+| `effectAbsorb`, `effectReflect` (all black) | color of `LifeDetected` | `DetectLifeFXS` |
+| Anchorage `DLC02PulseShockShader`, `DLC02ShockSwordHitFXShader` | particle texture of `PulseDisableFXShader` | `ShockDamageFXS` |
+| Anchorage `DLC02DeRez*` (6, blue) | color of `effectAtomization` | `CritPlasmaFXS` |
+| Anchorage `DLC02DeRezDeathShaderRed` / `DLC02DeRezItemShader` | color | `CritLaserFXS` / `FireFXS` |
+| Anchorage `DLC02StealthShader` | stealth | `StealthBoyInvisibilityEffect` |
+| Point Lookout `DLC04GhoulFXShader` / `DLC04GhoulVanish` | particle texture of `Flames01` / `PuffOfSmoke` | `FireFXS` / `RobotFireFXS` |
+
+Blast radius of the stealth route: one shader changes, Anchorage's
+`DLC02StealthShader` (was `CritPlasmaFXS` by color, a crit glow on a
+cloaked player); every other routed shader keeps its pick. No table entry
+was needed.
+
 Drift from FNV: each plays FO4's look, not FNV's, so for example the nightkin
 shimmer is the stealth boy's. The table is data, so a profile can change any
 entry.

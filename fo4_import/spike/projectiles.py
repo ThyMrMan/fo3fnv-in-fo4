@@ -9,8 +9,8 @@ each FNV one becomes. A converted gun carries its FNV projectile's as its
 FNAM override, beside FNV's projectile count (fnam); a round's mod carries
 its override's (override). A round itself flies its override's, else that
 of the lowest-FormID FNV gun FNV does not mark embedded loading it first
-(ammo). An FNV projectile the table leaves out is counted. Each flies a copy of its
-stand-in with FNV's numbers (spike.projectile_copies).
+(ammo). An FNV projectile the table leaves out takes its kind's stand-in (kinds: type, hitscan,
+explosion), counted. Each flies a copy of its stand-in with FNV's numbers (spike.projectile_copies).
 
 See: docs/fork/fo4_pipeline.md#nv-ammo
 """
@@ -28,6 +28,9 @@ TABLE = Path(__file__).resolve().parents[1] / 'data' / 'projectiles.json'
 FNV_EMBEDDED = 0x20
 #: FO4 WEAP FNAM: the projectile count byte, then the Override Projectile FormID (xEdit's FO4 WEAP).
 FNAM_COUNT, FNAM_OVERRIDE = 28, 29
+#: FNV PROJ DATA Type -> kind name, and its Hitscan and Explosion flags (xEdit's wbDefinitionsFNV PROJ).
+KINDS = {1: 'missile', 2: 'lobber', 4: 'beam', 8: 'flame', 16: 'continuous beam'}
+HITSCAN, EXPLOSION = 0x1, 0x2
 
 
 def load_table(path: Path = TABLE) -> dict:
@@ -39,6 +42,21 @@ def load_fuses(path: Path = TABLE) -> dict:
     """{FNV projectile EditorID: (proximity, timer)} of the fuses table."""
     return {edid: tuple(fuse) for edid, fuse in json.loads(path.read_text(encoding='utf-8')).get('fuses', {}).items()
             if not edid.startswith('_')}
+
+
+def load_kinds(path: Path = TABLE) -> dict:
+    """{projectile kind (kind_of): Fallout4.esm projectile EditorID}."""
+    kinds = json.loads(path.read_text(encoding='utf-8')).get('kinds', {})
+    return {kind: edid for kind, edid in kinds.items() if not kind.startswith('_')}
+
+
+def kind_of(rec: dict) -> str:
+    """FNV PROJ export record `rec`'s kind: its type (KINDS), 'bullet' for a hitscan missile, + ' explosive'.
+    See: docs/fork/fo4_weapon_routes_plan.md#projectiles
+    """
+    flags, kind = int(rec.get('DATA.Flags', 0) or 0), KINDS.get(int(rec.get('DATA.Type', 0) or 0), '')
+    kind = 'bullet' if kind == 'missile' and flags & HITSCAN else kind
+    return f'{kind} explosive' if kind and flags & EXPLOSION else kind
 
 
 def load_own_models(path: Path = TABLE) -> frozenset:
@@ -56,18 +74,23 @@ def first_ammo(rec: dict, lists: dict) -> int:
 class Projectiles:
     """The table resolved against one build's export and Fallout4.esm."""
 
-    def __init__(self, builder, table: 'dict | None' = None):
-        """Index FO4's projectiles, FNV's, each round's override and its first gun's projectile."""
+    def __init__(self, builder, table: 'dict | None' = None, kinds: 'dict | None' = None):
+        """Index FO4's projectiles, FNV's (each listed one's stand-in, else its kind's), each round's override and
+        its first gun's projectile."""
         self.builder, table = builder, load_table() if table is None else table
+        kinds = load_kinds() if kinds is None else kinds
         fo4 = {(first_sub(rec.body, b'EDID') or b'').rstrip(b'\0').decode('cp1252'): rec.form_id
                for rec, _ in walk(builder.fo4, b'PROJ')}
-        missing = sorted(set(table.values()) - set(fo4))
+        missing = sorted((set(table.values()) | set(kinds.values())) - set(fo4))
         if missing:
             raise ValueError(f'projectiles.json names projectiles Fallout4.esm lacks: {missing}')
         export = builder.export_dir
         self.recs = {int(r['FormID'], 16): r for r in export_records(export, 'PROJ')}
         self.names = {fid: r['EditorID'] for fid, r in self.recs.items()}
         self.mapped = {fid: fo4[table[edid]] for fid, edid in self.names.items() if edid in table}
+        self.by_kind = {fid: fo4[kinds[kind_of(r)]] for fid, r in self.recs.items()
+                        if fid not in self.mapped and kind_of(r) in kinds}
+        self.mapped.update(self.by_kind)
         self.copies = ProjectileCopies(builder, set(self.mapped.values()), load_fuses(), load_own_models())
         self.overrides = {int(r['FormID'], 16): int(r.get('DAT2.Projectile', '0'), 16)
                           for r in export_records(export, 'AMMO')}
@@ -83,9 +106,10 @@ class Projectiles:
         `own_model`, from weapon `source`) for FNV projectile `fnv`; None for none, counted once."""
         if not fnv:
             return None
-        if fnv not in self.mapped and fnv not in self.unmapped:
+        if (fnv not in self.mapped or fnv in self.by_kind) and fnv not in self.unmapped:
             self.unmapped.add(fnv)
-            self.builder.counts[f'projectile not mapped ({self.names.get(fnv, f"{fnv:08X}")})'] += 1
+            how = f'by kind, {kind_of(self.recs[fnv])}' if fnv in self.by_kind else 'not mapped'
+            self.builder.counts[f'projectile {how} ({self.names.get(fnv, f"{fnv:08X}")})'] += 1
         return self.copies.copy(self.mapped[fnv], self.recs[fnv], is_thrown, own_model, source) if fnv in self.mapped             else None
 
     def gun(self, rec: dict) -> 'int | None':

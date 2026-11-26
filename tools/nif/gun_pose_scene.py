@@ -24,12 +24,10 @@ from external.pynifly_hkx.anim_fo4 import parse_fo4_animation
 from fo4_import.base.ba2 import Archives
 from fo4_import.base.install import FALLOUT4_DIR
 from fo4_import.havok.gun_clips import HELD_FROM, VIEWS, WEAPON, fo4_skeleton, vanilla_worlds
+from fo4_import.havok.gun_view import FO4_ARMS, fo4_skinned, homogeneous, shapes, with_helpers
 from fo4_import.nif import file as nif_file
-from fo4_import.app.preview.scene import SHAPES
 from fo4_import.nif import gun
-from fo4_import.nif.blocks import Reader, read_tri_shape
 from fo4_import.nif.convert_static import NifFormat
-from fo4_import.nif.outfit import bone_data, shape_bones
 from fo4_import.pipeline.mesh_cache import cached_convert
 from fo4_import.spike.guns import gun_mesh
 from tes5_import.base.text_reader import parse_export_file
@@ -39,9 +37,6 @@ EXPORT = Path('export/FalloutNV.esm')
 FNV_1ST = EXPORT / 'meshes/characters/_1stperson'
 #: FNV's first-person arms: the body and both first-person hands, posed on its first-person skeleton.
 FNV_ARMS = ('characters/_male/upperbody.nif', 'characters/_male/lefthand1st.nif', 'characters/_male/righthand1st.nif')
-#: FO4's first-person arms, posed on its first-person skeleton.
-FO4_ARMS = ('actors/character/characterassets/1stpersonmalebody.nif',
-            'actors/character/characterassets/1stpersonmalehands.nif')
 #: Each game's first-person field of view (degrees; Fallout.ini / Fallout4.ini fDefault1stPersonFOV).
 FOV = {'fnv': 55.0, 'fo4': 80.0}
 #: Bones marked in each game (the hands and their middle fingers' bases).
@@ -51,44 +46,6 @@ FO4_MARKS = ('LArm_Hand', 'LArm_Finger21', 'RArm_Hand', 'RArm_Finger21')
 VIEWS_RENDERED = ('view', 'left', 'top')
 #: FNV camera frame (forward +Y, up +Z) -> Blender camera frame (forward -Z, up +Y); FO4's camera already is it.
 FNV_TO_CAMERA = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]])
-
-
-def _homogeneous(points: np.ndarray) -> np.ndarray:
-    """Row vectors with a 1 appended."""
-    return np.hstack([points, np.ones((len(points), 1))])
-
-
-def shapes(nif) -> list:
-    """[(name, vertices in the root's frame, triangles)] of a FO4 NIF's unskinned BSTriShapes."""
-    worlds = gun.node_worlds(nif)
-    return [(nif.strings[b['name']], (_homogeneous(np.array([v['position'] for v in b['vertices']], float))
-                                      @ worlds[i])[:, :3], b['triangles'])
-            for i, (kind, b) in enumerate(nif.blocks)
-            if kind == 'BSTriShape' and i in worlds and b['vertices'] and b['skin'] < 0]
-
-
-def fo4_skinned(raw: bytes, worlds: dict) -> list:
-    """[(name, posed vertices, triangles)] of a FO4 NIF's skinned shapes on bone frames `worlds` ({name: 4x4}), a
-    vertex's weight on bones `worlds` lacks shared among its others."""
-    nif = nif_file.read(raw)
-    out = []
-    for kind, b in nif.blocks:
-        b = b if isinstance(b, dict) or kind not in SHAPES else read_tri_shape(Reader(b))
-        if kind not in SHAPES or b.get('skin', -1) < 0 or not b['vertices']:
-            continue
-        refs, data = shape_bones(nif, b)
-        names = [nif.strings[nif.blocks[r][1]['name']] for r in refs]
-        binds = bone_data(nif.blocks[data][1])
-        points = np.array([v['position'] for v in b['vertices']], float)
-        posed, total = np.zeros_like(points), np.zeros(len(points))
-        for k, name in enumerate(names):
-            _, rot, t = binds[k]
-            weight = np.array([sum(w for w, j in zip(v['weights'], v['bones']) if j == k) for v in b['vertices']])
-            if name in worlds and weight.any():
-                posed += weight[:, None] * (_homogeneous(points @ rot.T + t) @ worlds[name])[:, :3]
-                total += weight
-        out.append((nif.strings[b['name']], posed / np.maximum(total, 1e-6)[:, None], b['triangles']))
-    return out
 
 
 def fnv_skinned(path: Path, worlds: dict) -> list:
@@ -101,7 +58,7 @@ def fnv_skinned(path: Path, worlds: dict) -> list:
         skin = getattr(geom, 'skin_instance', None)
         if not isinstance(geom, NifFormat.NiTriBasedGeom) or skin is None:
             continue
-        points = _homogeneous(np.array([(v.x, v.y, v.z) for v in geom.data.vertices], float))
+        points = homogeneous(np.array([(v.x, v.y, v.z) for v in geom.data.vertices], float))
         posed = np.zeros((len(points), 3))
         for bone, bind in zip(skin.bones, skin.data.bone_list):
             name = bone.name.decode('cp1252')
@@ -136,7 +93,7 @@ class Scene:
         into = np.linalg.inv(camera)
 
         def placed(points):
-            return np.round((_homogeneous(np.asarray(points, float)) @ into)[:, :3] @ turn, 3).tolist()
+            return np.round((homogeneous(np.asarray(points, float)) @ into)[:, :3] @ turn, 3).tolist()
 
         self.groups[group] = {
             'fov': FOV[game],
@@ -156,30 +113,13 @@ def fnv_group(scene: Scene, label: str, stem: str, rec: dict, frame: int) -> boo
     worlds = {n: world[i] for i, n in enumerate(skeleton.names)}
     held = worlds['Weapon']
     parts, nodes = fnv_gun(rec)
-    meshes = [(n, 'gun', (_homogeneous(v) @ held)[:, :3], t) for n, v, t in parts]
+    meshes = [(n, 'gun', (homogeneous(v) @ held)[:, :3], t) for n, v, t in parts]
     for path in FNV_ARMS:
         meshes += [(n, 'arms', v, t) for n, v, t in fnv_skinned(EXPORT / 'meshes' / path, worlds)]
     marks = {n: worlds[n][3, :3] for n in FNV_MARKS}
     marks.update({n: (np.append(p, 1.0) @ held)[:3] for n, p in nodes.items() if n.startswith('##') or 'Node' in n})
     scene.add(f'FNV {label} ({stem} f{frame})', 'fnv', worlds[VIEWS[0].camera[0]], meshes, marks)
     return True
-
-
-def with_helpers(worlds: dict, skeleton_nif: bytes) -> dict:
-    """`worlds` ({bone: 4x4}) plus every node of skeleton NIF `skeleton_nif` it lacks (skin helpers the animated
-    skeleton leaves out), each at its rest offset from its posed parent."""
-    nif = nif_file.read(skeleton_nif)
-    out = dict(worlds)
-    stack = [(0, np.eye(4))]
-    while stack:
-        index, parent = stack.pop()
-        block = nif.blocks[index][1]
-        if not isinstance(block, dict) or 'children' not in block:
-            continue
-        name = nif.strings[block['name']]
-        here = out.setdefault(name, gun.node_matrix(block) @ parent) if index else parent
-        stack += [(c, here) for c in block['children'] if c >= 0]
-    return out
 
 
 def fo4_group(scene: Scene, label: str, anim, archives: Archives, gun_nif: bytes, frame: int) -> None:
@@ -189,7 +129,7 @@ def fo4_group(scene: Scene, label: str, anim, archives: Archives, gun_nif: bytes
     worlds = with_helpers({n: world[i] for i, n in enumerate(skeleton.names)},
                           archives.read(VIEWS[0].skeleton[:-len('.hkx')] + '.nif'))
     held = worlds[WEAPON]
-    meshes = [(n, 'gun', (_homogeneous(v) @ held)[:, :3], t) for n, v, t in shapes(nif_file.read(gun_nif))]
+    meshes = [(n, 'gun', (homogeneous(v) @ held)[:, :3], t) for n, v, t in shapes(nif_file.read(gun_nif))]
     for path in FO4_ARMS:
         meshes += [(n, 'arms', v, t) for n, v, t in fo4_skinned(archives.read('meshes' + B + path.replace('/', B)), worlds)]
     marks = {n: worlds[n][3, :3] for n in FO4_MARKS}

@@ -20,7 +20,7 @@ from pathlib import Path
 
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
-from fo4_import.spike.consumable_effects import effect_pair
+from fo4_import.spike.consumable_effects import CAST_AT, effect_pair
 from fo4_import.spike.destruction import fo4_names
 from fo4_import.spike.perks import pack_spell
 from fo4_import.spike.records import pack_keywords, pack_kywd
@@ -36,10 +36,10 @@ FLAGS = {0: 0, 1: 1, 2: 2, 7: 9, 8: 10, 9: 11, 10: 12, 12: 14, 24: 26, 27: 27, 2
 SPELL_FLAGS, MANUAL_COST = {0x10: 0x80000, 0x40: 0x200000}, 0x1
 #: FNV effect range -> FO4 delivery: self, touch, aimed.
 DELIVERY = {'Self': 0, 'Touch': 1, 'Target': 2}
-#: FNV spell type Ability; FO4 casting types.
-ABILITY, CONSTANT, FIRE_AND_FORGET = 4, 0, 1
-#: FO4 MGEF DATA offsets of the flags and of casting type and delivery (two u32).
-FLAGS_AT, CAST_AT = 0x00, 0x50
+#: FNV spell types Ability and Addiction (constant while held, never cast as a consumable's); FO4 casting types.
+ABILITY, ADDICTION, CONSTANT, FIRE_AND_FORGET = 4, 10, 0, 1
+#: FO4 MGEF DATA offset of the flags (casting type and delivery: consumable_effects.CAST_AT).
+FLAGS_AT = 0x00
 #: derive_formid site of an effect (key: FNV EditorID, casting type, delivery).
 SITE = 'FNV script effect'
 #: derive_formid site of an effect's family keyword (key: FNV EditorID, lower case).
@@ -145,9 +145,9 @@ class ScriptEffects:
 
     def _spell(self, rec: dict) -> 'int | None':
         """Write FNV spell `rec` as FO4's; its FormID, or None (counted) unless every effect _converts or, for a
-        spell that is no ability, its effects convert as a consumable's (_plain_spell)."""
-        effects = _effects(rec)
-        if effects and not all(self._converts(e) for e in effects) and _number(rec.get('SPIT.Type')) != ABILITY:
+        spell that is no ability or addiction, its effects convert as a consumable's (_plain_spell)."""
+        effects, held = _effects(rec), _number(rec.get('SPIT.Type')) in (ABILITY, ADDICTION)
+        if effects and not all(self._converts(e) for e in effects) and not held:
             return self._plain_spell(rec)
         if not effects or not all(self._converts(e) for e in effects):
             self.builder.counts['SPEL left out (not all unconditioned script effects)'] += 1

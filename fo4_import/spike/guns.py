@@ -41,7 +41,7 @@ from fo4_import.base.source_fault import SourceFault, count, without_fault
 from fo4_import.base.strings import as_text
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.havok.gun_clip_pool import warm
-from fo4_import.havok.gun_clips import GunClips
+from fo4_import.havok.gun_clips import GunClips, kept_clip
 from fo4_import.nif import file as nif_file
 from fo4_import.nif import gun
 from fo4_import.pipeline.elric_cache import write_new
@@ -216,6 +216,25 @@ class Guns:
                               props if fid == scope else ())
             struct.pack_into('<I', out, start + INCLUDE_SIZE * i, made)
         return self._block(name, bytes(out))
+
+    def preview(self, rec: dict, chosen: tuple, clip: str) -> 'tuple | None':
+        """gun_clips.kept_clip(`clip`) of gun `rec` on choose()'s `chosen`, its clips made in the pool first when not
+        kept; nothing written to the data folder. What it built is kept for templates().
+        See: docs/fork/fo4_weapon_routes_plan.md#checks
+        """
+        choice, subs, fnv_mesh = chosen
+        if not self.warmed:
+            self.warmed = True
+            self.builder.counts['guns whose clips were made in the pool'] += self._warm_clips()
+        held = self.taken.get(id(fnv_mesh))
+        if held is None or held[0] is not fnv_mesh or held[1] is not choice:
+            receiver, matrix, made = self.built(choice, fnv_mesh)
+            args = self.clip_args(rec, (subs, choice.includes), fnv_mesh[1], receiver, (made, matrix))
+            held = (fnv_mesh, choice, (receiver, matrix, made), (args, self.gun_clips().key(*args)))
+            self.taken[id(fnv_mesh)] = held
+        args, key = held[3]
+        warm([(key, args)], self.gun_clips().export_meshes)
+        return kept_clip(key, clip)
 
     def gun_clips(self) -> GunClips:
         """The clip converter, made on first use."""

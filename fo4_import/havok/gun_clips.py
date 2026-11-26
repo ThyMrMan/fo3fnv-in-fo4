@@ -91,7 +91,7 @@ from fo4_import.havok.human_clip import BONES, COM, matching_pose
 from fo4_import.nif.convert_static import NifFormat
 from fo4_import.nif.gun import SIGHTING, part_bone, spare_bones
 from fo4_import.pipeline.elric_cache import write_new, write_stored
-from fo4_import.pipeline.work_cache import lookup_versioned, store_bytes, store_versioned
+from fo4_import.pipeline.work_cache import lookup_versioned, store_bytes, store_versioned, stored_bytes
 from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 
 ANIMATIONS = 'Fallout4 - Animations.ba2'
@@ -317,11 +317,11 @@ def shown(clip, part: str) -> 'np.ndarray | None':
 
 
 def fo4_skeleton(raw: bytes) -> tuple:
-    """(Skeleton, {bone: (translation, rotation wxyz, scale)}) of a FO4 skeleton.hkx."""
+    """(Skeleton, {bone: (translation, rotation wxyz, scale)}, the first of a repeated name) of a FO4 skeleton.hkx."""
     fo4 = parse_fo4_skeleton(raw)
-    pose = {b: (tuple(p.translation), (p.rotation[3], *p.rotation[:3]), p.scale[0])
-            for b, p in zip(fo4.bones, fo4.reference_pose)}
-    return Skeleton(fo4.bones, fo4.parents, [compose(t, quat_wxyz_to_mat(q), s) for t, q, s in pose.values()]), pose
+    poses = [(tuple(p.translation), (p.rotation[3], *p.rotation[:3]), p.scale[0]) for p in fo4.reference_pose]
+    pose = dict(reversed(list(zip(fo4.bones, poses))))
+    return Skeleton(fo4.bones, fo4.parents, [compose(t, quat_wxyz_to_mat(q), s) for t, q, s in poses]), pose
 
 
 def fnv_frames(path: Path) -> dict:
@@ -708,6 +708,19 @@ def read_stamps(data_dir: Path) -> dict:
         return json.loads(stamps_path(data_dir).read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return {}
+
+
+def kept_clip(inputs: tuple, name: str) -> 'tuple | None':
+    """(keep()'s Converted or None for `inputs`, the bytes of its first-person clip `name` or None); None when
+    nothing is kept. Writes nothing.
+    See: docs/fork/fo4_weapon_routes_plan.md#checks
+    """
+    entry = lookup_versioned(CLIP_SITE, GUN_CLIPS_VERSION, inputs)
+    if entry is None:
+        return None
+    wanted = f'{VIEWS[0].folder}\\'.replace('\\', '/').lower()
+    rel = next((r for r in entry[2] if wanted in r.lower() and r.lower().endswith(f'/{name.lower()}.hkx')), None)
+    return entry[0], stored_bytes(CLIP_FILES, entry[2][rel]) if rel else None
 
 
 def is_kept(inputs: tuple) -> bool:

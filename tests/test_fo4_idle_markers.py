@@ -14,7 +14,7 @@ from fo4_import.base.install import FALLOUT4_ESM
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import idle_markers as IM
 from fo4_import.spike.cell import CellBuilder
-from tes5_import.base.tes5_reader import first_sub, walk
+from tes5_import.base.tes5_reader import first_sub, subrecords, walk
 from tes5_import.base.writer import pack_group, pack_record, pack_string_subrecord
 
 #: The FalloutNV.esm export (a junction in the main checkout).
@@ -113,13 +113,37 @@ def test_idle_markers_read_fnv_idle_lists_and_say_what_is_left_out(tmp_path):
     assert markers.of(ROBOT) == (None, 'creatures\\protectron')
 
 
+def _builder(markers: IM.IdleMarkers, converted: dict) -> SimpleNamespace:
+    """A cell builder whose idles convert `converted` {FNV idle: FO4 idle}, writing into `records`."""
+    records = []
+    return SimpleNamespace(idle_markers=markers, counts=Counter(), records=records, fnv_id=lambda fid: 0x900 + fid,
+                           idles=SimpleNamespace(idle=converted.get),
+                           writer=SimpleNamespace(add_record=lambda sig, rec: records.append((sig, rec))))
+
+
 def test_a_marker_fo4_plays_nothing_like_is_the_empty_marker_counted_by_what_it_plays(tmp_path):
-    """The converter returns the stand-in, else the empty marker, as packages, patrol routes and scripts name
-    the spot."""
-    builder = SimpleNamespace(idle_markers=_engineer_and_robot(tmp_path), counts=Counter(), export_dir=tmp_path)
+    """The converter returns the stand-in, else (none of its idles converting) the empty marker, as packages,
+    patrol routes and scripts name the spot."""
+    builder = _builder(_engineer_and_robot(tmp_path), {})
     assert CellBuilder.idle(builder, 0x20, 'IDLM', ENGINEER) == 0x14B737
-    assert CellBuilder.idle(builder, 0x21, 'IDLM', ROBOT) == 0x01E1B0
+    assert CellBuilder.idle(builder, 0x21, 'IDLM', _marker(ROBOT, (0x13,))) == 0x01E1B0
     assert builder.counts == {'idle marker placed': 1, 'idle marker placed empty: creatures\\protectron': 1}
+    assert builder.records == []
+
+
+def test_a_marker_fo4_plays_nothing_like_is_written_on_its_converted_idles(tmp_path):
+    """The protectron's marker, its one idle converting, is FO4's IDLM on its FNV FormID: FNV's bounds, flags
+    with Loose Only, timer and the converted idle; written once however often placed."""
+    builder = _builder(_engineer_and_robot(tmp_path), {0x13: 0x800})
+    robot = {**_marker(ROBOT, (0x13, 0x14)), 'OBND.X1': '-54', 'OBND.Y2': '89', 'IDLF.Flags': '1',
+             'IDLT.Timer': '12.0'}
+    assert CellBuilder.idle(builder, 0x21, 'IDLM', robot) == CellBuilder.idle(builder, 0x21, 'IDLM', robot) == 0x921
+    assert builder.counts == {'idle marker placed on its own idles': 2, 'IDLM (own idles)': 1}
+    (sig, record), = builder.records
+    subs = dict(subrecords(record[24:]))
+    assert sig == 'IDLM' and struct.unpack('<6h', subs[b'OBND']) == (-54, 0, 0, 0, 89, 0)
+    assert (subs[b'IDLF'], subs[b'IDLC'], subs[b'IDLT'], subs[b'IDLA']) == (
+        b'\x09', b'\x01', struct.pack('<f', 12.0), struct.pack('<I', 0x800))
 
 
 @pytest.mark.skipif(not (FALLOUT4_ESM.exists() and (FNV_EXPORT / 'IDLM.txt').exists()),

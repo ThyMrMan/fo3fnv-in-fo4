@@ -6,6 +6,8 @@ import struct
 import pytest
 
 from fo4_import.spike import replacements as RP
+from fo4_import.nif import headgear
+from fo4_import.spike.equipment import accessory_slots, default_entry
 
 
 def _layer(path, data: dict):
@@ -28,10 +30,31 @@ def test_defaults_hold_every_rule():
         'child_male': 'DiamondCitySchoolChildM03', 'child_female': 'DiamondCitySchoolChildF01'}
     assert [(bits, e.edid) for bits, e in table.rules.armor] == [
         (0x4, 'ClothesPrewarShortSleeves'), (0x1 | 0x200 | 0x400, 'ClothesMobsterhat'), (0x800, 'ClothesEyeGlasses'),
-        (0x4000 | 0x10000, 'Clothes_Raider_SurgicalMask'), (0x100 | 0x8000, 'ClothesEyeGlasses')]
-    assert {k: (e.edid, e.mode) for k, e in table.rules.melee.items()} == {
-        0: ('Knuckles', 'stats'), 1: ('TireIron', 'fnv'), 2: ('BaseballBat', 'fnv')}
+        (0x4000 | 0x10000, 'Clothes_Raider_SurgicalMask'), (0x100 | 0x8000, 'ClothesEyeGlasses'),
+        (0x2, 'ClothesMobsterhat'), (0x80 | 0x40 | 0x20 | 0xE0000 | 0x1000 | 0x2000, 'ClothesEyeGlasses'),
+        (0x8 | 0x10, 'Armor_WeddingRing')]
+    assert {k: (e.edid, e.mode) for k, e in table.rules.weapon.items()} == {
+        0: ('Knuckles', 'stats'), 1: ('TireIron', 'fnv'), 2: ('BaseballBat', 'fnv'), 3: ('10mm', 'stats'),
+        4: ('LaserGun', 'stats'), 5: ('HuntingRifle', 'stats'), 6: ('AssaultRifle', 'stats'),
+        7: ('LaserGun', 'stats'), 8: ('Flamer', 'stats'), 9: ('MissileLauncher', 'stats'),
+        10: ('fragGrenade', 'stats'), 11: ('fragMine', 'stats'), 12: ('fragMine', 'stats'), 13: ('fragGrenade', 'fnv')}
     assert table['Stimpak'].category == 'consumable' and table['WeapKnife'].category == 'weapon'
+
+
+def test_every_biped_slot_has_an_armor_rule():
+    """Each FNV biped slot alone finds a default armor rule (equipment.default_entry)."""
+    rules = RP.load().rules
+    for name, bit in RP.BIPED.items():
+        assert default_entry({'Signature': 'ARMO', 'BMDT.BipedFlags': str(bit)}, rules), name
+
+
+def test_an_accessory_takes_its_own_fo4_slot():
+    """Gloves on the ring slot, Pip-Boy and back items on FO4's unnamed slots, face jewelry on 59; a piece with any
+    other slot is no accessory, and headgear does not take face jewelry beside other head slots."""
+    assert [accessory_slots(f) for f in (0x8 | 0x10, 0x40, 0x80, 0x100 | 0x80, 0x1000, 0x2000 | 0x20)] == [
+        (51,), (55,), (54,), (50, 54), (59,), (58, 59)]
+    assert accessory_slots(0) is None and accessory_slots(0x4 | 0x8) is None and accessory_slots(0x400 | 0x1000) is None
+    assert headgear.slots(0x1000) is None and headgear.slots(0x4000 | 0x1000) is None
 
 
 def test_profile_then_user_with_origins(tmp_path):
@@ -101,10 +124,17 @@ def test_dlc_masters_come_first(tmp_path):
     assert RP.extra_masters(RP.load(user, dirs=(tmp_path,))) == ['DLCRobot.esm', 'DLCCoast.esm', 'Aaa.esp']
 
 
+def test_an_old_melee_rule_is_read_as_a_weapon_rule(tmp_path):
+    """An older layer's `_rules.melee` sets the weapon rule, warned DEPRECATED."""
+    old = {'_rules': {'melee': {'one_hand': {'use': 'Fallout4.esm|Knife', 'as': 'stats'}}}}
+    table = RP.load(_layer(tmp_path / 'mine.json', old))
+    assert table.rules.weapon[1].edid == 'Knife' and any('DEPRECATED' in w for w in table.warnings)
+
+
 def test_bad_rules_refused(tmp_path):
-    """Unknown biped slots, melee keys or body kinds, and a body from another plugin, are refused."""
+    """Unknown biped slots, weapon keys or body kinds, and a body from another plugin, are refused."""
     for rules in ({'armor': [{'covers': ['Tail'], 'use': 'Fallout4.esm|X', 'as': 'fnv'}]},
-                  {'melee': {'thrown': {'use': 'Fallout4.esm|X', 'as': 'stats'}}},
+                  {'weapon': {'sword': {'use': 'Fallout4.esm|X', 'as': 'stats'}}},
                   {'body': {'robot': {'use': 'Fallout4.esm|X'}}},
                   {'body': {'human_male': {'use': 'Other.esp|X'}}}):
         with pytest.raises(ValueError):
@@ -114,7 +144,7 @@ def test_bad_rules_refused(tmp_path):
 def test_table_of_keeps_default_rules():
     """Table.of gives exactly the items asked for with the default rules."""
     table = RP.Table.of({'X': RP.Replacement(RP.BASE, 'Knife', 'stats')})
-    assert list(table) == ['X'] and table.rules.melee[0].edid == 'Knuckles'
+    assert list(table) == ['X'] and table.rules.weapon[0].edid == 'Knuckles'
 
 
 def test_creature_entry_order():

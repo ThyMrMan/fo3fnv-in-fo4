@@ -20,6 +20,7 @@ from fo4_import.pipeline import export_index as X
 from fo4_import.pipeline import mesh_cache as MC
 from fo4_import.pipeline import work_cache as WC
 from fo4_import.spike import activators as AC
+from fo4_import.spike.creature_routes import Routes
 from fo4_import.spike import creatures as CR
 from fo4_import.spike import object_lod as OL
 from fo4_import.spike import statics as ST
@@ -137,6 +138,7 @@ def test_a_creature_whose_body_faults_keeps_its_targets_skin(monkeypatch):
     creatures = CR.Creatures.__new__(CR.Creatures)
     creatures.records = {1: {'Model.MODL': 'creatures\\dog\\skeleton.nif', 'EditorID': 'Dog'}}
     creatures.worn, creatures.skins = {'dog': (None, None, None)}, {}
+    creatures.routes = Routes(None, {}, {}, None, __import__('collections').Counter())
     creatures.builder = _stand_in_builder(writer=None)
     monkeypatch.setattr(creatures, '_mesh', _faulty)
     assert creatures._skin(1, SimpleNamespace(edid='Dog')) is None and creatures.skins == {1: None}
@@ -152,7 +154,7 @@ def test_a_creature_parts_body_key_ignores_its_texture_sets_order():
 
 def test_a_talking_machine_part_that_faults_is_left_out(tmp_path, monkeypatch):
     """statics(): the faulted part gets no activator; the others are placed; counted."""
-    for name in ('a.nif', 'b.nif'):
+    for name in ('a.nif', 'b.nif', 'skeleton.nif'):
         _mesh(tmp_path, f'creatures\\eyebot\\{name}')
     monkeypatch.setattr(TM, 'bone_worlds', lambda path: {})
     monkeypatch.setattr(TM, 'part_pose', lambda path, worlds: {})
