@@ -220,6 +220,20 @@ Vegas only (`GAMES[...]['classic']`).
   because MO2 starts the Creation Kit that way. So the CK's own CPU time is
   not counted, and while it works the line says the build is waiting on
   another program.
+- <a id="queue"></a>**The queue** (`queue_box.py`, added 2026-11-26). **Add
+  <plugin> to queue**, beside Convert, saves the chosen target with its
+  ticked stages and scope (`Queued`); the queue box under the buttons lists
+  the waiting targets with Run queue, Remove and Clear. A target queued while
+  a build runs converts after it; with nothing running, Run queue starts the
+  queue. Each target runs on a copy of the settings with its game and target
+  chosen (`settings_for`), so the target list can change meanwhile. Which
+  stages run is decided when its turn comes (`stages.plan`), so a DLC queued
+  behind its game, whose build is disabled until the game is built, builds
+  once the game is done; a target with no stage left to run is skipped with a
+  note in the log. A failure or Stop ends the run and keeps the rest queued.
+  The log keeps every target's lines under a `===== Converting <plugin> =====`
+  header, and Finished gets every target's stages, labels led by the plugin
+  when there were several, and the last target's output folder.
 - <a id="earlier-runs"></a>**What earlier runs left** (`stages.found`, added
   2026-10-24), from the app or the command line, shown beside each stage:
   - Export: the export with its date (`_HEADER.txt`).

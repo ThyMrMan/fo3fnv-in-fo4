@@ -19,7 +19,6 @@ from fo4_import.app.finished_view import FinishedView
 from fo4_import.app.preview.viewer import surface_format
 from fo4_import.app.replacements_view import ReplacementsView
 from fo4_import.app.setup_view import SetupView
-from fo4_import.app.stages import target
 from fo4_import.app.wizard import FirstRunWizard
 from fo4_import.base.release import current as current_release
 
@@ -91,10 +90,9 @@ class MainWindow(QMainWindow):
         self.setup.choose_source(source)
         self.convert.refresh(self.setup.collect())
 
-    def _finished(self, results: list, warnings: list, made_zip: str) -> None:
-        """Show the run's outcome on the Finished screen."""
-        settings = self.setup.collect()
-        self.finished.show_outcome(results, warnings, target(settings, settings['source']).output, made_zip)
+    def _finished(self, results: list, warnings: list, made_zip: str, folder: str) -> None:
+        """Show the run's outcome, and output `folder`, on the Finished screen."""
+        self.finished.show_outcome(results, warnings, Path(folder), made_zip)
         self.tabs.setCurrentWidget(self.finished)
 
 

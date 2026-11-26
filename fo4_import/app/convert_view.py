@@ -1,6 +1,7 @@
 """The Convert screen, top to bottom: 1. the game (New Vegas or Fallout 3), 2. what to convert (the game, a DLC or
 an added mod; fo4_import.app.target_box), then the next step in words (stages.next_step) over one Convert button,
-Stop, the build's estimated time and the live log. Advanced options, folded away, hold the stages and what the
+Add to queue (fo4_import.app.queue_box: the targets that convert next), Stop, the build's estimated time and the
+live log. Advanced options, folded away, hold the stages and what the
 build covers (whole by default; a DLC or mod builds what it changes, so the test block is off for one).
 
 A stage that cannot run here is shown disabled with the reason (stages.unavailable); beside each is what an earlier
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QGridLayout, QGroupBox, 
 
 from fo4_import.app import stages
 from fo4_import.app.mo2_setup import environment
+from fo4_import.app.queue_box import Queued, QueueBox, named, settings_for
 from fo4_import.app.runner import Runner, activity
 from fo4_import.app.target_box import TargetBox
 from fo4_import.pipeline import eta
@@ -53,15 +55,18 @@ class StageThread(QThread):
 
 
 class ConvertView(QWidget):
-    """Game, target, next step, run controls and log. `get_settings()` gives (settings, saved settings file);
-    `game_changed` names the game the user picked."""
-    finished = Signal(list, list, str)
+    """Game, target, next step, run controls, queue and log. `get_settings()` gives (settings, saved settings file);
+    `game_changed` names the game the user picked; `finished` gives (results, warnings, zips, output folder)."""
+    finished = Signal(list, list, str, str)
     game_changed = Signal(str)
 
     def __init__(self, get_settings, parent=None):
         """The screen; `get_settings` saves and returns the current settings when a run starts."""
         super().__init__(parent)
-        self.get_settings, self.thread = get_settings, None
+        self.get_settings, self.thread, self.batch, self.item = get_settings, None, [], None
+        self.queue, self.enqueue = QueueBox(), QPushButton('Add to queue')
+        self.queue.run_clicked.connect(self._run_queue)
+        self.enqueue.clicked.connect(self._add_to_queue)
         self.checks = {key: QCheckBox(label) for key, label in stages.ORDER}
         self.found = {key: QLabel() for key, _label in stages.ORDER}
         self.done_before = {}
@@ -94,7 +99,7 @@ class ConvertView(QWidget):
     def _layout(self) -> None:
         """Arrange the game, the target, the next step and its buttons, the folded advanced options and the log."""
         controls = QHBoxLayout()
-        for widget in (self.start, self.stop):
+        for widget in (self.start, self.enqueue, self.stop):
             controls.addWidget(widget)
         controls.addWidget(self.status, 1)
         self.more.setText(ADVANCED[0])
@@ -109,7 +114,7 @@ class ConvertView(QWidget):
         for widget in (self._game_box(), self.target, self.next):
             box.addWidget(widget)
         box.addLayout(controls)
-        for widget in (self.estimate, self.alive, self.more, self.advanced):
+        for widget in (self.queue, self.estimate, self.alive, self.more, self.advanced):
             box.addWidget(widget)
         box.addWidget(self.log, 1)
 
@@ -173,7 +178,9 @@ class ConvertView(QWidget):
         if relist:
             self.target.show_settings(settings)
         chosen = stages.target(settings, source)
-        self.start.setText(f"Convert {stages.GAMES[source]['master'] if chosen.game else chosen.plugin}")
+        name = stages.GAMES[source]['master'] if chosen.game else chosen.plugin
+        self.start.setText(f'Convert {name}')
+        self.enqueue.setText(f'Add {name} to queue')
         self.next.setText(stages.next_step(settings, source))
         self._addon_scopes(not chosen.game)
         self._stages(settings, source)
@@ -208,25 +215,65 @@ class ConvertView(QWidget):
         kind = self.scopes.checkedButton().property('scope')
         return stages.Scope(kind, tuple(s.value() for s in self.corners), self.workers.value())
 
-    def _start(self) -> None:
-        """Save the settings and run the chosen stages that can run."""
+    def _current(self) -> Queued:
+        """The chosen target with its ticked stages and scope, the settings saved first."""
         self.target.write()
-        settings, settings_file = self.get_settings()
-        chosen = [k for k, c in self.checks.items() if c.isChecked() and c.isEnabled()]
-        plan = stages.plan(settings, settings['source'], chosen, self.scope(), settings_file)
-        if not plan:
-            self.status.setText('Nothing to run: no stage that can run is ticked (see the advanced options).')
-            return
+        settings, _file = self.get_settings()
+        chosen = tuple(k for k, c in self.checks.items() if c.isChecked())
+        plugin = settings['per_source'][settings['source']].get('target', '')
+        return Queued(settings['source'], plugin, chosen, self.scope())
+
+    def _start(self) -> None:
+        """Convert the chosen target now; the queue follows it."""
+        self.batch = []
         self.log.clear()
-        self.thread = StageThread(plan, settings, settings['source'])
+        if not self._launch(self._current()):
+            self.status.setText('Nothing to run: no stage that can run is ticked (see the advanced options).')
+
+    def _add_to_queue(self) -> None:
+        """Queue the chosen target after the running build (or for Run queue)."""
+        item = self._current()
+        self.queue.add(item)
+        after = 'after the running build' if self.stop.isEnabled() else 'when you click Run queue'
+        self.status.setText(f'Queued {item.name()}: it converts {after}.')
+
+    def _run_queue(self) -> None:
+        """Convert the queued targets in order."""
+        self.batch = []
+        self.log.clear()
+        self._next()
+
+    def _next(self) -> bool:
+        """Start the next queued target that has a stage to run, skipping (and noting) any without; False if none."""
+        item = self.queue.take()
+        while item is not None and not self._launch(item):
+            self.log.appendPlainText(f'Queue: nothing to run for {item.name()} (no ticked stage can run); skipped.')
+            item = self.queue.take()
+        return item is not None
+
+    def _launch(self, item: Queued) -> bool:
+        """Run `item`'s ticked stages that can run now; False when none can."""
+        settings, settings_file = self.get_settings()
+        settings = settings_for(settings, item)
+        plan = stages.plan(settings, item.source, list(item.chosen), item.scope, settings_file)
+        if not plan:
+            return False
+        self.log.appendPlainText(f'===== Converting {item.name()} =====')
+        self.thread, self.item = StageThread(plan, settings, item.source), (item, stages.target(settings, item.source))
         self.thread.line.connect(self._line)
         self.thread.done.connect(self._done)
-        self.start.setEnabled(False)
-        self.stop.setEnabled(True)
-        self.status.setText(f'Running {len(plan)} stage(s)...')
+        self._busy(True)
+        self.status.setText(f'Converting {item.name()}: {len(plan)} stage(s)...')
         self.last_output = time.monotonic()
         self.ticker.start()
         self.thread.start()
+        return True
+
+    def _busy(self, busy: bool) -> None:
+        """Enable Stop while a build runs, Convert and Run queue while none does."""
+        self.start.setEnabled(not busy)
+        self.stop.setEnabled(busy)
+        self.queue.running(busy)
 
     def _tick(self) -> None:
         """Show how long the log has been quiet and whether the build is using the CPU."""
@@ -246,17 +293,31 @@ class ConvertView(QWidget):
             self.estimate.setText('Estimated: ' + line.removeprefix('estimate: '))
 
     def _stop(self) -> None:
-        """Stop the running stage."""
+        """Stop the running stage; the queue waits."""
         if self.thread is not None:
             self.thread.runner.stop()
-            self.status.setText('Stopping...')
+            self.status.setText('Stopping; the queue waits until you click Run queue...')
 
     def _done(self, results: list, warnings: list, made_zip: str) -> None:
-        """Re-enable Convert and hand the outcome on."""
+        """Record the target's outcome; on success start the next queued one, else hand on every outcome."""
         self.ticker.stop()
         self.alive.clear()
-        self.start.setEnabled(True)
-        self.stop.setEnabled(False)
+        item, chosen = self.item
+        self.batch.append((item.name(), results, warnings, made_zip, chosen.output))
+        ok = bool(results) and all(r.code == 0 for r in results)
+        if ok and self._next():
+            return
+        self._busy(False)
         failed = [r for r in results if r.code != 0]
-        self.status.setText(f'Stopped or failed at: {failed[0].label}' if failed else 'Finished.')
-        self.finished.emit(results, warnings, made_zip)
+        waiting = f' {len(self.queue.items)} queued target(s) wait: Run queue continues.' if self.queue.items else ''
+        self.status.setText((f'Stopped or failed at: {item.name()}, {failed[0].label}.' if failed else 'Finished.')
+                            + waiting)
+        self._report()
+
+    def _report(self) -> None:
+        """Hand on the outcome of every target this run converted, stage labels named by target when several."""
+        several = len(self.batch) > 1
+        results = [r for name, done, *_ in self.batch for r in (named(done, name) if several else done)]
+        warnings = [w for _name, _done, said, *_ in self.batch for w in said]
+        zips = '\n'.join(z for *_, z, _folder in self.batch if z)
+        self.finished.emit(results, warnings, zips, str(self.batch[-1][4]))

@@ -5,6 +5,16 @@ alpha. Download the zip named `fo3fnv-in-fo4-<release>.zip` from the
 [Releases page](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases), not
 "Source code".
 
+## f3nv-0.12 (2026-11-26)
+
+### New
+- **Queue several conversions.** "Add <plugin> to queue", beside Convert,
+  lines up the chosen game, DLC or mod with its ticked stages. Queued
+  targets convert one after another once the running build ends, or when
+  you click Run queue. A DLC queued behind its game builds once the game
+  is done. A failure or Stop keeps the rest queued; the Finished screen
+  lists every target's stages.
+
 ## f3nv-0.11 (2026-11-26)
 
 **After upgrading:** "Rebuild what changed" rebuilds your converted games

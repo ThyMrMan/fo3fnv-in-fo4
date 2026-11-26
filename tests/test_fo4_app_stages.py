@@ -120,6 +120,7 @@ def test_the_next_step_and_each_rows_state_follow_what_is_built(tmp_path, monkey
     game.write_bytes(b'')
     monkeypatch.setattr(ST.build_plan, 'record', lambda plugin: {} if plugin == game else None)
     monkeypatch.setattr(ST.build_plan, 'built_release', lambda plugin: 'f3nv-0.9')
+    monkeypatch.setattr(ST.release, 'older', lambda made: False)
     assert ST.row_state(s, 'falloutnv', '').startswith('built ') and 'is built' in ST.next_step(s, 'falloutnv')
     assert ST.row_state(s, 'falloutnv', '').endswith(' with f3nv-0.9')
     assert ST.row_state(s, 'falloutnv', 'DeadMoney.esm') == 'not built yet'
