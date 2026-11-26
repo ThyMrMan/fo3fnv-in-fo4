@@ -119,8 +119,18 @@ def test_the_next_step_and_each_rows_state_follow_what_is_built(tmp_path, monkey
     game.parent.mkdir(parents=True)
     game.write_bytes(b'')
     monkeypatch.setattr(ST.build_plan, 'record', lambda plugin: {} if plugin == game else None)
+    monkeypatch.setattr(ST.build_plan, 'built_release', lambda plugin: 'f3nv-0.9')
     assert ST.row_state(s, 'falloutnv', '').startswith('built ') and 'is built' in ST.next_step(s, 'falloutnv')
+    assert ST.row_state(s, 'falloutnv', '').endswith(' with f3nv-0.9')
     assert ST.row_state(s, 'falloutnv', 'DeadMoney.esm') == 'not built yet'
+
+
+def test_a_build_names_the_release_that_made_it():
+    """A tag as itself, a describe past one and an untagged tree as development builds; nothing when unrecorded."""
+    made_with = ST.release.made_with
+    assert made_with('f3nv-0.9') == ' with f3nv-0.9'
+    assert made_with('f3nv-0.6-4-gc5e9b73f') == ', a development build after f3nv-0.6'
+    assert made_with('f3nv-dev') == ', a development build' and made_with('') == ''
 
 
 def test_check_is_the_fast_reference_check_and_fo4edit_is_optional(tmp_path):

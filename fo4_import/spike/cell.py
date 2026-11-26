@@ -76,7 +76,8 @@ from fo4_import.spike.sounds import Sounds, looping_sounds
 from fo4_import.spike.swaps import Swaps
 from fo4_import.spike.factions import owners as named_owners, write_all as write_factions
 from fo4_import.spike.globals import write_all as write_globals
-from fo4_import.spike.locations import Locations, encounter_zones
+from fo4_import.spike.locations import Locations, encounter_zones, zone_ids
+from fo4_import.spike.cell_families import cell_families
 from fo4_import.spike.items import ENGINE_IDS, ITEM_TYPES, Items, index, shared_engine_ids
 from fo4_import.spike import records as R
 from fo4_import.spike import voice
@@ -92,7 +93,7 @@ from fo4_import.spike.condition_forms import condition_map
 from fo4_import.spike.locks import lock_vmad
 from fo4_import.spike.readiness import Readiness
 from fo4_import.spike.reputation import write_reputations
-from fo4_import.spike.standings import Standings
+from fo4_import.spike.standings import Standings, quest_id as standings_quest
 from fo4_import.spike.challenges import Challenges
 from fo4_import.spike.statics import prop_assets, tree_assets, write_assets
 from fo4_import.spike.readables import Readables
@@ -113,6 +114,7 @@ from fo4_import.pipeline.export_index import (Layered, asset_root, export_file, 
                                               own_records, plugin_sources)
 from script_convert.constants import FALLOUT4_HELPER_PLUGIN, PLACED_REF_SIGS, formid_property_name
 from script_convert.context_setup import load_records
+from script_convert.target import STANDINGS_PROPERTY
 from tes5_import.base.tes5_reader import first_sub, records, sub_map, walk
 from tes5_import.base.writer import pack_subrecord
 from tes5_import.dialogue.unlocks import build_unlock_plan
@@ -120,6 +122,8 @@ from tes5_import.dialogue.unlocks import build_unlock_plan
 MASTERS = ['Fallout4.esm', FALLOUT4_HELPER_PLUGIN]
 #: Master index of the helper plugin (FalloutHelpers.esl).
 HELPER_INDEX = 1
+#: FNV base types a package sits at: furniture, and terminals (FO4's TERM is furniture: fo4_pipeline.md#find-furniture).
+SEAT_BASES = ('FURN', 'TERM')
 #: The player's reference, the same FormID in both games.
 PLAYER = 0x14
 #: Started by hand (setstage FNV_VCG00 0 starts the rest), not with the game: they take the Pip-Boy, show tutorials.
@@ -255,12 +259,13 @@ class CellBuilder:
         self.actor_ids, self.npc_ids, self.say, self.packages, self.objectives = {}, {}, None, None, {}
         self.quest_vars, self.actor_refs, self.own_refs, self.master_owners = {}, {}, None, {}
         self.globals, self.factions, self.zones, self.places, self.regions = {}, {}, {}, {}, {}
+        self.families, self.family_cells = {}, {}
         self.swaps, self.imods, self.poses, self.parts, self.weapons = None, None, None, None, set()
         self.equipment, self.load_doors, self.imagespaces = None, {}, set()
         self.weather_ids, self.weather_templates, self.weather_regions, self.acoustics = {}, {}, None, None
         self.world_imagespace, self.weather_imagespaces, self.built_worlds = 0, {}, frozenset()
         self.hazards, self.music, self.decals, self.perks, self.forms = None, None, None, None, {}
-        self.radio, self.land_textures, self.region_watch = None, {}, None
+        self.radio, self.land_textures, self.region_watch, self.master_held = None, {}, None, None
         self.type_keywords = TypeKeywords(self.writer)
         self.started = time.time()
         self.fo4 = fallout4_esm()
@@ -752,10 +757,14 @@ def _navmesh(builder: CellBuilder, export_dir: Path, pathing: dict, ids: dict) -
 
 @timed('form map')
 def _form_map(builder: CellBuilder, ref_ids: dict, recs: list, quests: dict) -> dict:
-    """FNV to FO4 forms: references and placed actors, quests, player, objectives, globals, factions, reputations,
-    the packages written."""
+    """FNV to FO4 forms: the masters' cells and references (_master_held) under this build's references and placed
+    actors, quests, player, objectives, globals, factions, reputations, the packages written.
+    See: docs/fork/fo4_pipeline.md#master-references
+    """
     packages = {int(k, 16): v for k, v in builder.packages.made.items() if v} if builder.packages else {}
-    return {**builder.globals, **builder.factions, **builder.actor_refs, **{int(k, 16): v for k, v in ref_ids.items()},
+    masters = {int(r['FormID'], 16): fid for r, fid in builder.master_held or ()}
+    return {**masters, **builder.globals, **builder.factions, **builder.actor_refs,
+            **{int(k, 16): v for k, v in ref_ids.items()},
             **packages, PLAYER: PLAYER,
             **builder.objectives, **builder.quest_vars, **builder.reputation_slots, **builder.hardcore.form_map(),
             **builder.casino.form_map(),
@@ -924,6 +933,7 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
                                                               SHARED_TYPES), makers, stand_ins)
     builder.scripts = ObjectScripts(builder, export_dir, _script_dirs(builder, scripts_dir), HELPER_INDEX)
     builder.scripts.named[SCRIPT_PACKAGES] = script_packages_quest(builder)
+    builder.scripts.named[STANDINGS_PROPERTY] = standings_quest(builder)
     reputations, builder.reputation_slots = write_reputations(builder, export_dir)
     builder.challenges = Challenges(builder, export_dir)
     builder.scripts.named.update({**reputations, **builder.perks.named(), **builder.challenges.named(),
@@ -934,7 +944,7 @@ def _object_makers(builder: CellBuilder, export_dir: Path, scripts_dir: 'Path | 
     builder.patrols = PatrolTopics(builder, export_dir)
     builder.combat_styles = CombatStyles(builder, export_dir)
     builder.creatures = Creatures(builder, export_dir, builder.data_dir)
-    seats = [r for r in every if builder.bases.get(int(r['NAME'], 16), ('',))[0] == 'FURN']
+    seats = [r for r in every if builder.bases.get(int(r['NAME'], 16), ('',))[0] in SEAT_BASES]
     builder.packages = Packages(builder, export_dir, {int(r['FormID'], 16) for r in seats}, beds(builder, seats),
                                 every, HELPER_INDEX)
     builder.swaps = Swaps(builder, export_dir, {r['EditorID'].lower(): world_model(builder.bases[int(r['NAME'], 16)][1])
@@ -1194,27 +1204,39 @@ def _exterior_cells(worlds: list) -> list:
 def _cell_names(builder: CellBuilder, export_dir: Path, interiors: list, worlds: list) -> dict:
     """{EditorID: FO4 form} of the built interiors, named exterior cells and worldspaces, over the masters' ones
     their built plugins hold (Cell and WorldSpace script properties); every built cell and worldspace, by FNV
-    FormID, in `builder.cell_ids`.
+    FormID, in `builder.cell_ids`, and for conditions the encounter zones' (zone_ids) in `builder.zones` and the
+    GetInCell groups (cell_families) in `builder.families`.
     See: docs/fork/fo4_pipeline.md#worldspace-properties
     """
+    builder.zones = zone_ids(builder, export_dir)
     cells = interiors + _exterior_cells(worlds) + [w.world for w in worlds]
     whole = cells + [{'FormID': w.persistent_cell} for w in worlds]
     builder.cell_ids = {int(c['FormID'], 16): builder.fnv_id(c['FormID']) for c in whole}
+    builder.families = cell_families(builder, export_dir)
     own = {c['EditorID']: builder.fnv_id(c['FormID']) for c in cells if c.get('EditorID')}
     return {**_master_places(builder, export_dir), **own}
 
 
 def _master_places(builder: CellBuilder, export_dir: Path) -> dict:
-    """{EditorID: FO4 form} of the masters' named cells, worldspaces and references their built plugins hold;
-    none without.
+    """{name: FO4 form} of _master_held's named cells and worlds, and references.
+    See: docs/fork/fo4_pipeline.md#master-references
+    """
+    return {_ref_name(r): fid for r, fid in _master_held(builder, export_dir)
+            if r.get('EditorID') or r['Signature'] in PLACED_REF_SIGS}
+
+
+def _master_held(builder: CellBuilder, export_dir: Path) -> list:
+    """[(record, FO4 form)] of the masters' cells, worldspaces and placed references their built plugins hold, read
+    once per build (builder.master_held); none without built masters.
     See: docs/fork/fo4_pipeline.md#master-references
     """
     if builder.in_masters is None:
-        return {}
-    found = ((_ref_name(r), _master_form(builder, sig, r)) for sig in ('CELL', 'WRLD', *PLACED_REF_SIGS)
-             for r in export_records(export_dir, sig) if (r.get('EditorID') or sig in PLACED_REF_SIGS)
-             and not builder.ids.is_own(int(r['FormID'], 16)))
-    return {edid: fid for edid, fid in found if fid in builder.in_masters}
+        return []
+    if builder.master_held is None:
+        found = ((r, _master_form(builder, sig, r)) for sig in ('CELL', 'WRLD', *PLACED_REF_SIGS)
+                 for r in export_records(export_dir, sig) if not builder.ids.is_own(int(r['FormID'], 16)))
+        builder.master_held = [(r, fid) for r, fid in found if fid in builder.in_masters]
+    return builder.master_held
 
 
 def owners_from_masters(builder: CellBuilder, export_dir: Path) -> dict:
@@ -1321,7 +1343,7 @@ def _places(builder: CellBuilder, export_dir: Path, worlds: list, scoped: tuple)
     (every reference, the interiors built).
     See: docs/fork/fo4_pipeline.md#locations
     """
-    builder.zones = encounter_zones(builder, export_dir, builder.owner_ids())
+    encounter_zones(builder, export_dir, builder.owner_ids())
     markers = map_markers(builder.ref_ids)
     for world in reversed(worlds):
         world.locations = Locations(builder, world.world, markers)

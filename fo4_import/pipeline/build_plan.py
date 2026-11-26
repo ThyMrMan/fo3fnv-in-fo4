@@ -267,11 +267,13 @@ def fresh_reads() -> None:
 
 
 def built_release(plugin: Path) -> str:
-    """The release that last built `plugin` (its build stamp's), '' when none is recorded."""
+    """The release that last built `plugin` (its build stamp's): release.DEV for a checkout's build that recorded
+    only its commit, '' when neither is recorded."""
     try:
-        return json.loads(stamp_path(plugin).read_text(encoding='utf-8')).get('release') or ''
+        kept = json.loads(stamp_path(plugin).read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return ''
+    return kept.get('release') or (release.DEV if kept.get('commit') else '')
 
 
 def from_older_release(plugin: Path) -> str:

@@ -5,5 +5,5 @@ F3NV_FalloutStandings Property Standings Auto Const
 
 Event OnStoryCrimeGold(ObjectReference akVictim, ObjectReference akCriminal, Form akFaction, int aiGoldAmount, int aiCrime)
   Stop()
-  Standings.NoteCrime(akVictim as Actor, akCriminal as Actor, aiCrime)
+  Standings.NoteCrime(akVictim as Actor, akCriminal as Actor, akFaction, aiCrime)
 EndEvent

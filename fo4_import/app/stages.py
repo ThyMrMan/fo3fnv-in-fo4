@@ -19,6 +19,7 @@ from pathlib import Path
 from core.mod_sources import data_dirs
 from fo4_import.app import addons, light_plugins
 from fo4_import.app import settings as S
+from fo4_import.base import release
 from asset_convert.sources import source_registry
 from fo4_import.classic_look import plugin_name
 from script_convert.constants import FALLOUT4_HELPER_PLUGIN
@@ -207,11 +208,12 @@ def game_problem(settings: dict, source: str) -> str:
 
 
 def row_state(settings: dict, source: str, plugin: str) -> str:
-    """The note beside `plugin` ('' the game) in the target list: when it was built, else what it waits on."""
+    """The note beside `plugin` ('' the game) in the target list: when it was built and by which release, else
+    what it waits on."""
     master, game = GAMES[source]['master'], S.output_dir(settings, source) / GAMES[source]['plugin']
     path = addons.output(settings, source, plugin, master) / plugin if plugin else game
     if build_plan.record(path) is not None:
-        return f'built {_when(path.stat().st_mtime)}'
+        return f'built {_when(path.stat().st_mtime)}{release.made_with(build_plan.built_release(path))}'
     return f'convert {master} first' if plugin and build_plan.record(game) is None else 'not built yet'
 
 

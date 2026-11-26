@@ -452,8 +452,8 @@ def formid_property_name(fid: str) -> str:
     return f'TES4Form_{fid.upper().zfill(8)}'
 
 
-def safe_property_name(name: str) -> str:
-    """Return a Papyrus-safe property name, renaming reserved words."""
+def safe_property_name(name: str, fallout4: bool = None) -> str:
+    """Return a Papyrus-safe property name, renaming the words reserved for `fallout4` (else this run's target)."""
     # Oblivion's parser accepts quotes around any EditorID and Nehrim's authors
     # use them constantly (173 sites: `SetStage "MQ01Tate" 20`,
     # `GetStage "NQ00Karick"`, `StartQuest "NQ05"`, `AddScriptPackage "..."`).
@@ -495,16 +495,16 @@ def safe_property_name(name: str) -> str:
     if safe.startswith('temp'):
         safe = 'T' + safe[1:]
     low = safe.lower()
-    if low in papyrus_reserved():
+    if low in papyrus_reserved(fallout4):
         # Keep the original casing — `.capitalize()` lowercases the tail and
         # turns DarkBrotherhood into the unreadable myDarkbrotherhood.
         return 'my' + safe[0].upper() + safe[1:]
     return safe
 
 
-def source_name(prop: str) -> str:
+def source_name(prop: str, fallout4: bool = None) -> str:
     """The name safe_property_name made `prop` from: `myMS14` is MS14."""
-    return prop[2:] if prop.startswith('my') and prop[2:].lower() in papyrus_reserved() else prop
+    return prop[2:] if prop.startswith('my') and prop[2:].lower() in papyrus_reserved(fallout4) else prop
 
 
 def mgef_family_keyword_name(effect_edid: str) -> str:
@@ -797,6 +797,7 @@ FALLOUT4_HELPER_AVS = {
     'SmallGuns': 0x81A, 'Sneak': 0x81B, 'Speech': 0x81C, 'Survival': 0x81D, 'Unarmed': 0x81E,
     'CritChance': 0x81F, 'FalloutDamageResist': 0x820, 'Fatigue': 0x821, 'TalkedToPC': 0x822,
     'Dehydration': 0x823, 'Hunger': 0x824, 'SleepDeprivation': 0x825, 'DialogueDone': 0x826,
+    'MajorCrimes': 0x827, 'MinorCrimes': 0x828, 'Disposition': 0x829, 'DispositionMod': 0x82A,
 }
 #: Helper actor values whose default is not 0: Fatigue, an average FNV NPC's (docs/fork/fo4_pipeline.md#fatigue).
 FALLOUT4_HELPER_AV_DEFAULTS = {'Fatigue': 200.0}

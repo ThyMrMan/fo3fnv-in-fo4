@@ -40,7 +40,7 @@ from fo4_import.spike.packages import listed
 from fo4_import.spike.entry_condition import condition_of
 from fo4_import.spike.face_fit import sculpt_fit, tint_fit
 from fo4_import.spike.head_parts import choose, head_parts_edit
-from fo4_import.spike.npc_skills import fnv_skill, merged_prps, with_skills
+from fo4_import.spike.npc_skills import fnv_skill, merged_prps, with_charisma, with_skills
 from fo4_import.spike.own_heads import OwnHeads
 from fo4_import.spike.placement import place, placement, starts_disabled
 from fo4_import.spike.race_skins import RaceSkins
@@ -564,6 +564,7 @@ class Npcs:
             elif rec is not None and (_traits_templated(rec) or _model_templated(rec) and not self.creatures.converts(fnv)):
                 self.made[fnv] = self._templated(fnv)
             else:
+                self.made[fnv] = None
                 packages = (self.builder.packages.for_npc(self.creatures.source(rec, USE_PACKAGES), self.form_map)
                             if self.creatures.converts(fnv) else [])
                 self.made[fnv] = self.creatures.base(fnv, packages) if self.creatures.converts(fnv) else None
@@ -607,7 +608,7 @@ class Npcs:
                         with_health(stats, self.builder.combat_styles.settings, self.creatures.stat_tables))
 
     def _skills(self, fnv: int):
-        """FNV NPC `fnv`'s (or stats template's) skills and fists edit; None from a list."""
+        """FNV NPC `fnv`'s (or stats template's) skills, Charisma and fists edit; None from a list."""
         stats = self.source(fnv, USE_STATS)
         if not stats:
             return None
@@ -615,7 +616,8 @@ class Npcs:
         unarmed = fnv_skill(fid, 'Unarmed')
         fists = None if unarmed is None else with_fists(unarmed, self.builder.combat_styles.settings,
                                                         self.creatures.stat_tables)
-        return composed(with_skills(fid, self.builder.scripts.helper_index), fists)
+        helpers = self.builder.scripts.helper_index
+        return composed(with_skills(fid, helpers), with_charisma(stats, helpers), fists)
 
     def _factions(self, fnv: int) -> bytes:
         """FO4 SNAMs of FNV NPC `fnv`'s (or template's) factions and vendor one."""

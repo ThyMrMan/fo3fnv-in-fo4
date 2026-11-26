@@ -66,6 +66,14 @@ def with_skills(fnv: int, helper_index: int):
     return (lambda subs: merged_prps(subs, pairs)) if pairs else None
 
 
+def with_charisma(npc: dict, helper_index: int):
+    """An NPC edit setting PRPS Charisma to FNV record `npc`'s DATA one; None without.
+    See: docs/fork/fo4_pipeline.md#disposition
+    """
+    av, value = actor_value_form('Charisma', helper_index), npc.get('DATA.Charisma')
+    return None if av is None or value is None else (lambda subs: merged_prps(subs, {av: float(value)}))
+
+
 #: FNV CREA DATA offset of Combat Skill (u8), and the skills FalloutNV.exe reads it for (0x5FA180, flag 0x400).
 COMBAT_AT, COMBAT_SKILLS = 1, ('EnergyWeapons', 'Explosives', 'MeleeWeapons', 'Guns', 'Unarmed')
 

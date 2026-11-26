@@ -48,6 +48,8 @@ CONTAINER_FLAGS = 0x2
 TYPE_LIST_CODES = {name: code for code, name in ITEM_TYPE_LISTS.items()}
 #: Cell builder maps {FNV FormID: FO4 FormID} of the non-item forms it has made, which a form list may hold.
 BUILT_MAPS = ('made', 'actor_refs', 'npc_ids', 'globals', 'factions')
+#: FNV actor base types a form list entry is made from on demand (Npcs.actor_form).
+ACTOR_BASES = ('NPC_', 'CREA', 'LVLN', 'LVLC')
 #: FNV leveled list flag Use All: every entry is given.
 USE_ALL = 0x4
 
@@ -303,10 +305,15 @@ class Items:
 
     def _built(self, fid: int) -> 'int | None':
         """The FO4 form the cell builder has made for FNV non-item `fid` (BUILT_MAPS, its creatures), else the
-        FNV message `fid` converted (attach.ObjectScripts.message); None."""
+        actor base made now (Npcs.actor_form, as a line testing it does), else the FNV message `fid` converted
+        (attach.ObjectScripts.message); None.
+        See: docs/fork/fo4_pipeline.md#line-actors
+        """
         maps = [getattr(self.builder, name, {}) for name in BUILT_MAPS]
         maps.append(getattr(getattr(self.builder, 'creatures', None), 'made', {}))
         made = next((found[fid] for found in maps if found.get(fid)), None)
+        npcs = getattr(self.builder, 'npcs', None)
+        made = made or (npcs.actor_form(f'{fid:08X}') if npcs and self._type(fid) in ACTOR_BASES else None)
         scripts = getattr(self.builder, 'scripts', None)
         if made is not None or scripts is None:
             return made

@@ -13,13 +13,17 @@ import math
 import struct
 
 from fo4_import.base.vmad import package_fragments
+from fo4_import.spike.acquire import (ACTOR_TYPES, OBJECT_TYPES, acquire_values, find_acquire, find_follow,
+                                      follow_values, selector)
+from fo4_import.spike.items import ITEM_TYPES
 from fo4_import.base.writer import pack_fo4_record
-from fo4_import.spike.condition_forms import condition_items
+from fo4_import.spike.condition_forms import condition_effects, condition_items
 from fo4_import.spike.dialogue import GREETING
 from fo4_import.spike import greet_template
 from fo4_import.spike.greet_once import GreetOnce
 from fo4_import.spike.idle_markers import listed_idles
-from fo4_import.spike.say_topics import blocker, conditions_of
+from fo4_import.spike.conditions import ABSENT_ZERO, ENGINE_FORMS
+from fo4_import.spike.say_topics import blocker, conditions_of, parsed
 from fo4_import.spike.readiness import PACKAGE_LEFT_OUT
 from fo4_import.spike.records import pack_flst
 from fo4_import.spike.script import PACKAGE, QUEST, declared_properties, prefix
@@ -29,7 +33,8 @@ from script_convert.package_events import (CHAT_REACH, CHAT_SPEED, CHAT_TARGET, 
                                            day_marked, package_hooks, quest_gated)
 from fo4_import.pipeline.export_index import export_records
 from tes5_import.base.tes5_reader import subrecords, walk
-from tes5_import.packages.scripts_falloutnv import package_flags, says_to_player, talks_to_npc
+from tes5_import.packages.scripts_falloutnv import (chat_topic, find_talks, package_flags, says_to_player,
+                                                    talks_to_npc)
 from tes5_import.base.writer import pack_subrecord
 from tes5_import.base.text_reader import get_hex_bytes
 from tes5_import.record_types.navm_falloutnv import parse_vertices
@@ -38,7 +43,17 @@ from tes5_import.record_types.navm_falloutnv import parse_vertices
 INSTANCES = {'Travel': 0x248982, 'Sit': 0x2471DB, 'Sandbox': 0x24674E, 'ForceGreet': 0x1BEAD3, 'Sleep': 0x1B9EB0,
              'Eat': 0x1AE26C, 'HoldPosition': 0x2491F8, 'Patrol': 0x248492, 'FollowNPC': 0x232257,
              'FleeTo': 0x204C1D, 'FleeFrom': 0x1D4388, 'UseWeapon': 0x19632E, 'EscortPlayer': 0x112EED,
-             'SitFoundRef': 0x08CA6A}
+             'SitFoundRef': 0x08CA6A, 'Activate': 0x0BB011, 'Acquire': 0x0E9876}
+#: The authored templates (acquire.py) of a Find of an item type or category, a Follow of an actor not by reference.
+FIND_ACQUIRE, FIND_FOLLOW = 'FindAcquire', 'FindFollow'
+#: FNV PKDT types whose copy follows its target: Follow, Accompany.
+FOLLOW_TYPES = ('1', '7')
+#: SitFoundRef's Target Selector: its second location or target input.
+SEAT_SELECTOR = 1
+#: FNV base types a Find's target reference is activated as (the GECK's Find: a door opens, an activator runs).
+ACTIVATED = frozenset({'DOOR', 'ACTI'})
+#: FNV item types a Find picks up (the GECK's Find: an inventory object is picked up).
+CARRIED = frozenset(ITEM_TYPES) - {'LVLI', 'CONT', 'FLST'}
 #: FNV PKDT type Find, and its PTDT object type Furniture (wbObjectTypeEnum, the same code in FO3 and FNV).
 FNV_FIND, FURNITURE_TYPE = '0', '11'
 #: A copy's first input from FNV: its location, its target, its location as a Patrol start, or the template's.
@@ -54,8 +69,8 @@ FNV_ESCORT, ESCORTED_INPUT = '2', 1
 FNV_USE_WEAPON, WEAPON_INPUT, SHOT_INPUT = '16', 1, 2
 #: PTDA target types naming an object by form or by type (the same codes in both games).
 TARGET_OBJECT, TARGET_TYPE = 1, 2
-#: FNV object type codes for weapons (any, ranged, melee, none) as FO4's (xEdit wbObjectTypeEnum of each game).
-WEAPON_TYPES = {'12': 11, '21': 20, '22': 19, '23': 18}
+#: FNV object type codes for weapons (any, ranged, melee, none) as FO4's.
+WEAPON_TYPES = {code: OBJECT_TYPES[code] for code in ('12', '21', '22', '23')}
 #: FO4 UseWeapon Bool inputs and the FNV PKW3 flag each copies.
 WEAPON_FLAGS = {'Always Hit?': 0x1, 'Do No Damage?': 0x100, 'Crouch Reload?': 0x10000,
                 'Hold When Blocked?': 0x1000000}
@@ -155,14 +170,18 @@ class Packages:
                       if 'XPRM.BoundX' in r}
         for rec in export_records(export_dir, 'NAVM'):
             self.navmeshes.setdefault(rec.get('DATA.Cell'), []).append(rec)
-        self.why, self.pending, self.scripted = {}, set(), set()
-        self.packs = {r['FormID']: r for r in export_records(export_dir, 'PACK')}
+        self.why, self.pending, self.scripted, self.making, self.runners = {}, set(), set(), set(), None
+        self.packs = {r['FormID']: r for r in talking_packs(export_dir)}
+        self.activated = {int(r['FormID'], 16) for r in refs
+                          if builder.bases.get(int(r['NAME'], 16), ('',))[0] in ACTIVATED}
+        self.carried = {int(r['FormID'], 16) for r in refs if self._carried(int(r['NAME'], 16))}
         self.hooks = package_hooks(export_records(export_dir, 'SCPT'), self.packs.values())
         self.topic_names = {r['FormID'].upper(): r.get('EditorID') for r in export_records(export_dir, 'DIAL')}
         self.by_name = {r['EditorID'].lower(): fid for fid, r in self.packs.items() if r.get('EditorID')}
         self.links = linked_by_package(export_dir)
         packs ={r.form_id: r.body for r, _ in walk(builder.fo4, b'PACK')}
-        self.vanilla = {name: packs[fid] for name, fid in INSTANCES.items()}
+        self.vanilla = {name: packs[fid] for name, fid in INSTANCES.items()} | {FIND_ACQUIRE: find_acquire(),
+                                                                                 FIND_FOLLOW: find_follow()}
         self.slots = {name: value_slots(self.vanilla[name], packs)
                       for name in ('Sandbox', 'FollowNPC', 'UseWeapon', 'EscortPlayer')}
         self.vanilla['ForceGreet'] = greet_template.write(builder, self.vanilla['ForceGreet'], packs)
@@ -222,10 +241,14 @@ class Packages:
         does not convert, then counted and recorded in the readiness report by why. Items its conditions test
         are made and added to `form_map`. Its id is taken before it is written, so a fragment script naming it
         (or a package naming it back) resolves to it instead of writing it again."""
-        if fnv not in self.made:
+        if fnv not in self.made and fnv not in self.making:
             rec = self.packs[fnv]
+            self.making.add(fnv)
+            self.tested([rec], form_map, getattr(self.builder, 'npcs', None))
+            self.making.discard(fnv)
             plan = self._plan(rec, form_map, npc)
             form_map.update({} if isinstance(plan, str) else condition_items(self.builder, [rec], form_map))
+            form_map.update(condition_effects(getattr(self.builder, 'scripts', None), [rec]))
             target = target_reference(rec, form_map)
             conditions = conditions_of(rec, form_map, self.builder.script_vars, reference=target)
             if isinstance(plan, str) or conditions is None:
@@ -236,7 +259,42 @@ class Packages:
             else:
                 self.made[fnv] = self.builder.fnv_id(fnv)
                 self.made[fnv] = self._write(fnv, rec, plan, conditions, form_map)
-        return self.made[fnv]
+        return self.made.get(fnv, 0)
+
+    def tested(self, recs: list, form_map: dict, npcs=None) -> None:
+        """Make now, into `form_map`, the packages (for their first NPC) and, given `npcs`, the actor bases FNV
+        packages' or lines' `recs` conditions test, so a test of one a script names later converts.
+        See: docs/fork/fo4_pipeline.md#package-conditions
+        """
+        tests = (c for rec in recs for c in parsed(rec) if c['func'] in ABSENT_ZERO)
+        for p1 in sorted({c['p1'] for c in tests if c['p1'] >= ENGINE_FORMS} - form_map.keys()):
+            fnv = f'{p1:08X}'
+            made = self.package(fnv, form_map, self._runner(fnv)) if fnv in self.packs else \
+                npcs.actor_form(fnv) if npcs else None
+            form_map.update({p1: made} if made else {})
+
+    def _runner(self, fnv: str) -> int:
+        """The first FNV NPC or creature (export order) listing package `fnv`; 0 for none."""
+        return next(iter(self._listers().get(fnv, ())), 0)
+
+    def chat_speakers(self, topic: str) -> set:
+        """The FNV actors listing an NPC chat package that says `topic` (EditorID, any case).
+        See: docs/fork/fo4_pipeline.md#chat-quests
+        """
+        chats = (fnv for fnv, rec in self.packs.items()
+                 if talks_to_npc(rec) and chat_topic(rec, self.topic_names).lower() == topic.lower())
+        return {actor for fnv in chats for actor in self._listers().get(fnv, ())}
+
+    def _listers(self) -> dict:
+        """{FNV package: [FNV NPCs and creatures listing it, in export order]}, read once the NPCs are known."""
+        if self.runners is None:
+            npcs = getattr(self.builder, 'npcs', None)
+            actors = [*npcs.records.values(), *npcs.creatures.records.values()] if npcs else []
+            self.runners = {}
+            for actor in actors:
+                for pack in listed(actor):
+                    self.runners.setdefault(pack, []).append(int(actor['FormID'], 16))
+        return self.runners
 
     def combat_list(self, npc: dict) -> int:
         """The FO4 Combat Override Package List (FLST) of FNV NPC `npc`'s packages held through combat (_write),
@@ -258,9 +316,10 @@ class Packages:
         (CONTINUE_DURING_COMBAT) also gets a HoldPosition combat override copy, without fragments; a ForceGreet is
         numbered and parked (GreetOnce). The copy's FormID."""
         template, fid = plan[0], self.builder.fnv_id(fnv)
-        number = self.once.walk_number() if says_to_player(rec) else self.once.number(fid) if template == 'ForceGreet' else 0
+        number = self.once.walk_number(fid) if says_to_player(rec) else self.once.number(fid) if template == 'ForceGreet' else 0
         values = {0: plan[2]} if len(plan) > 2 else self._values(rec, template)
-        inputs = {'ForceGreet': self._trigger, 'UseWeapon': self._weapon, 'EscortPlayer': self._escorted}.get(
+        inputs = {'ForceGreet': self._trigger, 'UseWeapon': self._weapon, 'EscortPlayer': self._escorted,
+                  FIND_ACQUIRE: self._sought, 'SitFoundRef': self._seat_sought, FIND_FOLLOW: self._follow_found}.get(
             template, lambda *_: {})(rec, form_map)
         own = self.once.unspoken(number) if number else b''
         own += self.once.undone(rec) if day_marked(rec) or self._chat(rec) and daily(rec) else b''
@@ -305,7 +364,20 @@ class Packages:
     def _values(self, rec: dict, template: str) -> dict:
         """{value slot: CNAM} of `rec`'s `template` copy (Allows, radii, firing)."""
         return {'Sandbox': self._allows, 'FollowNPC': self._radii, 'UseWeapon': self._firing,
-                'EscortPlayer': self._escort_wait}.get(template, lambda _: {})(rec)
+                'EscortPlayer': self._escort_wait, FIND_ACQUIRE: acquire_values,
+                FIND_FOLLOW: follow_values}.get(template, lambda _: {})(rec)
+
+    def _sought(self, rec: dict, _form_map: dict) -> dict:
+        """{input: PTDA} of Find `rec`'s FIND_ACQUIRE copy: its Target Selector."""
+        return {1: selector(rec, self._carried_item)}
+
+    def _carried(self, fnv: int) -> bool:
+        """Whether FNV base `fnv` is an item a Find picks up (CARRIED)."""
+        return self.builder.items.records.get(fnv, ('',))[0] in CARRIED
+
+    def _carried_item(self, fnv: int) -> 'int | None':
+        """The FO4 record of FNV item `fnv` a Find picks up; else None."""
+        return self.builder.items.item(fnv) if self._carried(fnv) else None
 
     def _firing(self, rec: dict) -> dict:
         """{value slot: CNAM} of FNV Use Weapon `rec`'s firing (PKW3): its flags, volley fire, the pause between
@@ -332,7 +404,7 @@ class Packages:
         if kind == str(TARGET_TYPE) and rec['PTDT.Target'].lstrip('0') in WEAPON_TYPES:
             out[WEAPON_INPUT] = struct.pack('<iIi', TARGET_TYPE, WEAPON_TYPES[rec['PTDT.Target'].lstrip('0')], 0)
         shot = int(rec.get('PTD2.Target', '0') or '0', 16)
-        out[SHOT_INPUT] = struct.pack('<iIi', int(rec['PTD2.Type']), form_map.get(shot, 0), 0)
+        out[SHOT_INPUT] = struct.pack('<iIi', int(rec.get('PTD2.Type', TARGET_TYPE)), form_map.get(shot, 0), 0)
         return out
 
     def _escorted(self, rec: dict, form_map: dict) -> dict:
@@ -430,7 +502,7 @@ class Packages:
             self.builder.counts['dialogue package with an NPC'] += 1
             self.builder.counts['dialogue package with an NPC, once a day'] += daily(rec)
             props, values = self._chat_inputs(rec, form_map)
-            props['Chat'] = scripts.talk(FALLOUT4_CHAT_PREFIX + self.topic_names[rec['PKDD.Topic'].upper()])
+            props['Chat'] = scripts.talk(FALLOUT4_CHAT_PREFIX + chat_topic(rec, self.topic_names))
             props.update({DAY_DONE: self.once.day_faction(rec)} if daily(rec) else {})
             return pack_subrecord('VMAD', package_fragments(DIALOGUE_SCRIPT, DIALOGUE_FRAGMENTS, props, values))
         if not flags or not scripts.dir or not (scripts.dir / f'{name}.psc').exists():
@@ -492,13 +564,13 @@ class Packages:
 
     def _use_weapon(self, rec: dict, form_map: dict) -> 'tuple | str':
         """(UseWeapon, PLDT payload) at FNV Use Weapon `rec`'s location, shooting at its built target reference
-        or linked reference (_weapon); why not, otherwise.
+        or linked reference, or with none (FNV fires ahead) at object type NONE (_weapon); why not, otherwise.
         See: docs/fork/fo4_pipeline.md#use-weapon
         """
-        shot = int(rec.get('PTD2.Target', '0') or '0', 16)
-        if rec.get('PTD2.Type') not in (str(TARGET_REFERENCE), str(TARGET_LINKED)):
-            return 'no weapon target'
-        if rec['PTD2.Type'] == str(TARGET_REFERENCE) and shot not in form_map:
+        shot, kind = int(rec.get('PTD2.Target', '0') or '0', 16), rec.get('PTD2.Type')
+        if kind is not None and kind not in (str(TARGET_REFERENCE), str(TARGET_LINKED)):
+            return 'weapon target not a reference'
+        if kind == str(TARGET_REFERENCE) and shot not in form_map:
             return 'weapon target not built'
         return self._at(rec, FNV_USE_WEAPON, 'UseWeapon', form_map)
 
@@ -513,12 +585,27 @@ class Packages:
 
     def _find(self, rec: dict, form_map: dict) -> 'tuple | str':
         """(SitFoundRef, PLDT payload) of FNV Find `rec` aimed at a furniture type: vanilla's sit in a chair found
-        near its location (Target Selector Furniture: Chairs, kept from the instance); why not, otherwise.
+        near its location (Target Selector Furniture: Chairs, kept from the instance); aimed at a built seat, a Sit
+        in it; at a built door or activator, an Activate of it; at a built item, vanilla's Acquire of it; at an
+        item by form or type, a FIND_ACQUIRE near its location; with no target, a Sandbox at its location (FNV
+        wanders there once out of targets); why not, otherwise.
         See: docs/fork/fo4_pipeline.md#find-furniture
         """
-        if rec.get('PTDT.Type') != str(TARGET_TYPE) or rec.get('PTDT.Target') != FURNITURE_TYPE:
-            return 'find target not furniture'
-        return self._at(rec, FNV_FIND, 'SitFoundRef', form_map)
+        if 'PTDT.Type' not in rec:
+            return self._at(rec, FNV_FIND, 'Sandbox', form_map)
+        target = int(rec.get('PTDT.Target', '0') or '0', 16)
+        if rec.get('PTDT.Type') == str(TARGET_REFERENCE) and target in form_map:
+            if target in self.furniture:
+                return 'Sit', struct.pack('<iI', TARGET_REFERENCE, form_map[target])
+            kind = 'Activate' if target in self.activated else 'Acquire' if target in self.carried else None
+            if kind:
+                return kind, struct.pack('<iIi', TARGET_REFERENCE, form_map[target], 0)
+        seat = self._found_seat(rec, form_map)
+        if seat:
+            return seat
+        if selector(rec, self._carried_item):
+            return self._at(rec, FNV_FIND, FIND_ACQUIRE, form_map)
+        return 'find target not furniture or an item'
 
     def _talk_to(self, rec: dict, form_map: dict) -> 'tuple | str':
         """(template, PLDT payload) of FNV Dialogue `rec`: to an NPC, a Travel to its Wait Location (_at), else to
@@ -541,8 +628,6 @@ class Packages:
         form_map = {**form_map, int(PLAYER_TARGET, 16): int(PLAYER_TARGET, 16)}
         if rec.get('PTDT.Type') != str(TARGET_REFERENCE) or ref not in form_map:
             return 'dialogue target not built'
-        if not self.topic_names.get(rec.get('PKDD.Topic', '').upper()):
-            return 'dialogue topic not named'
         near = struct.pack('<iI', NEAR_REFERENCE, form_map[ref])
         return 'Travel', near + (struct.pack('<i', distance) if distance else b'')
 
@@ -613,7 +698,12 @@ class Packages:
 
     def _aimed(self, rec: dict, template: str, form_map: dict) -> 'tuple | str':
         """(template, PTDA payload) at FNV package `rec`'s target reference, or its actor's linked reference (FO4's
-        Linked Reference with no keyword, as FNV links have none); a Sit's target must be a seat."""
+        Linked Reference with no keyword, as FNV links have none); a Sit's target must be a seat. A Sit at furniture
+        by type or base sits in one found (_found_seat); a Follow of an actor by base, list, faction or type follows
+        one found (FIND_FOLLOW)."""
+        found = self._found_seat(rec, form_map) if template == 'Sit' else self._found_actor(rec, form_map)
+        if found:
+            return found
         ref = int(rec.get('PTDT.Target', '0') or '0', 16)
         if rec.get('PTDT.Type') == str(TARGET_LINKED) and template != 'Sit':
             return template, struct.pack('<iIi', TARGET_LINKED, 0, int(rec.get('PTDT.Count', 0) or 0))
@@ -622,6 +712,53 @@ class Packages:
         if template == 'Sit' and ref not in self.furniture:
             return 'target not a seat'
         return template, struct.pack('<iIi', TARGET_REFERENCE, form_map[ref], int(rec.get('PTDT.Count', 0) or 0))
+
+
+    def _found_seat(self, rec: dict, form_map: dict) -> 'tuple | str | None':
+        """(SitFoundRef, PLDT payload) of FNV package `rec` aimed at furniture by type or by a FURN base: a sit in
+        one found near its location (_seat_sought); None for another target.
+        See: docs/fork/fo4_pipeline.md#find-furniture
+        """
+        kind, target = rec.get('PTDT.Type'), int(rec.get('PTDT.Target', '0') or '0', 16)
+        typed = kind == str(TARGET_TYPE) and rec.get('PTDT.Target') == FURNITURE_TYPE
+        based = kind == str(TARGET_OBJECT) and getattr(self.builder, 'bases', {}).get(target, ('',))[0] == 'FURN'
+        return self._at(rec, FNV_FIND, 'SitFoundRef', form_map) if typed or based else None
+
+    def _seat_sought(self, rec: dict, _form_map: dict) -> dict:
+        """{input: PTDA} of a SitFoundRef copy: its FURN base as Target Selector."""
+        target = int(rec.get('PTDT.Target', '0') or '0', 16)
+        made = self.builder.base(target) if rec.get('PTDT.Type') == str(TARGET_OBJECT) else None
+        return {SEAT_SELECTOR: struct.pack('<iIi', TARGET_OBJECT, made, 0)} if made else {}
+
+    def _found_actor(self, rec: dict, form_map: dict) -> 'tuple | None':
+        """(FIND_FOLLOW, PLDT payload) of FNV Follow `rec` aimed at an actor by base, list, faction or type: follow
+        one found near its location, else within FNV's loaded area; None for another target.
+        See: docs/fork/fo4_pipeline.md#follow-found
+        """
+        if rec.get('PKDT.Type') not in FOLLOW_TYPES or self._followed(rec, form_map) is None:
+            return None
+        if 'PLDT.Type' not in rec:
+            return FIND_FOLLOW, struct.pack('<iIi', NEAR_SELF, 0, FNV_LOADED_REACH)
+        found = self._at(rec, FNV_FIND, FIND_FOLLOW, form_map)
+        return None if isinstance(found, str) else found
+
+    def _followed(self, rec: dict, form_map: dict) -> 'bytes | None':
+        """The Target Selector PTDA of FNV Follow `rec`'s actor: by its FO4 base, list or faction (made now), or
+        Actors: Any for an actor type (ACTOR_TYPES); None for another target or one that is not made."""
+        kind, target = rec.get('PTDT.Type'), int(rec.get('PTDT.Target', '0') or '0', 16)
+        if kind == str(TARGET_TYPE):
+            code = ACTOR_TYPES.get((rec.get('PTDT.Target') or '').lstrip('0'))
+            return struct.pack('<iIi', TARGET_TYPE, code, 0) if code else None
+        if kind != str(TARGET_OBJECT):
+            return None
+        npcs = getattr(self.builder, 'npcs', None)
+        made = form_map.get(target) or (npcs.actor_form(f'{target:08X}') if npcs else None) \
+            or self.builder.items.item(target)
+        return struct.pack('<iIi', TARGET_OBJECT, made, 0) if made else None
+
+    def _follow_found(self, rec: dict, form_map: dict) -> dict:
+        """{input: PTDA} of a FIND_FOLLOW copy: its Target Selector (_followed)."""
+        return {1: self._followed(rec, form_map)}
 
 
 def _persistent(ref: dict) -> bool:
@@ -653,6 +790,14 @@ def linked_by_package(export_dir) -> dict:
         for pack in bases.get(actor['NAME'], ()):
             out.setdefault(pack, set()).add(int(actor.get('XLKR.LinkedRef', '0') or '0', 16))
     return out
+
+
+def talking_packs(export_dir) -> list:
+    """The export's PACK records, each read through find_talks.
+    See: docs/fork/fo4_pipeline.md#find-talks
+    """
+    actors = {r['FormID'].upper() for sig in ('ACHR', 'ACRE') for r in export_records(export_dir, sig)}
+    return [find_talks(r, actors) for r in export_records(export_dir, 'PACK')]
 
 
 def listed(npc: dict) -> list:

@@ -53,8 +53,8 @@ TOWARD_PLAYER = {'GetActorFactionPlayerEnemy': 'IsHostileToActor'}
 #: The player's base and reference: forms FNV and FO4 both own at these FormIDs, so a condition names them as is.
 PLAYER_FORMS = frozenset({0x7, PLAYER_REF})
 #: FNV functions reading 0 for a form the build leaves out (fo4_pipeline.md#dialogue-conditions).
-ABSENT_ZERO = frozenset({'GetIsID', 'GetIsReference', 'GetIsVoiceType', 'GetInCell', 'GetInWorldspace',
-                         'GetDeadCount', 'HasPerk', 'GetQuestCompleted', 'GetQuestRunning', 'GetStage',
+ABSENT_ZERO = frozenset({'GetIsID', 'GetIsReference', 'GetIsVoiceType', 'GetInCell', 'GetInCellParam',
+                         'GetInWorldspace', 'GetDeadCount', 'HasPerk', 'GetQuestCompleted', 'GetQuestRunning', 'GetStage',
                          'GetStageDone', 'GetObjectiveCompleted', 'GetObjectiveDisplayed', 'GetQuestVariable',
                          'GetScriptVariable', 'GetCasinoWinningStage', 'GetIsCurrentPackage'})
 #: FNV functions fixed in an FO4 build: talking through an activator, Exists (fo4_pipeline.md#exists).
@@ -71,6 +71,8 @@ OBJECTIVE_STATES = tuple(OBJECTIVE_FUNCS.values())
 AUTHORED = 'objectives'
 #: Form map key head of an item a line tests that the build could not make: (UNMADE, FNV form) -> 0.
 UNMADE = 'unmade'
+#: FNV HasMagicEffect; the form map key head of a script effect's family keyword: (EFFECT, FNV effect) -> keyword.
+HAS_EFFECT, EFFECT = 'HasMagicEffect', 'effect family'
 #: Condition flag (both games): compare against a global's value; the value field holds the global's FormID.
 USE_GLOBAL = 0x04
 _OPS = {0x00: lambda a, b: a == b, 0x20: lambda a, b: a != b, 0x40: lambda a, b: a > b,

@@ -22,7 +22,7 @@ def _builder(in_masters):
     """A CellBuilder stand-in for a DLC build over FalloutNV.esm, its built master holding `in_masters`."""
     writer = LedgerWriter(masters=FO4_MASTERS, is_esm=True)
     builder = SimpleNamespace(ids=SourceIds(['FalloutNV.esm'], FO4_MASTERS, writer.own_index), writer=writer, top=0,
-                              in_masters=in_masters)
+                              in_masters=in_masters, master_held=None)
     builder.fnv_id = lambda fid: CellBuilder.fnv_id(builder, fid)
     return builder
 
@@ -70,3 +70,21 @@ def test_a_mod_names_the_masters_references_its_built_master_holds(monkeypatch):
     monkeypatch.setattr(CB, 'export_records', lambda export_dir, sig: refs.get(sig, ()))
     names = CB._master_places(_builder(frozenset({0x0316CCA1})), 'JSawyer Ultimate Edition')
     assert names == {'SecretSalesMarkerREF': 0x0316CCA1}
+
+
+def test_packages_and_conditions_reach_the_masters_cells_and_references(monkeypatch):
+    """A DLC package's location in a master cell or at a master reference maps by FormID (no EditorID needed);
+    the DLC's own placement of the same reference wins.
+    See: docs/fork/fo4_pipeline.md#master-references
+    """
+    recs = {'CELL': [{'FormID': '00067488', 'Signature': 'CELL'}],
+            'REFR': [{'FormID': '000288EC', 'Signature': 'REFR'}, {'FormID': '000288ED', 'Signature': 'REFR'}]}
+    monkeypatch.setattr(CB, 'export_records', lambda export_dir, sig: recs.get(sig, ()))
+    builder = _builder(frozenset({0x03067488, 0x030288EC, 0x030288ED}))
+    builder.__dict__.update(globals={}, factions={}, actor_refs={}, objectives={}, quest_vars={}, reputation_slots={},
+                            hardcore=SimpleNamespace(form_map=dict), casino=SimpleNamespace(form_map=dict),
+                            packages=None)
+    CB._master_held(builder, 'BrokenSteel')
+    form_map = CB._form_map(builder, {'000288ED': 0x01000001}, [], {})
+    assert form_map[0x00067488] == 0x03067488 and form_map[0x000288EC] == 0x030288EC
+    assert form_map[0x000288ED] == 0x01000001

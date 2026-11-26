@@ -116,6 +116,16 @@ def test_a_dead_actor_fnv_gives_no_pose_takes_the_flattest_upright_vanilla_corps
     assert poses.builder.counts == {f'ragdoll pose written (fallback): {TOY}': 1}
 
 
+def test_a_dead_actor_whose_fnv_pose_does_not_map_takes_the_vanilla_corpses_too():
+    """An FNV pose on a skeleton the build cannot read (FO3's Mirelurk bones not matching FO4's) falls back too.
+    See: docs/fork/fo4_spikes.md#fallback-pose"""
+    flat = _toy_pose()
+    poses = _toy_poses([_corpse(6, flat)])
+    poses.ragdolls = {0x100: (b'\0' * 28, None)}
+    assert poses.subrecords(0x100, 0x200, 7) == pack_subrecord('XRGD', flat)
+    assert poses.builder.counts == {f'ragdoll pose written (fallback): {TOY}': 1}
+
+
 def test_a_dead_actor_without_a_pose_or_a_vanilla_corpse_on_its_skeleton_is_left_out():
     """Nothing written, counted under the old reason."""
     poses = _toy_poses([])

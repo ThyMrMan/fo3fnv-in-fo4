@@ -24,7 +24,10 @@ from script_convert.helpers_fallout4 import fallout4_helper, is_unused
 from tes5_import.base.mesh_bounds import load_mesh_bounds
 from tes5_import.base.text_reader import parse_export_file
 from tes5_import.dialogue.converter import service_menu_kind
+from tes5_import.packages.scripts_falloutnv import find_talks
 
+#: The export files of placed actors.
+PLACED_ACTORS = ('ACHR', 'ACRE')
 #: Static Papyrus sources deployed beside the generated scripts of a masterless plugin.
 _STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static_scripts')
 
@@ -157,6 +160,28 @@ def load_records(export_dir: str, sigs: tuple) -> dict:
         path = os.path.join(export_dir, f'{sig}.txt')
         out[sig] = parse_export_file(path) if os.path.exists(path) else []
     return out
+
+
+def script_records(export_dir: str, sigs: tuple) -> dict:
+    """load_records, its PACK records read through talking_packs."""
+    out = load_records(export_dir, sigs)
+    out.update({'PACK': talking_packs(export_dir, out['PACK'])} if 'PACK' in out else {})
+    return out
+
+
+def talking_packs(export_dir: str, packs: list) -> list:
+    """`packs` read through find_talks on Fallout 4, against the actors placed in the export and its masters; as
+    they are otherwise.
+    See: docs/fork/fo4_pipeline.md#find-talks
+    """
+    if not is_fallout4():
+        return packs
+    actors = set()
+    for path in (os.path.join(d, f'{sig}.txt') for d in export_dirs_with_masters(export_dir) for sig in PLACED_ACTORS):
+        if os.path.exists(path):
+            with open(path, encoding='utf-8', errors='replace') as lines:
+                actors.update(line[7:].strip().upper() for line in lines if line.startswith('FormID='))
+    return [find_talks(rec, actors) for rec in packs]
 
 
 def chain_records(export_dir: str, by_type: dict, sigs: tuple) -> dict:

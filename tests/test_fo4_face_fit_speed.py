@@ -64,6 +64,13 @@ def test_the_first_of_two_equal_brows_wins():
     assert new[0][5] == old[0][5] == 1.0 and new[0][7] == old[0][7] == 0.0
 
 
+def test_a_face_that_is_the_base_texture_fits_every_option_at_zero():
+    """An empty target is every option at 0, all captured, not a 0/0 NaN."""
+    effects, mask, brows = _tint_case(0)
+    values, captured = tint.BrowFits(effects, mask, brows).best(np.zeros_like(effects[0]))
+    assert not values.any() and len(values) == len(effects) and captured == 1.0
+
+
 def test_a_sculpt_control_with_no_effect_stays_zero():
     """Controls whose basis rows are zero get 0, whatever the solver would leave there; the others their fit."""
     rng = np.random.default_rng(3)

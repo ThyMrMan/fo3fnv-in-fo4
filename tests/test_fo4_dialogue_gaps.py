@@ -15,6 +15,7 @@ from fo4_import.spike import conditions as CD
 from fo4_import.spike import npcs as N
 from fo4_import.spike import replacements
 from fo4_import.spike import say_topics as SAY
+from fo4_import.spike import voice_types as VT
 from fo4_import.spike.classes import Classes
 from fo4_import.spike.readiness import LINE_LEFT_OUT, Readiness
 from tes5_import.base.tes5_reader import first_sub, subrecords
@@ -55,6 +56,69 @@ def test_an_item_the_build_cannot_make_is_held_by_no_one():
     assert CD.without_absent([CD.parse(raw('GetItemCount', 0.0, SLAVE_COLLAR))], form_map) == []
 
 
+def test_an_actor_a_line_tests_is_made_before_the_line_converts():
+    """FFER11Settler is never placed (FFERepeatA's script spawns it): a line testing GetIsID of it makes its base
+    now (Npcs.actor_form), so the line converts instead of reading the test as never true; a non-actor stays out.
+    See: docs/fork/fo4_pipeline.md#line-actors
+    """
+    settler, made = 0x3DBB3, []
+    npcs = SimpleNamespace(actor_form=lambda fid: made.append(fid) or (0x02BA7AF0 if fid == f'{settler:08X}' else None))
+    lines = [line(raw('GetIsID', 1.0, settler, run_on=0)), line(raw('GetIsID', 1.0, settler), raw('GetIsID', 1.0, 0x14)),
+             line(raw('GetIsID', 1.0, 0x1234))]
+    assert CF.condition_actors(npcs, lines, {}) == {settler: 0x02BA7AF0}
+    assert made == [f'{settler:08X}', '00001234']
+    assert CF.condition_actors(npcs, lines, {settler: 1, 0x1234: 2}) == {}
+    assert CF.condition_actors(None, lines, {}) == {}
+
+
+def test_a_script_effect_test_reads_its_family_keyword_and_base_karma_the_karma_global():
+    """MS13's `HasMagicEffect MS13Mezzed` becomes HasMagicEffectKeyword of the effect's family keyword (the one its
+    spell's copy carries); MQ11's `GetBaseActorValue Karma >= 250` reads the karma global.
+    See: docs/fork/fo4_pipeline.md#effect-tests
+    """
+    mezzed, family, karma = 0x3D1F9, 0x0A000300, 0x0A000400
+    scripts = SimpleNamespace(effects=SimpleNamespace(family_of=lambda fnv: family if fnv == mezzed else None))
+    tested = [line(raw('HasMagicEffect', 1.0, mezzed)), line(raw('HasMagicEffect', 1.0, 0x1234))]
+    form_map = CF.condition_effects(scripts, tested)
+    assert form_map == {(CD.EFFECT, mezzed): family}
+    ctda = SAY.conditions_of(tested[0], form_map, {})
+    assert struct.unpack_from('<HxxI', ctda, 14) == (CD.FO4.index('HasMagicEffectKeyword'), family)
+    base = SAY.conditions_of(line(raw('GetBaseActorValue', 250.0, 23, op=0x60, run_on=1)), {SAY.KARMA_KEY: karma}, {})
+    assert struct.unpack_from('<HxxI', base, 14) == (CD.FO4.index('GetGlobalValue'), karma)
+
+
+def test_a_form_list_entry_that_is_an_actor_base_is_made_on_demand():
+    """Chesterbrook's NPC list names an NPC only a script places: the list's entry makes it (Npcs.actor_form), so
+    `IsInList` of the list is not settled as never true; a non-actor entry asks no actor."""
+    from fo4_import.spike.items import Items
+    asked = []
+    items = Items.__new__(Items)
+    items.messages, items.builder = {}, SimpleNamespace(
+        fnv_types={0x2E032: 'NPC_', 0x1234: 'GLOB'}, scripts=None,
+        npcs=SimpleNamespace(actor_form=lambda fid: asked.append(fid) or 0x0A02E032))
+    assert items._built(0x2E032) == 0x0A02E032 and items._built(0x1234) is None and asked == ['0002E032']
+    assert 'IsWeaponInList' in CF.ITEM_TESTS
+
+
+def test_the_players_voice_types_are_fallout4s_own_from_the_start(monkeypatch):
+    """CG02's grunt tests GetIsVoiceType PlayerVoiceMale, which no NPC uses: it reads FO4's PlayerVoiceMale01,
+    written by no one, whose folder takes FO3's player recordings; another voice type is still written on use.
+    See: docs/fork/fo4_pipeline.md#player-voices
+    """
+    monkeypatch.setattr(VT, 'fnv_voice_types', lambda: {0x2853B: ('PlayerVoiceMale', 0), 0x40D42: (
+        'PlayerVoiceFemale', 2), 0x1234: ('MaleAdult01', 0)})
+    written = []
+    builder = SimpleNamespace(fnv_id=lambda fid: 0x02000000 | int(fid, 16), counts=collections.Counter(),
+                              writer=SimpleNamespace(add_record=lambda sig, rec: written.append(sig)))
+    voices = VT.VoiceTypes(builder)
+    assert voices.ids == {0x2853B: 0x18DF4, 0x40D42: 0x18DF7} and not written
+    assert voices.made == {'PlayerVoiceMale01': 'PlayerVoiceMale', 'PlayerVoiceFemale01': 'PlayerVoiceFemale'}
+    assert voices.of(0x2853B) == 0x18DF4 and voices.of(0x1234) == 0x02001234 and written == ['VTYP']
+    grunt = line(raw('GetIsVoiceType', 1.0, 0x2853B, op=CD.OR_NEXT), raw('GetIsVoiceType', 1.0, 0x40D42))
+    ctda = SAY.conditions_of(grunt, voices.ids, {})
+    assert [struct.unpack_from('<I', ctda, at)[0] for at in (18, 56)] == [0x18DF4, 0x18DF7]
+
+
 @pytest.mark.skipif(not FALLOUT4_ESM.exists(), reason='needs Fallout4.esm')
 def test_a_race_test_names_the_race_its_npcs_get():
     """Lily's GetIsRace CaucasianChild (Target) becomes FO4's HumanChildRace, an adult race HumanRace."""
@@ -93,10 +157,12 @@ def first_sub_record() -> bytes:
 
 
 def test_an_answer_line_whose_condition_cannot_convert_is_counted():
-    """A menu answer left out (GetDisposition has no FO4 function) gets its count and readiness entry."""
+    """A menu answer left out (GetDisposition, its helper value not mapped) gets its count and readiness entry, once
+    however many speakers or scenes try it."""
     say = SAY.SayTopics.__new__(SAY.SayTopics)
     say.builder = SimpleNamespace(counts=collections.Counter(), readiness=Readiness())
-    say.script_vars = {}
+    say.script_vars, say.left = {}, set()
+    assert say.left_out(line(raw('GetDisposition', 30.0)), {}) == b''
     assert say.left_out(line(raw('GetDisposition', 30.0)), {}) == b''
     assert say.builder.counts == {'line left out (condition: GetDisposition)': 1}
     assert say.builder.readiness.entries == [{'kind': LINE_LEFT_OUT, 'owner': '001164BF',

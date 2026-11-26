@@ -31,6 +31,7 @@ from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike import conditions as C
 from fo4_import.spike.items import ITEM_TYPES
 from fo4_import.spike.npcs import USE_FACTIONS, USE_INVENTORY, USE_TRAITS
+from fo4_import.spike.packages import talking_packs
 from fo4_import.spike.records import RUN_SUBJECT
 from fo4_import.spike.say_topics import CONVERSATION, GREETING, TOPIC_TYPE, raws
 from fo4_import.spike.script import FRAGMENT, PACKAGE, QUEST, declared_properties, prefix
@@ -67,7 +68,7 @@ class QuestScope:
         self.lines = collections.defaultdict(list)
         for info in export_records(export_dir, 'INFO'):
             self.lines[int(info.get('QSTI.Quest', '0') or '0', 16)].append(info)
-        self.packs = {int(r['FormID'], 16): r for r in export_records(export_dir, 'PACK')}
+        self.packs = {int(r['FormID'], 16): r for r in talking_packs(export_dir)}
         self.actors = {int(r['FormID'], 16): r for sig in ('NPC_', 'CREA') for r in export_records(export_dir, sig)}
         self.items = {int(r['FormID'], 16): r['SCRI'] for sig in ITEM_TYPES for r in export_records(export_dir, sig)
                       if r.get('SCRI')}

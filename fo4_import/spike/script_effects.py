@@ -79,6 +79,7 @@ class ScriptEffects:
         self.spells = {r['EditorID'].lower(): r for r in export_records(export_dir, 'SPEL') if r.get('EditorID')}
         self.ids = {int(r['FormID'], 16): edid for edid, r in self.spells.items()}
         self.by_family = {mgef_family_keyword_name(edid).lower(): r for edid, r in self.effects.items()}
+        self.effect_ids = {int(r['FormID'], 16): edid for edid, r in self.effects.items()}
         self.families, self.stand_in_families = {}, None
 
     def spell(self, edid: str) -> 'int | None':
@@ -117,6 +118,11 @@ class ScriptEffects:
         if rec is None or not self.builder.scripts.name(int(rec['DATA.AssocItem'], 16)):
             return self._stand_in_family(prop.lower())
         return self.family(rec['EditorID'])
+
+    def family_of(self, fnv: int) -> 'int | None':
+        """family_named() of FNV script effect FormID `fnv`; None for another form."""
+        edid = self.effect_ids.get(fnv)
+        return self.family_named(mgef_family_keyword_name(edid)) if edid else None
 
     def _stand_in_family(self, prop: str) -> 'int | None':
         """The Fallout4.esm keyword FAMILY_STAND_INS gives the effect `prop` (lower case) names; None for another.

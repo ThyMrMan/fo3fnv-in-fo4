@@ -36,7 +36,7 @@ from script_convert.cross_ref import CrossRefGraph
 from script_convert.converter import ScriptConverter
 from script_convert.context_setup import (
     build_xref, chain_records, chargen_menu_plan, deploy_static_scripts, load_bounds_cache,
-    load_records, prepare_output_dir, quest_edids_by_fid,
+    load_records, prepare_output_dir, quest_edids_by_fid, script_records,
     service_menu_topics, topic_unlock_globals)
 from script_convert.ownership import owner_key, read_owned, write_owned
 from script_convert import radio_lines, target, udf_fallout4
@@ -285,8 +285,8 @@ def build_script_context(export_dir: str, output_dir: str) -> dict:
     bounds_cache = load_bounds_cache(export_dir)
     _WRITTEN.extend(deploy_static_scripts(export_dir, output_dir, shared))
     xref = build_xref(export_dir)
-    by_type = load_records(export_dir, ('DIAL', 'INFO', 'QUST', 'SCPT', 'NPC_',
-                                        'MESG', 'PACK'))
+    by_type = script_records(export_dir, ('DIAL', 'INFO', 'QUST', 'SCPT', 'NPC_',
+                                          'MESG', 'PACK'))
     unlock_plan = build_unlock_plan(by_type)
     print(f'    AddTopic unlocks: {len(unlock_plan["gated"])} gated topics, '
           f'{len(unlock_plan["info_reveals"])} revealer INFOs')

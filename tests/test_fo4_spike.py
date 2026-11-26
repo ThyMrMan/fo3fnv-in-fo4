@@ -4,6 +4,7 @@ See: docs/fork/fo4_spikes.md#spike-1b
 """
 
 import collections
+import itertools
 import math
 import pickle
 import struct
@@ -54,6 +55,9 @@ from fo4_import.spike import navmesh as NM
 from fo4_import.spike import actor_data as AD
 from fo4_import.spike import idles as ID
 from fo4_import.spike import packages as PK
+from fo4_import.spike import acquire as AQ
+from fo4_import.spike.greet_once import GreetOnce
+from tes5_import.base.tes5_reader import subrecords
 from fo4_import.spike import readiness as RD
 from fo4_import.spike import npcs as N
 from fo4_import.spike import placement as PL
@@ -71,6 +75,7 @@ from fo4_import import record_routes as RT
 from tools.esm import fo4_record_census as C
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
+from tes5_import.packages import scripts_falloutnv as SF
 
 
 def _flags(value: int) -> dict:
@@ -621,7 +626,7 @@ def test_a_line_testing_a_form_list_makes_the_list():
 def test_a_line_testing_a_package_names_the_package_written():
     """The dialogue form map holds each written package; one left out (0) is absent, so GetIsCurrentPackage of it
     reads 0."""
-    builder = SimpleNamespace(globals={}, factions={}, actor_refs={}, objectives={}, quest_vars={},
+    builder = SimpleNamespace(globals={}, factions={}, actor_refs={}, objectives={}, quest_vars={}, master_held=None,
                               reputation_slots={}, hardcore=SimpleNamespace(form_map=dict),
                               casino=SimpleNamespace(form_map=dict),
                               packages=SimpleNamespace(made={'000F631E': 0x0F631E, '000F631D': 0}))
@@ -1103,7 +1108,8 @@ def test_an_interior_takes_the_location_of_the_exterior_door_leading_in_and_pass
 
 
 def test_an_encounter_zone_gains_fo4s_location_and_maximum_level_slots():
-    """FNV's owner, rank, minimum level and flags in FO4's DATA order, owner through the converted forms."""
+    """FNV's owner, rank, minimum level and flags in FO4's DATA order, owner through the converted forms; its id
+    is known (zone_ids) before it is written, so conditions testing GetInZone convert."""
     written = []
     builder = SimpleNamespace(fnv_id=lambda fid: 0x03000000 | int(fid, 16), counts=Counter(),
                               writer=SimpleNamespace(add_record=lambda sig, raw: written.append(raw)))
@@ -1111,7 +1117,10 @@ def test_an_encounter_zone_gains_fo4s_location_and_maximum_level_slots():
            'DATA.MinLevel': '2', 'DATA.Flags': '1'}
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(LO, 'export_records', lambda *_: [rec])
-        assert LO.encounter_zones(builder, None, {0x500: 0x03000500}) == {0xD6FB0: 0x030D6FB0}
+        builder.zones = LO.zone_ids(builder, None)
+        assert builder.zones == {0xD6FB0: 0x030D6FB0}
+        LO.encounter_zones(builder, None, {0x500: 0x03000500})
+    assert written[0][12:16] == struct.pack('<I', 0x030D6FB0)
     data = dict(subrecords(written[0][24:]))[b'DATA']
     assert struct.unpack('<IIbbBb', data) == (0x03000500, 0, 1, 2, 1, 0)
 
@@ -1242,6 +1251,19 @@ def test_a_guard_held_through_combat_gets_a_combat_override_list():
     assert dict(subrecords(writer.added[4][1][24:]))[b'LNAM'] == struct.pack('<I', 0x900)
 
 
+def test_a_greet_is_numbered_by_its_object_id_whatever_the_order():
+    """A force greet's number is its FormID's object id, in any making order, a light plugin's too (its 12 bits);
+    a SayTo walk-up's is minus its own; the list still holds the greets as made.
+    See: docs/fork/fo4_pipeline.md#greet-once
+    """
+    once = GreetOnce.__new__(GreetOnce)
+    once.greets = []
+    assert [once.number(fid) for fid in (0x02BA7AF0, 0x020051E7, 0x01000A42)] == [0xBA7AF0, 0x51E7, 0xA42]
+    assert once.greets == [0x02BA7AF0, 0x020051E7, 0x01000A42]
+    assert GreetOnce.walk_number(0x02BA7AF0) == -0xBA7AF0
+    assert struct.unpack('<f', struct.pack('<f', 0xFFFFFF))[0] == 0xFFFFFF
+
+
 def test_a_dialogue_package_with_an_npc_travels_to_it_and_plays_the_topics_chat():
     """Captain Parker's arrest of Keith: a Travel near Keith within 128 units whose fragments play the
     TES4Chat_CaptainParkerArrest scene with Keith; an unbuilt target is left out."""
@@ -1258,6 +1280,20 @@ def test_a_dialogue_package_with_an_npc_travels_to_it_and_plays_the_topics_chat(
     assert b'F3NV_DialoguePackage' in vmad and talks == {'TES4Chat_CaptainParkerArrest': 0x77}
     assert struct.pack('<I', 0x77) in vmad and struct.pack('<I', 0x55) in vmad
     assert PK.DAY_DONE.encode() not in vmad
+
+
+def test_a_dialogue_package_with_an_npc_and_no_topic_plays_the_hello_chat():
+    """BrockTalkBelle names no topic: FO3/FNV say HELLO, so it travels to Belle and plays TES4Chat_HELLO.
+    See: docs/fork/fo4_pipeline.md#npc-chat-wait
+    """
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.topic_names, packages.hooks, talks = {}, {}, {}
+    scripts = SimpleNamespace(talk=lambda prop: talks.setdefault(prop, 0x77))
+    packages.builder = SimpleNamespace(scripts=scripts, counts=Counter())
+    rec = {'FormID': '0007E709', 'PKDT.Type': '15', 'PTDT.Type': '0', 'PTDT.Target': '000F83A5',
+           'PKDD.Topic': '00000000'}
+    assert packages._plan(rec, {0xF83A5: 0x55}, 0) == ('Travel', struct.pack('<iI', 0, 0x55))
+    assert b'F3NV_DialoguePackage' in packages._fragments(rec, {0xF83A5: 0x55}) and talks == {'TES4Chat_HELLO': 0x77}
 
 
 def test_an_npc_chat_goes_to_its_wait_location_first():
@@ -1325,6 +1361,20 @@ def test_a_use_weapon_package_shoots_its_target_with_fnvs_weapon_and_firing():
     assert packages._firing({**rec, 'PKW3.FireCount': '1'})[4] == struct.pack('<i', 0)
 
 
+def test_a_use_weapon_with_no_target_fires_at_object_type_none():
+    """MS01Mine2 lays a frag mine at its marker with no target (FO3 fires ahead): a UseWeapon aimed at object type
+    NONE, as vanilla SalemIntroSceneAttack; an object-type target stays left out.
+    See: docs/fork/fo4_pipeline.md#use-weapon
+    """
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.builder = SimpleNamespace(items=SimpleNamespace(item={0x433C: 0x88}.get))
+    mine = {'PKDT.Type': '16', 'PTDT.Type': '1', 'PTDT.Target': '0000433C', 'PLDT.Type': '0',
+            'PLDT.Location': '0002D93F', 'PLDT.Radius': '0'}
+    assert packages._use_weapon(mine, {0x2D93F: 0x66}) == ('UseWeapon', struct.pack('<iIi', 0, 0x66, 0))
+    assert packages._weapon(mine, {})[2] == struct.pack('<iIi', 2, 0, 0)
+    assert packages._use_weapon({**mine, 'PTD2.Type': '2', 'PTD2.Target': '29'}, {}) == 'weapon target not a reference'
+
+
 def test_a_force_greet_takes_fnvs_trigger_location_and_activate_distance():
     """The Primm trooper's trigger box (radius 0) reaches its smaller half extent; an unbuilt one keeps vanilla's.
     Without PLD2 (Ringo, Sunny, Oscar Velasco in his cave) the trigger is near the actor within FNV's loaded area, so
@@ -1388,6 +1438,7 @@ def _packages_for(packs: dict, made: dict) -> PK.Packages:
     """Packages over FNV `packs` whose builder makes items from `made` and records readiness; _write gives 0x77."""
     packages = PK.Packages.__new__(PK.Packages)
     packages.packs, packages.made, packages.why, packages.furniture = packs, {}, {}, set()
+    packages.making, packages.runners = set(), {}
     packages.builder = SimpleNamespace(counts=Counter(), script_vars={}, readiness=RD.Readiness(),
                                        fnv_id=lambda fnv: int(fnv, 16),
                                        items=SimpleNamespace(item=made.get))
@@ -1399,14 +1450,49 @@ def test_a_left_out_package_is_in_the_readiness_report_and_a_tested_item_is_made
     """A Find is left out with a readiness entry of its own (no NPC needed); a Travel testing GetItemCount of an
     item no reference places makes the item and converts."""
     item = struct.pack('<B3xfIIIII', 0x60, 1.0, CD.FNV.index('GetItemCount'), 0x500, 0, 0, 0).hex()
-    packs = {'00000101': {'FormID': '00000101', 'EditorID': 'NellisFindJanet', 'PKDT.Type': '0'},
+    packs = {'00000101': {'FormID': '00000101', 'EditorID': 'NellisFindJanet', 'PKDT.Type': '0',
+                          'PTDT.Type': '2', 'PTDT.Target': '14'},
              '00000102': {'FormID': '00000102', 'EditorID': 'VMS49ChaserPackage', 'PKDT.Type': PK.FNV_TRAVEL,
                           'ConditionCount': '1', 'Condition[0].Raw': item}}
     packages, forms = _packages_for(packs, {0x500: 0x900500}), {}
     assert packages.package('00000101', forms) == 0
     assert packages.builder.readiness.entries == [
-        {'kind': RD.PACKAGE_LEFT_OUT, 'owner': '00000101', 'detail': 'NellisFindJanet (find target not furniture)'}]
+        {'kind': RD.PACKAGE_LEFT_OUT, 'owner': '00000101', 'detail': 'NellisFindJanet (find target not furniture or an item)'}]
     assert packages.package('00000102', forms) == 0x77 and forms == {0x500: 0x900500}
+
+
+def test_a_package_testing_another_package_makes_that_one_first():
+    """ArmitageMuddyRudder tests GetIsCurrentPackage ZimmerDrink11x7, which no NPC made yet: it is made first and
+    the test converts; two packages testing each other stay left out, as before.
+    See: docs/fork/fo4_pipeline.md#package-conditions
+    """
+    def current(pack: int) -> str:
+        """A GetIsCurrentPackage `pack` == 1 condition."""
+        return struct.pack('<B3xfIIIII', 0, 1.0, CD.FNV.index('GetIsCurrentPackage'), pack, 0, 0, 0).hex()
+
+    travel = {'PKDT.Type': PK.FNV_TRAVEL, 'ConditionCount': '1'}
+    packs = {'0001EB01': {'FormID': '0001EB01', **travel, 'Condition[0].Raw': current(0x1EB02)},
+             '0001EB02': {'FormID': '0001EB02', 'PKDT.Type': PK.FNV_TRAVEL}}
+    packages, forms = _packages_for(packs, {}), {}
+    assert packages.package('0001EB01', forms) == 0x77 and forms == {0x1EB02: 0x77}
+    assert packages.made == {'0001EB01': 0x77, '0001EB02': 0x77}
+    loop = {'0001EC01': {'FormID': '0001EC01', **travel, 'Condition[0].Raw': current(0x1EC02)},
+            '0001EC02': {'FormID': '0001EC02', **travel, 'Condition[0].Raw': current(0x1EC01)}}
+    packages = _packages_for(loop, {})
+    assert packages.package('0001EC01', {}) == 0 and packages.made == {'0001EC01': 0, '0001EC02': 0}
+
+
+def test_a_package_a_line_tests_is_made_before_the_line_converts():
+    """MS16's lines test GetIsCurrentPackage GomezEscortToAmata, which a result script starts later: the lines' form
+    map makes it now; a form that is no package is left to the other tests.
+    See: docs/fork/fo4_pipeline.md#package-conditions
+    """
+    line = {'ConditionCount': '2', 'Condition[0].Raw': struct.pack(
+        '<B3xfIIIII', 0, 1.0, CD.FNV.index('GetIsCurrentPackage'), 0x24868, 0, 0, 0).hex(),
+            'Condition[1].Raw': struct.pack('<B3xfIIIII', 0, 1.0, CD.FNV.index('GetIsID'), 0x1234, 0, 0, 0).hex()}
+    packages, forms = _packages_for({'00024868': {'FormID': '00024868', 'PKDT.Type': PK.FNV_TRAVEL}}, {}), {}
+    packages.tested([line], forms)
+    assert forms == {0x24868: 0x77} and packages.made == {'00024868': 0x77}
 
 
 def test_a_find_aimed_at_furniture_sits_in_a_chair_near_its_location():
@@ -1416,8 +1502,125 @@ def test_a_find_aimed_at_furniture_sits_in_a_chair_near_its_location():
     rec = {'PKDT.Type': PK.FNV_FIND, 'PTDT.Type': '2', 'PTDT.Target': PK.FURNITURE_TYPE, 'PLDT.Type': '0',
            'PLDT.Location': '0001EFFF', 'PLDT.Radius': '350'}
     packages = PK.Packages.__new__(PK.Packages)
+    packages.furniture = set()
     assert packages._find(rec, {0x1EFFF: 0x0201EFFF}) == ('SitFoundRef', struct.pack('<iIi', 0, 0x0201EFFF, 350))
-    assert packages._find({**rec, 'PTDT.Target': '9'}, {0x1EFFF: 0x0201EFFF}) == 'find target not furniture'
+    npcs = {**rec, 'PTDT.Target': '14'}
+    assert packages._find(npcs, {0x1EFFF: 0x0201EFFF}) == 'find target not furniture or an item'
+
+
+def test_a_find_opens_its_door_and_one_without_a_target_wanders_at_its_location():
+    """SimoneCameronOpenGate finds the Temple gate: an Activate of it; germHQAlarmFind has no target: a Sandbox
+    at its location, where FO3 wanders once out of targets.
+    See: docs/fork/fo4_pipeline.md#find-furniture
+    """
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.furniture, packages.activated = set(), {0x2EE70}
+    gate = {'PKDT.Type': PK.FNV_FIND, 'PTDT.Type': '0', 'PTDT.Target': '0002EE70'}
+    assert packages._find(gate, {0x2EE70: 0x0202EE70}) == ('Activate', struct.pack('<iIi', 0, 0x0202EE70, 0))
+    alarm = {'PKDT.Type': PK.FNV_FIND, 'PLDT.Type': '0', 'PLDT.Location': '0001EFFF', 'PLDT.Radius': '200'}
+    assert packages._find(alarm, {0x1EFFF: 0x0201EFFF}) == ('Sandbox', struct.pack('<iIi', 0, 0x0201EFFF, 200))
+
+
+def test_a_find_of_the_player_or_a_placed_actor_reads_as_its_dialogue_package():
+    """FantasiaFindPC is a SayTo of GREETING; FatherCliffordFindDiego a chat with Diego and no topic (HELLO); its
+    count of targets is no distance. A Find of a door and other packages stay as they are.
+    See: docs/fork/fo4_pipeline.md#find-talks
+    """
+    find = {'PKDT.Type': '0', 'PTDT.Type': '0', 'PTDT.Count': '1'}
+    pc = SF.find_talks({**find, 'PTDT.Target': '00000014'}, set())
+    assert SF.says_to_player(pc) and pc['PKDD.Topic'] == SF.GREETING_TOPIC and pc['PTDT.Count'] == '0'
+    diego = SF.find_talks({**find, 'PTDT.Target': '0001E768'}, {'0001E768'})
+    assert SF.talks_to_npc(diego) and SF.chat_topic(diego, {}) == 'HELLO'
+    door = {**find, 'PTDT.Target': '0002EE70'}
+    assert SF.find_talks(door, {'0001E768'}) is door
+    travel = {'PKDT.Type': '6', 'PTDT.Type': '0', 'PTDT.Target': '00000014'}
+    assert SF.find_talks(travel, set()) is travel
+
+
+def test_a_find_aimed_at_a_placed_seat_sits_in_it():
+    """CG02SusieSit finds CG02SusieChairREF: a Sit in that chair; MS14CrowleyGetHelmet's placed helmet is picked
+    up by a copy of vanilla's Acquire; a placed static stays left out.
+    See: docs/fork/fo4_pipeline.md#find-furniture
+    """
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.furniture, packages.activated, packages.carried = {0x960C1}, set(), {0xB372A}
+    rec = {'PKDT.Type': PK.FNV_FIND, 'PTDT.Type': '0', 'PTDT.Target': '000960C1'}
+    forms = {0x960C1: 0x020960C1, 0xB372A: 0x020B372A, 0x1234: 0x02001234}
+    assert packages._find(rec, forms) == ('Sit', struct.pack('<iI', 0, 0x020960C1))
+    assert packages._find({**rec, 'PTDT.Target': '000B372A'}, forms) == ('Acquire', struct.pack('<iIi', 0, 0x020B372A, 0))
+    assert packages._find({**rec, 'PTDT.Target': '00001234'}, forms) == 'find target not furniture or an item'
+
+
+def test_a_find_of_an_item_by_form_or_type_finds_it_near_its_place_and_picks_it_up():
+    """FFER08FindFoodDog finds DogMeat within 1000, FollowersDogmeatFindCHEMS chems (FO3 17, FO4 Alchemy 14): a
+    FindAcquire there, its count at least 1, FO3's Allow Stealing as Acquire's stealing and pickpocketing.
+    See: docs/fork/fo4_pipeline.md#find-items
+    """
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.furniture, packages.activated, packages.carried = set(), set(), set()
+    packages.builder = SimpleNamespace(items=SimpleNamespace(records={0x5000: ('ALCH', {}), 0x6000: ('NPC_', {})},
+                                                             item={0x5000: 0x02005000}.get))
+    meat = {'PKDT.Type': PK.FNV_FIND, 'PTDT.Type': '1', 'PTDT.Target': '00005000', 'PTDT.Count': '1',
+            'PLDT.Type': '2', 'PLDT.Radius': '1000', 'PKDT.TypeFlags': '1536'}
+    assert packages._find(meat, {}) == (PK.FIND_ACQUIRE, struct.pack('<iIi', 2, 0, 1000))
+    assert packages._sought(meat, {}) == {1: struct.pack('<iIi', 1, 0x02005000, 0)}
+    chems = {**meat, 'PTDT.Type': '2', 'PTDT.Target': '17', 'PTDT.Count': '0', 'PKDT.TypeFlags': '0'}
+    assert packages._sought(chems, {}) == {1: struct.pack('<iIi', 2, 14, 0)}
+    assert AQ.acquire_values(meat) == {AQ.COUNT_SLOT: struct.pack('<i', 1), AQ.STEAL_SLOT: b'\1',
+                                       AQ.PICKPOCKET_SLOT: b'\1', AQ.KILL_SLOT: b'\1'}
+    assert AQ.acquire_values(chems)[AQ.COUNT_SLOT] == struct.pack('<i', 1)
+    assert packages._find({**meat, 'PTDT.Target': '00006000'}, {}) == 'find target not furniture or an item'
+
+
+def test_a_follow_of_an_actor_not_placed_follows_one_found_and_a_seat_by_base_sits_in_one_found():
+    """FFER15PetFollow follows base FFER15NPC1, which only a script places: a FindFollow within FNV's loaded
+    area, selecting that base (made now); an NPC type selects Actors: Any. MS10's UseItemAt OasisCouch01 (a FURN
+    base) is a SitFoundRef selecting the couch's FO4 base; a type-11 one keeps the template's Chairs.
+    See: docs/fork/fo4_pipeline.md#follow-found
+    """
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.furniture = set()
+    packages.builder = SimpleNamespace(
+        npcs=SimpleNamespace(actor_form=lambda fid: 0x0203A000 if fid == '0003A000' else None),
+        items=SimpleNamespace(item=lambda fid: None), bases={0x7000: ('FURN', {})}, base={0x7000: 0x02007000}.get)
+    pet = {'PKDT.Type': '1', 'PTDT.Type': '1', 'PTDT.Target': '0003A000', 'PTDT.Count': '400'}
+    assert packages._aimed(pet, 'FollowNPC', {}) == (PK.FIND_FOLLOW, struct.pack('<iIi', PK.NEAR_SELF, 0, 8192))
+    assert packages._follow_found(pet, {}) == {1: struct.pack('<iIi', 1, 0x0203A000, 0)}
+    assert packages._follow_found({**pet, 'PTDT.Type': '2', 'PTDT.Target': '14'}, {}) == {1: struct.pack('<iIi', 2, 25, 0)}
+    assert AQ.follow_values(pet) == {AQ.MIN_RADIUS_SLOT: struct.pack('<f', 400.0),
+                                     AQ.MAX_RADIUS_SLOT: struct.pack('<f', 600.0)}
+    assert packages._aimed({**pet, 'PTDT.Target': '00001234'}, 'FollowNPC', {}) == 'target not built'
+    couch = {'PKDT.Type': '8', 'PTDT.Type': '1', 'PTDT.Target': '00007000', 'PLDT.Type': '2', 'PLDT.Radius': '500'}
+    assert packages._aimed(couch, 'Sit', {}) == ('SitFoundRef', struct.pack('<iIi', 2, 0, 500))
+    assert packages._seat_sought(couch, {}) == {PK.SEAT_SELECTOR: struct.pack('<iIi', 1, 0x02007000, 0)}
+    chairs = {**couch, 'PTDT.Type': '2', 'PTDT.Target': '11'}
+    assert packages._aimed(chairs, 'Sit', {})[0] == 'SitFoundRef' and packages._seat_sought(chairs, {}) == {}
+
+
+def test_the_authored_find_follow_follows_what_its_find_found():
+    """FindFollow's Find fills input 2 (its object list), which Follow takes as its target with the radii.
+    See: docs/fork/fo4_pipeline.md#follow-found
+    """
+    subs = list(subrecords(AQ.find_follow()))
+    procs = [(subs[i + 2][1], [d[0] for t, d in itertools.takewhile(lambda s: s[0] == b'PKC2', subs[i + 4:])])
+             for i, (t, d) in enumerate(subs) if t == b'ANAM' and d == b'Procedure\0']
+    assert procs[0] == (b'Find\0', [0, 1, 2, 6, 6]) and procs[-1] == (b'Follow\0', [2, 3, 4, 6, 6, 6])
+
+
+def test_the_authored_find_acquire_binds_find_to_acquire_through_its_object_list():
+    """FindAcquire's inputs are Location, TargetSelector, then CNAMs (ObjectList first); Find fills input 2, which
+    Acquire takes, and Acquire alone completes the package, as Deacon's vanilla Acquire does.
+    See: docs/fork/fo4_pipeline.md#find-items
+    """
+    subs = list(subrecords(AQ.find_acquire()))
+    tags = [t for t, _ in subs]
+    assert [d for t, d in subs if t == b'PKCU'] == [struct.pack('<3I', 9, 0, 0)]
+    assert tags.index(b'PLDT') < tags.index(b'PTDA') < tags.index(b'CNAM')
+    procs = [(subs[i + 2][1], subs[i + 3][1], [d[0] for t, d in subs[i + 4:i + 18] if t == b'PKC2'][:5])
+             for i, (t, d) in enumerate(subs) if t == b'ANAM' and d == b'Procedure\0']
+    assert procs[0] == (b'Find\0', bytes(4), [0, 1, 2, 8, 8])
+    assert procs[-1] == (b'Acquire\0', struct.pack('<I', 1), [2, 3, 4, 5, 6])
+    assert [p[1] for p in procs[:-1]] == [bytes(4)] * 3
 
 
 def test_a_faction_enemy_test_asks_whether_the_actor_is_hostile_to_the_player():
@@ -1936,6 +2139,54 @@ def test_standings_quests_hang_off_vanillas_event_nodes_after_their_last_child()
     assert struct.unpack('<I', subs[b'DNAM'])[0] == SHARES_EVENT and struct.unpack('<I', subs[b'NNAM'])[0] == 0x99
     entry = script_entry('S', {}, {'KillMurders': ('ints', [1, 0, 2])})
     assert entry.endswith(struct.pack('<BBI3i', 13, 1, 3, 1, 0, 2))
+
+
+def test_each_crime_tracking_faction_gets_its_crime_count_globals_in_list_order():
+    """Two crime-tracking factions and an evil one: MajorCounts and MinorCounts list one long global per crime
+    faction, keyed on the faction, in CrimeFactions' order; the assault event has its quest under AssualtActorEvent.
+    See: docs/fork/fo4_pipeline.md#crime-counts
+    """
+    from fo4_import.spike import standings as ST
+
+    written = []
+    writer = SimpleNamespace(derive_formid=lambda site, key: hash((site, key)) & 0xFFFFFF,
+                             add_record=lambda sig, rec: written.append((sig, rec)))
+    st = ST.Standings.__new__(ST.Standings)
+    st.builder = SimpleNamespace(writer=writer, fnv_id=lambda fnv: 0x02000000 | fnv)
+    st.doc = {'factions': [{'form': ['F', 0x1A], 'crime': True, 'evil': False, 'reputation': None},
+                           {'form': ['F', 0x1B], 'crime': False, 'evil': True, 'reputation': None},
+                           {'form': ['F', 0x1C], 'crime': True, 'evil': False, 'reputation': None}]}
+    lists = st._lists()
+    globs = {struct.unpack('<I', rec[12:16])[0]: rec for sig, rec in written if sig == 'GLOB'}
+    flst = {struct.unpack('<I', rec[12:16])[0]: [struct.unpack('<I', d)[0] for t, d in subrecords(rec[24:])
+                                                 if t == b'LNAM'] for sig, rec in written if sig == 'FLST'}
+    assert flst[lists['CrimeFactions']] == [0x0200001A, 0x0200001C]
+    for kind in ST.COUNTS:
+        keys = [writer.derive_formid(ST.SITE, f'{kind} crimes {f:06X}') for f in (0x1A, 0x1C)]
+        assert flst[lists[f'{kind}Counts']] == keys and all(k in globs for k in keys)
+    assert dict(subrecords(globs[keys[0]][24:]))[b'FNAM'] == b'l'
+    assert ST.EVENTS[b'ASSU'] == ('F3NV_FalloutAssaultEvent', 0x245FCF)
+
+
+def test_the_standings_quest_holds_the_games_disposition_settings_and_npcs_their_charisma(monkeypatch):
+    """F3NV_FalloutStandings' disposition properties hold the export's fDisp* settings (one the game lacks stays
+    unset), and a converted NPC's PRPS carries its authored DATA Charisma as FO4's.
+    See: docs/fork/fo4_pipeline.md#disposition
+    """
+    from fo4_import.spike import npc_skills as NS
+    from fo4_import.spike import standings as ST
+
+    st = ST.Standings.__new__(ST.Standings)
+    st.doc, st.game, st.reputations = {}, 'fo3', ([], [])
+    st.settings = {'fDispActorCharBase': '-30.0', 'fDispActorCharMult': '10.0'}
+    monkeypatch.setattr(ST, 'amount_table', lambda settings, game: {})
+    amounts = st._amounts()
+    assert (amounts['DispositionBase'], amounts['DispositionActorMult']) == (('float', -30.0), ('float', 10.0))
+    assert 'DispositionPlayerMult' not in amounts
+    monkeypatch.setattr(NS, 'actor_value_form', lambda name, index: {'Charisma': 0x2C3}.get(name))
+    prps = dict(subrecords(NS.with_charisma({'DATA.Charisma': '7'}, 1)(b'')))[b'PRPS']
+    assert struct.unpack('<If', prps) == (0x2C3, 7.0)
+    assert NS.with_charisma({}, 1) is None
 
 
 def test_an_outfit_wears_one_item_per_slot_the_best_rated_as_fnv_equips():

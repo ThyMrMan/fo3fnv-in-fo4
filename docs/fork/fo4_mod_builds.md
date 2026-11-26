@@ -12,7 +12,8 @@ or in game.
 Related plans: [Part D](fo4_plugin_layout.md#incremental) (rebuild only
 the records whose inputs changed), [Part E](fo4_plugin_layout.md#which-builds)
 (which plugins need a build), [Part B](fo4_plugin_layout.md#mods)
-(replacement patches), and [the app](fo4_gui.md).
+(replacement patches), [the app](fo4_gui.md), and
+[whole modlists](fo4_modlists.md) (this, for every mod in an MO2 profile).
 
 ## Contents
 

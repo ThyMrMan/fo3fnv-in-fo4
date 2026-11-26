@@ -12,6 +12,8 @@ import re
 
 #: FO3/FNV PKDT.Type of a Dialogue package, as the export writes it.
 DIALOGUE_TYPE = '15'
+#: FO3/FNV PKDT.Type of a Find package, its PTDT type Specific Reference, and the GREETING topic's FormID.
+FIND_TYPE, SPECIFIC_REFERENCE, GREETING_TOPIC = '0', '0', '000000C8'
 
 #: The player's reference and base FormIDs as the export writes them.
 _PLAYER_FIDS = frozenset({'00000014', '00000007'})
@@ -96,6 +98,29 @@ def says_to_player(rec: dict) -> bool:
 def talks_to_npc(rec: dict) -> bool:
     """Whether a PACK is a Dialogue package aimed at a reference other than the player."""
     return rec.get('PKDT.Type') == DIALOGUE_TYPE and (rec.get('PTDT.Target') or '').upper() not in _PLAYER_FIDS
+
+
+def find_talks(rec: dict, actors) -> dict:
+    """PACK `rec` as the Dialogue package it acts as when it is a Find of the player (a SayTo of GREETING) or of a
+    placed actor in `actors` (upper-hex FormIDs; a chat with no topic); its count is a number of targets, not a
+    distance, so it is dropped. Any other package as it is.
+    See: docs/fork/fo4_pipeline.md#find-talks
+    """
+    target = (rec.get('PTDT.Target') or '').upper()
+    if rec.get('PKDT.Type') != FIND_TYPE or rec.get('PTDT.Type') != SPECIFIC_REFERENCE:
+        return rec
+    if target not in _PLAYER_FIDS and target not in actors:
+        return rec
+    player = target in _PLAYER_FIDS
+    return {**rec, 'PKDT.Type': DIALOGUE_TYPE, 'PKDD.Type': 'SayTo' if player else 'Conversation',
+            'PKDD.Topic': GREETING_TOPIC if player else '00000000', 'PTDT.Count': '0'}
+
+
+def chat_topic(rec: dict, formid_to_edid: dict) -> str:
+    """An NPC chat package's topic EditorID: its own, else HELLO.
+    See: docs/fork/fo4_pipeline.md#npc-chat-wait
+    """
+    return formid_to_edid.get((rec.get('PKDD.Topic') or '').upper()) or 'HELLO'
 
 
 def package_source(rec: dict, formid_to_edid: dict) -> str:

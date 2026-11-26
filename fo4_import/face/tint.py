@@ -193,9 +193,12 @@ class BrowFits:
         self.seen, self.sizes = [self.q.T @ f for f in self.fixed], [f @ f for f in self.fixed]
 
     def best(self, target: np.ndarray) -> tuple:
-        """(value per option, fraction captured) of the best of those fits of `target`; the first on a tie."""
+        """(value per option, fraction captured) of the best of those fits of `target`; the first on a tie. An empty
+        target (the face is the base texture) is every option at 0, all captured."""
         b = target[self.mask].ravel().astype(np.float64)
         seen, total, best = self.q.T @ b, b @ b, None
+        if not total:
+            return np.zeros(len(self.free) + len(self.brows)), 1.0
         for k, brow in enumerate([None] + self.brows, -1):
             rest = seen if brow is None else seen - self.seen[k]
             size = total if brow is None else total - 2.0 * (self.fixed[k] @ b) + self.sizes[k]

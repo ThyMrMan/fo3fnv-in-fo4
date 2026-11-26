@@ -250,6 +250,10 @@ designed.
   that stack, and a load order that mirrors the old game's, with a conflict
   report and LOOT rules ([mod builds](fo4_mod_builds.md#order),
   [load order](fo4_load_order.md#order)).
+- **Whole modlists:** point the app at an FNV or FO3 MO2 profile; each mod
+  is sorted (converted, or skipped with the reason), converted in load
+  order, and mirrored as a Fallout 4 MO2 profile
+  ([modlists](fo4_modlists.md#order)).
 - **The last script commands** with no Fallout 4 counterpart yet
   ([decision table](fo4_plan_script_functions.md#decision-table)).
 - **Gun and melee animation:** third person for the 14 guns without it,

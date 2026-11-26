@@ -25,6 +25,7 @@ from fo4_import.spike.barks import ENGINE_BARKS, named_barks, replies
 from fo4_import.spike.companion_barks import status_barks
 from fo4_import.spike import conditions as C
 from fo4_import.spike.conditions import raws
+from fo4_import.spike.cell_families import in_families
 from fo4_import.spike import records as R
 from fo4_import.helpers_plugin import actor_value_form, form_id
 from fo4_import.spike.readiness import LINE, LINE_LEFT_OUT
@@ -34,7 +35,7 @@ from fo4_import.spike.type_tests import FORM_KEY as TYPE_KEYWORDS, translated
 from fo4_import.spike.reputation import KARMA_KEY, SLOT_KEY as REPUTATION_KEY
 from tes5_import.record_types.reputation_falloutnv import KARMA_AV
 from fo4_import.pipeline.export_index import Layered, export_masters, export_records, master_records, own_records
-from script_convert.constants import FALLOUT4_HELPER_SAY_TARGET_KEYWORD, papyrus_script_name
+from script_convert.constants import FALLOUT4_HELPER_SAY_TARGET_KEYWORD, papyrus_script_name, safe_property_name
 from fo4_import.spike.script import prefix
 from tes5_import.base.conditions_falloutnv import OBJECTIVE_FUNCS
 
@@ -79,8 +80,19 @@ GLOBAL_VALUE = 'GetGlobalValue'
 #: FNV base types a script runs on when placed (SCRI), for GetScriptVariable on their references.
 SCRIPTED_BASES = ('NPC_', 'CREA', 'ACTI', 'TACT', 'CONT', 'DOOR', 'FURN', 'MISC', 'BOOK', 'NOTE', 'TERM', 'LIGH',
                   'ARMO', 'WEAP', 'ALCH', 'AMMO', 'KEYM')
-#: FNV GetTalkedToPC, read as the helper actor value TES4Polyfill.Greeted sets (fo4_pipeline.md#talked-to-pc).
-TALKED, TALKED_AV, TALKED_KEY = 'GetTalkedToPC', 'TalkedToPC', ('av', 'TalkedToPC')
+#: FNV tests read as the subject's helper actor value (fo4_pipeline.md#talked-to-pc, #crime-counts, #disposition).
+HELPER_AV_TESTS = {'GetTalkedToPC': 'TalkedToPC', 'GetMajorCrimeCount': 'MajorCrimes',
+                   'GetMinorCrimeCount': 'MinorCrimes', 'GetDisposition': 'Disposition'}
+#: FNV GetDisposition; the parties its helper value is toward (the line's other party, the player).
+DISPOSITION, TOWARD = 'GetDisposition', (0, C.PLAYER_REF)
+#: FNV HasFriendDisposition, read as GetDisposition against GenericFriendlyDisposition (FO3 and FNV: 0004E613).
+FRIENDLY, FRIEND_GLOBAL = 'HasFriendDisposition', 0x4E613
+#: CTDA comparisons: at least, less than.
+AT_LEAST, BELOW = 0x60, 0x80
+#: FO4's test of a script effect's family keyword, for HasMagicEffect (fo4_pipeline.md#effect-tests).
+EFFECT_KEYWORD = 'HasMagicEffectKeyword'
+#: FNV actor value reads that read Karma as the karma global (FO3's MQ11 tests the base value).
+KARMA_READS = ('GetActorValue', 'GetBaseActorValue')
 #: FNV PlayerInRegion, read as the region's watch global when watched (region_watch; fo4_regions.md#built).
 IN_REGION = 'PlayerInRegion'
 #: FNV IsHardcore, read as the Hardcore global (hardcore; fo4_hardcore.md#built): its form map key.
@@ -174,7 +186,7 @@ class SayTopics:
         through `builder` (its script_vars() names). `links` [(option INFO, answer topic)] and `checks` [(answer
         INFO, FO4 actor value, number needed)] are the menus' links file rows (fo4_import.dialogue_menu)."""
         self.builder, self.voiced, self.once = builder, [], SayOnce(builder.writer)
-        self.silent, self.outside, self.links, self.checks = [], [], [], []
+        self.silent, self.outside, self.links, self.checks, self.left = [], [], [], [], set()
         self.dials = {r['FormID']: r for r in export_records(export_dir, 'DIAL')}
         quests = {q['FormID'].upper(): raws(q) for q in export_records(export_dir, 'QUST')}
         self.infos, own, by_id, self.by_topic = {}, dlc_lines(export_dir), {}, {}
@@ -280,11 +292,14 @@ class SayTopics:
         return held + [(SWITCH_SCRIPT, {SWITCH_IDLE: switch, SWITCH_BRIDGE: bridge}, {})], ((0, made[0][1]),) + made[1:]
 
     def left_out(self, rec: dict, form_map: dict) -> bytes:
-        """Count FNV line `rec` as left out, with the condition blocking it (blocker), for its quest; b''."""
-        why = blocker(rec, form_map, self.script_vars)
-        self.builder.counts[f'line left out (condition: {why})'] += 1
-        self.builder.readiness.add(LINE_LEFT_OUT, rec.get('QSTI.Quest', ''),
-                                   f'{rec["FormID"].upper()} (condition: {why})')
+        """Count FNV line `rec` as left out, the first time, with the condition blocking it (blocker), for its quest;
+        b''. A line tried for many speakers or scenes counts once."""
+        if rec['FormID'].upper() not in self.left:
+            self.left.add(rec['FormID'].upper())
+            why = blocker(rec, form_map, self.script_vars)
+            self.builder.counts[f'line left out (condition: {why})'] += 1
+            self.builder.readiness.add(LINE_LEFT_OUT, rec.get('QSTI.Quest', ''),
+                                       f'{rec["FormID"].upper()} (condition: {why})')
         return b''
 
     def info(self, rec: dict, form_map: dict, scene: tuple = (0, ''), flags: int = 0, extra: bytes = b'',
@@ -329,7 +344,7 @@ def line_script(scripts, rec: dict) -> 'str | None':
 
 def actor_values(helper_index: int) -> dict:
     """{('av', FNV actor value index): FO4 actor value} for a form map; one FO4 lacks is left out."""
-    out = {TALKED_KEY: actor_value_form(TALKED_AV, helper_index)}
+    out = {('av', name): actor_value_form(name, helper_index) for name in HELPER_AV_TESTS.values()}
     for index in range(len(C.FNV_AV_NAMES)):
         fid = actor_value_form(C.fnv_av_name(index), helper_index)
         if fid is not None:
@@ -338,13 +353,13 @@ def actor_values(helper_index: int) -> dict:
 
 
 def script_vars(export_dir: Path) -> dict:
-    """{FNV quest or placed reference FormID: (its converted script, {variable index: name})}, for
+    """{FNV quest or placed reference FormID: (its converted script, {variable index: its converted name})}, for
     GetQuestVariable and GetScriptVariable."""
     scripts = {}
     for rec in export_records(export_dir, 'SCPT'):
         names, i = {}, 0
         while f'Variable[{i}].Index' in rec:
-            names[int(rec[f'Variable[{i}].Index'])] = rec[f'Variable[{i}].Name']
+            names[int(rec[f'Variable[{i}].Index'])] = safe_property_name(rec[f'Variable[{i}].Name'], fallout4=True)
             i += 1
         scripts[rec['FormID'].upper()] = (papyrus_script_name(rec.get('EditorID', ''), prefix()), names)
     bases = {r['FormID'].upper(): r['SCRI'].upper() for sig in SCRIPTED_BASES for r in export_records(export_dir, sig)
@@ -365,14 +380,17 @@ def _unmapped(cond: dict, form_map: dict) -> bool:
 
 def _form_value(func: str, cond: dict, form_map: dict, state) -> 'tuple | None':
     """(FO4 function, form) of an FNV condition the build answers from a form of its own: a region's watch global,
-    the TalkedToPC value, karma, a casino's level, an objective (`state`) or reputation global, the form None when
-    the build lacks it;
+    a helper actor value (HELPER_AV_TESTS), karma, a casino's level, an objective (`state`) or reputation global,
+    the form None when the build lacks it;
     None for any other condition."""
-    key = ((REGION_KEY, cond['p1']) if func == IN_REGION else TALKED_KEY if func == TALKED
+    if func == C.HAS_EFFECT and (C.EFFECT, cond['p1']) in form_map:
+        return C.FO4.index(EFFECT_KEYWORD), form_map[(C.EFFECT, cond['p1'])]
+    helper = func in HELPER_AV_TESTS and (func != DISPOSITION or cond['p1'] in TOWARD)
+    key = ((REGION_KEY, cond['p1']) if func == IN_REGION else ('av', HELPER_AV_TESTS[func]) if helper
            else HARDCORE_KEY if func == HARDCORE else (CASINO_KEY, cond['p1']) if func == CASINO_STAGE
-           else KARMA_KEY if func == 'GetActorValue' and cond['p1'] == KARMA_AV else None)
+           else KARMA_KEY if func in KARMA_READS and cond['p1'] == KARMA_AV else None)
     if key is not None and key in form_map:
-        return C.FO4.index('GetValue' if func == TALKED else GLOBAL_VALUE), form_map[key]
+        return C.FO4.index('GetValue' if func in HELPER_AV_TESTS else GLOBAL_VALUE), form_map[key]
     if state:
         return C.FO4.index(GLOBAL_VALUE), form_map.get((cond['p1'], cond['p2'], state))
     if func in REPUTATION_FIRST_SLOT:
@@ -443,10 +461,25 @@ def blocker(rec: dict, form_map: dict, script_vars: dict) -> str:
 
 
 def _settled(rec: dict, form_map: dict, item: bool = False) -> 'list | None':
-    """An FNV record's conditions with talking activators read (talking_through), settled (without_absent),
-    translated; or None."""
-    conds = C.without_absent(C.talking_through(parsed(rec), form_map), form_map)
-    return None if conds is None else translated(conds, form_map.get(TYPE_KEYWORDS), item)
+    """An FNV record's conditions expanded, settled and translated; or None.
+    See: docs/fork/fo4_pipeline.md#cell-families
+    """
+    conds = C.without_absent(C.talking_through(in_families(parsed(rec), form_map), form_map), form_map)
+    return None if conds is None else translated([_as_disposition(c) for c in conds], form_map.get(TYPE_KEYWORDS), item)
+
+
+def _as_disposition(cond: dict) -> dict:
+    """HasFriendDisposition `cond` as GetDisposition at least (or below) GenericFriendlyDisposition when it tests
+    one outcome; any other condition unchanged.
+    See: docs/fork/fo4_pipeline.md#disposition
+    """
+    if cond['func'] != FRIENDLY or cond['op_flags'] & C.USE_GLOBAL:
+        return cond
+    friend = C.compare(cond, 1.0)
+    if friend == C.compare(cond, 0.0):
+        return cond
+    op = (AT_LEAST if friend else BELOW) | C.USE_GLOBAL | cond['op_flags'] & OR
+    return {**cond, 'func': DISPOSITION, 'p1': 0, 'op_flags': op, 'global': FRIEND_GLOBAL}
 
 
 def with_quest(rec: dict, quest: list) -> dict:

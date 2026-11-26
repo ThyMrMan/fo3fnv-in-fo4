@@ -44,4 +44,4 @@ def test_a_linked_variable_names_its_linked_references_bases(monkeypatch):
 def test_a_door_the_script_did_not_play_reads_its_open_state():
     """A door falls back to GetOpenState: opening (2) or closing (4)."""
     text = '\n'.join(A.DECLARE)
-    assert 'GetBaseObject() as Door' in text and 'openState == 2 || openState == 4' in text
+    assert 'GetBaseObject() as Door' in text and 'TES4_OpenState == 2 || TES4_OpenState == 4' in text

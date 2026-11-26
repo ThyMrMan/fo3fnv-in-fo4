@@ -43,6 +43,7 @@ the fork's docs live in `docs/fork/` and upstream's plans stay in
 | [fo4_regions.md](fo4_regions.md) | Plan: FNV region tests (the NCR support area, the reputation events' "wasteland only" area, scripts' map-region tests) as a polygon watch quest setting one global per region |
 | [fo4_thrown_weapons.md](fo4_thrown_weapons.md) | FNV grenades, mines, placed explosives and thrown melee as real items on FO4 grenade and mine templates, with FNV's explosions, fuses and effects (built 2026-11-06) |
 | [fo4_mod_builds.md](fo4_mod_builds.md) | Plan: converting one FNV mod against an already-built game (MO2 answers not files, overrides that don't stack, the master kit, Creation Kit steps without MO2); step 1 built |
+| [fo4_modlists.md](fo4_modlists.md) | Plan (2026-11-25, nothing built): converting a whole FO3/FNV modlist from its MO2 profile: sorting mods into kinds, one converted mod per source mod in the same order, a per-mod report, the census on a reference list first |
 | [fo4_combat_feel.md](fo4_combat_feel.md) | FNV's aim cone, health, run speed and V.A.T.S. on Fallout 4 (first pass built 2026-10-29) |
 | [fo4_gun_animation.md](fo4_gun_animation.md) | Plan: converted guns' grip, third-person clips and FNV feel |
 | [fo4_own_rig.md](fo4_own_rig.md) | FNV creatures on their own Havok 2014 rigs: skeleton, clips, ragdoll, behavior, the rig table |

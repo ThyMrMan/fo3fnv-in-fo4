@@ -128,7 +128,8 @@ answers use it too.
 - <a id="disposition"></a>**GetDisposition (14 lines).** FO4 has no disposition. No FNV script or result
   script ever calls ModDisposition (0 in SCPT, INFO and QUST), so FNV reads only its base disposition, which
   its engine computes from Charisma (GMSTs `fDispActorCharBase` -30, `fDispActorCharMult` and
-  `fDispTargetCharMult` 10); the decomp does not name that function. Converting it would be a guess.
+  `fDispTargetCharMult` 10); the decomp does not name that function. Converted since 2026-11-26 for FO3, which
+  does call ModDisposition, as a kept value with an inferred base: [disposition](fo4_pipeline.md#disposition).
 - <a id="player-barks"></a>**The player's own barks (GenericPlayer, 29 lines).** All are grunts said by the
   player: `Hit` 16, `PowerAttack` 6, `Death` 5, and two iron-sight breaths. Fallout4.esm's own
   `DialogueGenericPlayer` (000179EF) already gives the player HIT_ (7 lines), POAT and ATCK topics, so these

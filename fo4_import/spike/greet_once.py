@@ -4,8 +4,10 @@ FNV leaves a Dialogue package that has talked as the actor's current package,
 parked on its done step, until another package takes over; picking the same
 package again does nothing. FO4's ForceGreet, which stands in for it, is picked
 again as soon as its talk ends, so the actor grabs the player again. Each
-ForceGreet copy gets a number: the talk opening (F3NV_Greeting) sets the
-speaker's helper actor value DialogueDone to its package's number, the copy
+ForceGreet copy gets a number, its object id (the low 24 bits of its FormID,
+12 in a light plugin; a SayTo walk-up's is negative), which no rebuild or
+other plugin changes: the talk opening (F3NV_Greeting) sets the speaker's
+helper actor value DialogueDone to its current package's number, the copy
 needs that value not to be its number, and a parked copy right after it in the
 actor's list (HoldPosition near the actor, the same conditions) needs it to be.
 The parked copy's change fragment (F3NV_DialogueDone) clears the value when
@@ -30,6 +32,8 @@ DONE_AV = 'DialogueDone'
 DONE_SCRIPT, CHANGE_FRAGMENT = 'F3NV_DialogueDone', 0x04
 #: derive_formid sites: a package's parked copy (key: FNV package), the list of numbered ForceGreets.
 SITE, LIST_SITE = 'FNV PACK dialogue done', 'FNV dialogue greets'
+#: A FormID's object id bits: a number below 2**24 is exact as the float an actor value holds.
+OBJECT_ID = 0xFFFFFF
 #: derive_formid site of a day_marked package's faction (key: FNV package).
 DAY_SITE = 'FNV PACK done today'
 #: CTDA compare operators == and !=; FO4's GetValue and GetInFaction.
@@ -44,17 +48,17 @@ class GreetOnce:
     def __init__(self, builder, helper_index: int):
         """For `builder`, reading the helper plugin (master `helper_index`)'s DialogueDone."""
         self.builder, self.av, self.greets, self.parked = builder, actor_value_form(DONE_AV, helper_index), [], {}
-        self.walks, self.days = 0, {}
+        self.days = {}
 
     def number(self, fid: int) -> int:
-        """ForceGreet `fid`'s number (its place in the list, from 1), noting it."""
+        """ForceGreet `fid`'s number (its object id), noting it."""
         self.greets.append(fid)
-        return len(self.greets)
+        return fid & OBJECT_ID
 
-    def walk_number(self) -> int:
-        """A SayTo walk-up's number: -1, -2, ..., apart from ForceGreets'."""
-        self.walks += 1
-        return -self.walks
+    @staticmethod
+    def walk_number(fid: int) -> int:
+        """SayTo package `fid`'s walk-up number: minus its object id."""
+        return -(fid & OBJECT_ID)
 
     def unspoken(self, number: int) -> bytes:
         """The condition a numbered ForceGreet adds: its actor has not talked in it."""
@@ -86,7 +90,7 @@ class GreetOnce:
         return fid
 
     def write_list(self) -> int:
-        """The FLST of the numbered ForceGreets, in number order (F3NV_Greeting's Greets); 0 without any."""
+        """The FLST of the numbered ForceGreets (F3NV_Greeting's Greets); 0 without any."""
         if not self.greets:
             return 0
         fid = self.builder.writer.derive_formid(LIST_SITE, 'list')

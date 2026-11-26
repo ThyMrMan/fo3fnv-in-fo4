@@ -180,7 +180,10 @@ Top to bottom, it reads as the steps a player takes (`convert_view.py`,
    **Convert from**, so each game keeps its own output and profile.
 2. **What to convert.** A list holding the game, the DLC found in its Data
    folder, and the mod folders the user added. Each row says `built <date>`,
-   `not built yet`, or `convert <master> first`. **Add a mod folder...** sits
+   `not built yet`, or `convert <master> first`. A built row names the
+   release from its build stamp (`release.made_with`): `with f3nv-0.9`, or
+   `a development build` (after a tag, or with only a commit recorded) for
+   one built from a checkout; a stamp with neither shows the date alone. **Add a mod folder...** sits
    beside the list. An add-on's output folder and light-plugin choice show
    only when an add-on is picked.
 3. **The next step in one bold sentence.** It names the missing Fallout 4 or

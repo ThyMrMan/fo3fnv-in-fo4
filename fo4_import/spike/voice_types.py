@@ -4,9 +4,13 @@ A converted NPC speaks with its FNV voice type (VTCK) in place of its vanilla
 body's, so FO4 finds a line's recording under that voice type's folder
 (voice.py). FNV's and FO4's VTYP are alike: an EditorID and a DNAM flag byte
 (Allow Default Dialog 0x1, Female 0x2), read from FalloutNV.esm, since the
-export does not decode VTYP. Each record keeps FNV's FormID.
+export does not decode VTYP. Each record keeps FNV's FormID. The player's
+voice types are Fallout4.esm's own instead (PLAYER_VOICES), known from the
+start, so a line testing the player's voice converts and its recordings go
+to the voice type FO4's player speaks with.
 
 See: docs/fork/fo4_pipeline.md#voice-types
+See: docs/fork/fo4_pipeline.md#player-voices
 """
 
 import functools
@@ -16,6 +20,9 @@ from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
+
+#: FNV/FO3 player voice types -> Fallout4.esm's (EditorID, FormID): PlayerVoiceMale01, PlayerVoiceFemale01.
+PLAYER_VOICES = {'PlayerVoiceMale': ('PlayerVoiceMale01', 0x18DF4), 'PlayerVoiceFemale': ('PlayerVoiceFemale01', 0x18DF7)}
 
 
 @functools.cache
@@ -32,7 +39,11 @@ class VoiceTypes:
     """FO4 voice types for FNV ones, each written once; `made` maps each FO4 EditorID to FNV's."""
 
     def __init__(self, builder):
+        """For `builder`, the player's voice types (PLAYER_VOICES) already known."""
         self.builder, self.ids, self.made = builder, {}, {}
+        for fnv, (edid, _) in fnv_voice_types().items():
+            if edid in PLAYER_VOICES:
+                self.made[PLAYER_VOICES[edid][0]], self.ids[fnv] = edid, PLAYER_VOICES[edid][1]
 
     def of(self, fnv: int) -> 'int | None':
         """The FO4 voice type for FNV voice type `fnv` (written once); None when FNV has none such."""

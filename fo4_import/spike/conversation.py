@@ -213,11 +213,24 @@ class Conversations:
                      if self.hub.lines[key].get('QSTI.Quest', '').upper() == self.quest['FormID'].upper()]
         else:
             infos = [i for i, r in self.lines.items() if self.say.dials[r['ParentDIAL']]['EditorID'].lower() == topic]
+            infos = self._speakers_lines(infos, topic) if chat else infos
         step = ('chat', SPEAKER_ALIAS, ('line', tuple(infos)), *walk[1:2]) if chat else ('line', tuple(infos))
         if infos:
             self.labels[step] = prop.lower() if walk else f'{"chat" if chat else "talk"} {topic}'
             (self._chat_quest(topic) if chat and not walk else self).scene(step, fid)
         return bool(infos)
+
+    def _speakers_lines(self, infos: list, topic: str) -> list:
+        """This quest's lines `infos` of chat `topic`, and another quest's line of it whose GetIsID names an actor
+        running such a chat (Packages.chat_speakers); highest quest priority first; none: [].
+        See: docs/fork/fo4_pipeline.md#chat-quests
+        """
+        packages = getattr(self.say.builder, 'packages', None)
+        speakers = packages.chat_speakers(topic) if packages and infos else set()
+        dial = self.lines[infos[0]]['ParentDIAL'].upper() if infos else None
+        kept = [key for _, key in self.hub.by_topic.get(dial, ()) if key in infos or any(
+            c['func'] == 'GetIsID' and c['p1'] in speakers for c in parsed(self.hub.lines[key]))]
+        return sorted(kept, key=lambda key: -self._priority(self.hub.lines[key]))
 
     def _chat_quest(self, topic: str) -> 'Conversations':
         """The Conversations building NPC chat `topic` in a quest of its own (noted in `chats`), so its Speaker and

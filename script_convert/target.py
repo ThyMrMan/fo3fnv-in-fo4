@@ -26,6 +26,8 @@ AV_PROPERTY_PREFIX = 'TES4AV_'
 CONTROLS_PROPERTY, CONTROLS_SCRIPT = 'TES4PlayerControls', 'F3NV_PlayerControls'
 #: Property and script of the helper quest sending the character menus and holding suggested tag skills.
 CHARACTER_PROPERTY, CHARACTER_SCRIPT = 'TES4CharacterEvents', 'F3NV_CharacterEvents'
+#: Property and script of the quest keeping karma, crime counts and dispositions (fo4_pipeline.md#disposition).
+STANDINGS_PROPERTY, STANDINGS_SCRIPT = 'TES4Standings', 'F3NV_FalloutStandings'
 #: The race menu (Skyrim's name) and the custom event F3NV_PlayerControls sends when it skips one.
 RACE_MENU, RACE_MENU_SKIPPED = 'RaceSex Menu', 'RaceMenuSkipped'
 

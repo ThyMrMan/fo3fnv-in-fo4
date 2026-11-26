@@ -156,7 +156,7 @@ class ObjectScripts:
         props = fill(declared, {**self.forms, 'Message': messages}, self.helper_index)
         talks = {prop: self.talk(prop) for kind, prop in declared if kind == 'Scene' and prop.startswith(TALK_PREFIXES)}
         made, named = {prop: self._made(kind, prop) for kind, prop in declared}, self.named_lower()
-        keys = {prop: source_name(prop).lower() for _, prop in declared}
+        keys = {prop: source_name(prop, fallout4=True).lower() for _, prop in declared}
         placed = {prop: self.unique_actors[keys[prop]] for kind, prop in declared
                   if keys[prop] in self.unique_actors and _is_reference_type(kind)}
         return {**props, **talks, **{p: f for p, f in made.items() if f},

@@ -5061,6 +5061,34 @@ documents at #an-as-actor-cast-on-a-non-actor).
 9 FNV scripts failed on this. The emitted comparison text is unchanged for
 every TES4 call site — only the DECLARED type of the operands moves.
 
+**`Self` against another script's type (2026-11-25).** The subject can also
+be `Self`, typed as the script being converted, while the argument is a
+property typed as the script attached to the named record. Two unrelated
+script types still cannot be compared: Anchorage's
+`DLC02CaptiveExecuteSCRIPT` (`GetIsReference DLC02FF002CaptiveWithIntel`)
+failed in both compilers. The row now emits
+`({ref} as ObjectReference) == {a0}`: every reference type casts up to
+`ObjectReference`, and the argument converts to it implicitly. In
+Anchorage that changed 14 comparisons in 5 scripts, no other text.
+
+### Variables named for a native parent's property
+<a id="parent-properties"></a>
+
+Fallout 4's `ObjectReference` declares `X`, `Y`, `Z` (the position) and the
+`Motion_*` constants, `Actor` the `CritStage_*` constants, and F4SE's `Form`
+`kSlotMask30`–`kSlotMask61`. A script variable reusing one fails ("script
+property x already defined on parent objectreference"), as Anchorage's
+`DLC02ShellfieldSCRIPT` did. On the Fallout 4 target these names join the
+reserved list (`reserved_names._PARENT_PROPERTIES`), so `safe_property_name`
+makes them `myX` everywhere, quest scripts included, and every reader agrees.
+The Fallout 4 build sets no target, so its two readers ask for Fallout 4
+names explicitly (`fallout4=True`): the quest and script variable
+conditions (`say_topics.script_vars`, which before used the raw source name
+and so missed every renamed variable) and the property binding
+(`attach`, through `source_name`). In the user's FO3/FNV scripts, 3 scripts
+carry such a variable: Shellfield, and FNV's `VMS49Script` and
+`VDialogueCraigBooneSCRIPT` (quest scripts, renamed for consistency).
+
 ### A ref tested against `1` is still a null test
 <a id="ref-compared-to-one"></a>
 

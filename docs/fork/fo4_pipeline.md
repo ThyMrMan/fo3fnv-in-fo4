@@ -504,9 +504,9 @@ player, no menu after. As the scene starts the actor's DialogueDone takes the
 package's GreetOnce number (`TES4WalkDone`), so the package parks on its
 HoldPosition copy, as FO3/FNV leave a SayTo that has talked done until
 another package takes over (`F3NV_DialogueDone` ignores the change to the
-scene's own package). Their numbers are negative (`GreetOnce.walk_number`),
-apart from the force greets', so adding walk-ups renumbers no force greet
-(a save's DialogueDone keeps meaning the same package). A parked SayTo never
+scene's own package). Their numbers are minus the package's object id
+(`GreetOnce.walk_number`), apart from the force greets' (see
+[greet-once](#greet-once)). A parked SayTo never
 reaches its own OnEnd, so `WalkUp` returns once the scene has ended and the
 begin fragment then calls the package's OnEnd fragment, as FO3/FNV end a SayTo
 once its line is said (`MS12RoyPhillipsCheer` sends Roy to the lobby there).
@@ -1037,7 +1037,88 @@ fourth (2026-10-31):
   GetEquipped, and GetHasNote, which becomes GetItemCount on the player:
   notes are inventory items here) and a form list of items convert when a
   line names them; voice types, map regions' locations, the built cells and
-  the worldspace join the lines' form map.
+  the worldspace join the lines' form map. So do the encounter zones
+  (2026-11-25, `locations.zone_ids`, known before the zones are written in
+  the locations stage). Before, every `GetInZone` failed to convert: FO3's
+  `MS01RedFollowingPlayerParadiseFalls`, `MS13Enslaved`, `MS13RedEnslaved`
+  and 22 lines.
+- <a id="line-actors"></a>*Actors a line tests are made first (2026-11-25).*
+  `condition_forms.condition_actors`. A line's `GetIsID` or
+  `GetDeadCount` of an NPC, creature or leveled list the build has not made
+  yet now makes it through `Npcs.actor_form`, as a script property naming
+  it does.
+  - Before this, FO3's free-form encounter NPCs (`FFER11Settler`,
+    `FFER14Ghoul`, the pilgrims, hunters and hitmen) lost all their lines.
+    These NPCs are never placed: `FFERepeatA`/`B` and `FFEUniqueA` spawn them
+    with `placeLeveledActorAtMe`. Their bases were made only when the quest
+    record filled its script's properties, which happens after the quest's
+    lines convert (`cell._quests`), so every `GetIsID` of them read as never
+    true. That cost 84 lines.
+  - 36 more lines test actors FO3 never places or spawns (Stacey, Karen and
+    Tuck Johnson, Little Toe, the Canterbury traders …). Those actors are
+    made too, so the conversion stays complete, though the lines cannot play.
+  - The "line left out" counts and readiness entries now count each line
+    once (`SayTopics.left`). A shared line is tried for every speaker and
+    scene, up to 261 times. The scratch FO3 build reported 4,058 GetIsID
+    losses that were 120 distinct lines.
+- <a id="cell-families"></a>*GetInCell names a group of cells (2026-11-25).*
+  `spike/cell_families.py`. FNV's `GetInCell` is true in every cell whose
+  EditorID **starts with** the named cell's (GECK wiki: "the first part of
+  its cell name"). Authors make an empty "dummy" interior to name a group:
+  FO3's `BigTown` ("Dummy Cell", no references) stands for its 11 BigTown*
+  cells, 6 interior and 5 exterior. FO4's `GetInCell` tests one interior
+  cell; all 213 in Fallout4.esm name an interior. So each dummy was never
+  built and every test of it read as never true.
+  - Measured on the scratch FO3 build before the change: 1,119 lines and 8
+    packages left out as "GetInCell: never true in this build". Among them
+    were Little Lamplight's MS01 learn and follow packages (16 NPC losses),
+    Crowley's MS14 return and Sarah Lyons' MQ11 follow. A group whose named
+    cell holds references (`LL`, `RCLowerDeck`) converted, but only tested
+    that one cell.
+  - FO3 names 21 groups in 168 conditions (PPurity, Tenpenny, RC, LL,
+    Citadel, Underworld, BigTown, Megaton, Paradise Falls …); FNV names 8.
+  - How it converts, as the Skyrim side does
+    ([getincell-prefix-family](../commentary/tes5_import_conditions.md#getincell-prefix-family)):
+    `cell_families` reads the anchors that CONDITIONED records' tests name.
+    A group has more than one cell, or a built exterior. `in_families`
+    rewrites each test of a group before conditions settle:
+    - "in the group" becomes an OR of an exact `GetInCell` per interior
+      member, plus `LocationHasKeyword` of the group's keyword
+      (`FNV_InCell<anchor>`, hashed from the anchor);
+    - "not in it" becomes the AND of the same tests, distributed over its OR
+      group;
+    - unbuilt members settle as 0 and drop out.
+  - Exterior members: each built one gets its own location
+    (`Locations.of_cell`). It is a child of its region's location, with that
+    name and marker, and carries the keywords of its groups. Vanilla tests
+    `LocationHasKeyword` 360 times.
+  - Not verified in game. It is not checked that FO4's `GetInCurrentLocation`
+    (FO3's `PlayerInRegion`) counts a child location: Papyrus `IsInLocation`
+    does, and the Skyrim side ships the same layout. A group whose exterior
+    cells belong to a master's build is tested on its interiors only.
+  - `GetInCellParam` (2026-11-26) names a group the same way (the CS wiki
+    describes the same prefix match; FO3's exe not checked). Its member
+    tests keep the reference (parameter 2), and the keyword test runs on
+    that reference's location; a member the build lacks reads 0, as for
+    `GetInCell` (`conditions.ABSENT_ZERO`). FO3 tests the dummies `Vault101` (Butch,
+    "not in Vault 101": 6 lines), `Tenpenny` and `Canterbury` (MS02 and
+    MS12 packages: 6 entries).
+- <a id="effect-tests"></a>*A script effect's test reads its family keyword
+  (2026-11-26).* `condition_forms.condition_effects`. FO3's
+  `HasMagicEffect MS13Mezzed` (MS13's slaves: 10 lines and
+  `MS13MezzedPackage`) tested an effect FO4 conditions cannot name. Every
+  copy of an FNV script effect carries its family keyword `TES4FX_<effect>`
+  (`script_effects.ScriptEffects.family`), which converted scripts already
+  test. A line's or package's `HasMagicEffect` of one is now FO4's
+  `HasMagicEffectKeyword` of that keyword (`say_topics.EFFECT_KEYWORD`).
+  The Mesmetron's `MS13MesmetronEffectScript` casts `MS13MezzedSpell`,
+  whose copy carries the keyword. Also from the same sweep:
+  `GetBaseActorValue Karma` (MQ11's Sarah Lyons, 2 lines) reads the karma
+  global as `GetActorValue Karma` does (`KARMA_READS`); `IsWeaponInList`
+  makes its form list as `IsInList` does (`ITEM_TESTS`, 2 lines); and a
+  form list entry that is an actor base FO3 never places is made on demand
+  (`Items._built`, as [line-actors](#line-actors)), so Chesterbrook's
+  `NPCFFDCChesterbrookBoSLIST` holds its paladin (6 lines).
 - *Renamed.* PlayerInRegion is GetInCurrentLocation on the player, of the
   location made from that map region (a cell takes the region holding its
   centre, so it is cell-grained where FNV tests the polygon).
@@ -1306,6 +1387,25 @@ whoever holds them. Every chat of a quest used to share that one pair.
   chats broke, and stage 25 was never set.
 - Each `TES4Chat_<topic>` now builds its scenes and topics in a start-game
   quest `FNV_<quest>_Chat_<topic>` with its own Speaker and Listener.
+- A chat's first step also holds another quest's line of its topic whose
+  GetIsID names an actor that lists a chat package with that topic
+  (`Conversations._speakers_lines`, `Packages.chat_speakers`, 2026-11-25).
+  There is one scene per topic, built by the first quest with a line of
+  its own, and it used to keep only that quest's lines. FO3's HELLO spans
+  98 quests: Brock's chat lines with Belle are not in the quest that
+  builds `TES4Chat_HELLO`. Taking every quest's lines instead was measured
+  and dropped: in a scratch FO3 build the GREETING chat went from 17 scenes
+  to 2,655 and the HELLO chat from 1 to 807 (generic lines and their
+  follow-ups), for 32,827 more INFOs and 58,467 more archived files.
+  Another quest's line gets that quest's GetQuestRunning, as on any shared
+  step. Measured: a scratch FO3 build seeded with a baseline build's
+  ledger (`Fallout3.formids.tsv`) keeps every baseline FormID, with 0
+  records lost; only 28 scene and topic EditorIDs renumber
+  (`FNV_CG04_Scene1_0` → `Scene8_0`).
+  To compare two builds for drift, give both the same ledger. A fresh
+  ledger hashes each keyed record's creation-order key (`new_id`'s
+  `legacy`), so two scratch builds with different ledger histories showed
+  9,070 INFOs "moved" that a player's rebuild keeps.
 - It shares its parent's placed steps and keys, so no existing FormID
   moves (the quests are new ids, `QUST chat <quest> <topic>`). A step
   that two chats both reach is still built once, in the first chat's
@@ -1544,6 +1644,77 @@ and the FO4 build ports them; FO4 has all the events they need:
   (FNV has no bounty), so FO4 may never add crime gold and the ADCR
   event, the reported-theft infamy, may not fire. A reported murder
   comes through the kill event's crime status either way.
+
+<a id="crime-counts"></a>**Crime counts (built 2026-11-25, not played).**
+FO3/FNV's GetMajorCrimeCount and GetMinorCrimeCount have no FO4 function, so
+52 FO3 lines (38 major, 14 minor) were left out: NPCs reacting to the
+player's crimes (DialogueCrimeKarma, GenericCrimeKarma, Little Lamplight,
+Megaton, Rivet City security, Dukov, Tenpenny Tower). 27 test "more than 1",
+so a yes/no test (FO4's GetCrime, used 0 times in Fallout4.esm) can't stand in.
+- **What FO3 counts.** Major crimes are assault and murder; minor ones are
+  trespass and theft (GECK wiki, Crime). On an NPC the count is the sum over
+  its factions of the crimes against each (FalloutNV.exe `FUN_008b7f00`
+  loops the actor's factions; FO3's exe not checked).
+- **Built.** Each crime-tracking faction gets two long globals
+  (`FNV_StandingsMajorCrimes<faction>`, `...Minor...`, keyed on the FO3
+  faction), listed in `CrimeFactions`' order (`MajorCounts`,
+  `MinorCounts`). `F3NV_FalloutStandings.CountCrime` adds one against each
+  crime-tracking faction of the victim: a reported murder (kill event crime
+  status), an assault the event calls a crime (a new ASSU event quest on
+  Fallout4.esm's `AssualtActorEvent` 00245FCF), and a reported theft,
+  pickpocketing or trespass (ADCR; against its faction when no victim).
+  `Refresh` then sets every NPC within 8192 units of the player
+  (`ActorTypeNPC`) to the sums over its factions in the helper actor values
+  `MajorCrimes` (0x827) and `MinorCrimes` (0x828); it runs again on each
+  change of location (the player alias), so NPCs met later read their sums
+  too. A line's test is `GetValue` of that value on the subject
+  (`say_topics.HELPER_AV_TESTS`, as GetTalkedToPC). Most speakers are in
+  two or three crime-tracking factions (Harkness, Moriarty, the Lamplight
+  kids), which is why the sum lives on the actor and not in per-faction
+  line tests. 38 of the lines are HELLO barks, which run no script, so the
+  value must be in place before they play.
+- **Open.** Minor crimes come only through ADCR, which may never fire (see
+  [standings](#standings): no crime gold). Fallout4.esm has no Trespass or
+  Pickpocket event node to hear them otherwise. An NPC that comes within
+  range without a change of location keeps its last sums until the next
+  crime or location change.
+
+<a id="disposition"></a>**Disposition (built 2026-11-26, not played).**
+FO4 has no disposition, so 30 FO3 lines were left out: GetDisposition (22:
+Moriarty, Jenny Stahl, Moira, MacCready, Scribe Rothchild and the generic
+greetings against the `GenericFriendlyDisposition` global) and
+HasFriendDisposition (8: Lucas Simms, Roy Phillips, Bessie Lynn, Michael
+Masters). Every one runs on the speaker toward the player or the line's other
+party (parameter 0). FO3's scripts call `ModDisposition player <n>` 40 times
+(39 in line results, 1 in a quest; 32 are -5); FNV calls it never.
+- **What FO3 does.** Disposition runs 0 to 100. Each NPC keeps its
+  adjustments toward the player (FalloutNV.exe `FUN_0087fb40`), held so the
+  total stays within 0 to 100. The base comes from three game settings,
+  `fDispActorCharBase` (-30), `fDispActorCharMult` (10) and
+  `fDispTargetCharMult` (10), read here as base + mult × the NPC's Charisma +
+  mult × the player's Charisma. That formula is inferred from the setting
+  names, not read from the exe.
+- **Built.** Two helper actor values, `Disposition` (0x829) and
+  `DispositionMod` (0x82A). A GetDisposition test toward the player or
+  parameter 0 is `GetValue Disposition` on the speaker
+  (`say_topics.HELPER_AV_TESTS`); toward another NPC it stays out.
+  HasFriendDisposition `== 1` becomes `Disposition >=` the authored
+  `GenericFriendlyDisposition` global (0004E613, 30 in FO3 and FNV), `== 0`
+  `<` it (`say_topics._as_disposition`); a plugin without that global keeps
+  the line out. `ModDisposition player <n>` on Fallout 4 becomes
+  `TES4Standings.ModDisposition(<actor>, <n>)`, a property filled with the
+  standings quest (`standings.quest_id`). `F3NV_FalloutStandings` holds the
+  three settings from the plugin's GMSTs (`DISPOSITION_SETTINGS`) and keeps
+  the adjustment in `DispositionMod`, then sets `Disposition`. Its `Refresh`
+  sets `Disposition` on the NPCs near the player on each change of location,
+  each load and each crime. Each converted NPC's PRPS carries its authored
+  `DATA.Charisma` (from its stats template) as FO4's Charisma
+  (`npc_skills.with_charisma`), so the base reads FO3's value.
+- **Open.** The base formula and HasFriendDisposition's cutoff are
+  unconfirmed. An NPC that comes within range without a change of location or
+  a load reads `Disposition` 0 until the next refresh, so its friendly lines
+  stay quiet. A GetDisposition on a line between two NPCs reads the speaker's
+  disposition toward the player.
 
 <a id="disguises"></a>**Disguises and faction armor (built 2026-10-22, not yet
 played).** FNV's disguises are content, not engine code, and convert as
@@ -2151,6 +2322,13 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
   `CG02ButchTalkTo*`/`CG03*TurnInTest`), walk up with `PathToReference`
   beyond the Activate Distance (Always Run: run), play the chat, return
   once it ends. A chat with no Wait Location still travels to its target.
+  A chat with no topic says HELLO (`scripts_falloutnv.chat_topic`): the
+  GECK's StartConversation page says a topic replaces the default greeting,
+  and FO3's topic-less chats were written for it (BrockTalkBelle; 104 of
+  FO3's 118 have the speaker's lines in HELLO, and the other 14 are listed
+  by no NPC). They were left out as "dialogue topic not named" (FO3 118,
+  Broken Steel 4). They play `TES4Chat_HELLO`, which also holds other
+  quests' HELLO lines for those speakers ([chat-quests](#chat-quests)).
   FO3: 139 of 204 NPC chats have a Wait Location, 75 a Trigger; 36 wait
   farther from their target than the Activate Distance (bar servers,
   `CG04GuardsRichardsToKendall`). FNV: 9 of 39 (7 near the editor
@@ -2222,6 +2400,28 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
   the built cells and worldspaces, perks, radio stations, region globals
   and type keywords. An item a package's condition tests is made on demand
   when the package converts (`condition_items`), as a line's is.
+  The map is filled while the actors are made, so a package used to see only
+  the NPC and creature bases and packages made before it. In the FO3 build, 46
+  packages failed a GetIsCurrentPackage test of a package made later
+  (ArmitageMuddyRudder tests ZimmerDrink11x7), and 10 failed a GetDeadCount of
+  a creature made later (FFEU02RewardPlayer1, FFEU02DeathClaw). Now
+  `Packages.tested` first makes the packages (for the first NPC listing
+  each, `_runner`) and actor bases (`Npcs.actor_form`) that a package's
+  ABSENT_ZERO tests name. Two packages that test each other stay left out, as
+  before. A creature's `made` entry is None while its packages are made, so a
+  package testing its own creature doesn't build it twice. No FormIDs move.
+  Lines had the same gap: a package a script starts (`addScriptPackage`, a
+  script property) was made after the quest's lines converted, so 10 FO3
+  lines on GetIsCurrentPackage were left out (the MS16 Gomez escorts, the
+  Clover and RL3 greets, FFE's Dogmeat wait). `condition_map` now runs
+  `Packages.tested` over the lines too, once their whole map is built (the
+  actors stay with `condition_actors`). The other 32 FO3 lines test packages
+  nothing gives an NPC (the Dashwood sneaks, Abraham Washington's meals,
+  Cromwell's sermon): no NPC lists them and no script names them, so they
+  never play in Fallout 3 either and stay left out.
+  The two GetInCell cells left (BigTown `0002ADC4`, RC `0002CD2C`) are empty
+  "Dummy Cell" interiors with no references, so the tests really are never
+  true.
   GetActorFactionPlayerEnemy (no FO4 function) is FO4's `IsHostileToActor`
   of the player (`conditions.TOWARD_PLAYER`): the Tops gamblers'
   `VTopsGamblerFlee` and Hannigan's runner. Drift: FO4 hostility also
@@ -2243,7 +2443,105 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
   `SitFoundRef` instance: Location from the PLDT, Target Selector
   "Furniture: Chairs" (FO4 object type 27) kept from the instance, as
   vanilla's other 6 `SitFoundRef` packages and `RESitFound` use it. A Find
-  aimed at anything else is still left out (`find target not furniture`).
+  aimed at a placed seat (PTDT type 0, a built furniture reference) is a Sit
+  in that seat, as a Travel to one is (2026-11-25): FO3's CG02 party seats
+  (`CG02SusieSit`, `CG02ChristineSit`, `CG02BeatriceSit` and the two
+  `SitNoTalk`) and `MS05SierraBakes` at her stove.
+  Since 2026-11-26 (`Packages._found_seat`) a UseItemAt or Find aimed at
+  furniture by type (11) or by a FURN base (PTDT type 1) is the same
+  `SitFoundRef` copy, a base taking the Target Selector (input 1, an Object
+  ID): Oasis's five `MS10*MorningRitual` couches, `CG03DadSit`,
+  `Vault101StanleyDEMOSitChair`, `FFER19SupermutantCaptiveCaptured`. A
+  terminal counts as a seat (`cell.SEAT_BASES`): FO4's terminals are
+  furniture with markers (terminals.py), so `MQ05LiHackingDoor` and
+  `MS03EntryMegaton` sit at theirs. Not verified in game.
+  - <a id="follow-found"></a>*A Follow of an actor not named by reference
+    (2026-11-26).* FO3's free-form encounter Follows (pets and brahmin
+    following their owner, `FFER27/79*FollowLeader`, `FFEU17FollowSydney`)
+    name their leader by base (PTDT type 1); FO4's FollowNPC takes a
+    reference only, and its census shows no Object ID target. They are
+    the authored `FindFollow` (`acquire.find_follow`): vanilla
+    `SitFoundRef`'s tree with Follow in place of Sit. Find fills the object
+    list with the base's actor (made now, `Npcs.actor_form`), a list,
+    faction, or Actors: Any for an actor type (`ACTOR_TYPES`), within FNV's
+    loaded area when the package has no location; Follow takes that list
+    as its target (as Sit takes FoundChairs), with FO3's distance as Min
+    Radius. That a Follow procedure accepts an object list is not verified
+    in game.
+  - Still left out: a Find or Escort of an actor by base or type
+    (FFER05/15/73 FindDeadBrahmin, `JaniceKaplinskiFindNPC*`,
+    `FFER55EscortSlaves`: 29 entries). FO3's Find goes to the actor and
+    completes; no FO4 procedure found takes a found actor and completes
+    there, and Escort's target input is a single reference.
+  The GECK's Find Package page: the actor goes to its location, finds up to
+  Count targets and activates each (an object is picked up, a door opened, a
+  chair sat in, an NPC talked to, a creature attacked); out of targets, it
+  wanders near the location for the rest of the package (2026-11-25):
+  - A Find of a built door or activator copies vanilla's `Min03RonnieOpenDoor`
+    (`Activate` template, Target and NumToActivate): Simone Cameron's three
+    Temple gate packages, Ahzrukhal's radio.
+  - A Find with no target is a Sandbox at its location
+    (`germHQAlarmFind`, `NurseGravesStartPosition`, `ArmitageSleep22x8`).
+  - <a id="find-talks"></a>A Find of the player or a placed actor is read as
+    the Dialogue package it acts as (`scripts_falloutnv.find_talks`, in both
+    stages: `packages.talking_packs`, `context_setup.script_records`). Of the
+    player, a SayTo of GREETING (the walk-up greeting): FantasiaFindPC,
+    CherryFindPC, MS08RailroadFindPlayer, FFEU02/05GreetPlayer. Of an NPC, a
+    chat with no topic, which says HELLO
+    ([npc-chat-wait](#npc-chat-wait)): Rivet City's security relief shifts,
+    PaulieCantelliFindCindy20, FatherCliffordFindDiego, CJYoungRunAway,
+    CherryStealKey. A Find's count is a number of targets, not a distance,
+    so it is dropped.
+  - Scratch FO3 build: `find target not furniture` 54 → 32 (Activate 4,
+    Sandbox 3, walk-up 5, chats 10); 816 lines testing GetIsCurrentPackage
+    of these packages now convert (lines left out 9,391 → 8,585); no FormID
+    moves under the same ledger.
+  - <a id="find-items"></a>A Find of an item picks it up (2026-11-25).
+    FO3 has 18, and their end scripts move quests on (`MS14.StealDukovKey`,
+    Dogmeat's `Find`, the Evergreen Mills slaves' state). These never ran
+    while the packages were left out.
+    - Aimed at a placed item (`Packages.carried`, an item type of
+      `CARRIED`): a copy of vanilla's only Acquire on a placed item,
+      `RR102DeaconGrabsPrototypePackage` (000E9876). It is a self-contained
+      Stacked → Acquire tree whose input is the reference, and whose Acquire
+      has Success Completes Package. This covers Crowley's T-51b helmet and
+      armor (`MS14CrowleyGet*`).
+    - Aimed at an item by form (PTDT type 1, an item `Items.item` builds)
+      or a carried object type (type 2, `acquire.OBJECT_TYPES`): the
+      authored `FindAcquire` (`fo4_import/spike/acquire.py`). FO4 ships no
+      template for this. Its tree is vanilla `SitFoundRef`'s with Acquire
+      in place of Sit: a Sequence of a Simultaneous (Find, and Travel then
+      Sandbox at the location) and an Acquire.
+      - Find fills the object list (input 2), and Acquire takes it. The
+        Skyrim CK wiki's Acquire page says its Target is "usually an
+        ObjectList filled by a Find procedure".
+      - Acquire alone has Success Completes Package, so the package ends
+        and the converted OnEnd runs once the count is picked up.
+      - Find gets SearchOwnerInventory and RandomizeList false.
+      - The Sandbox gets every Allow, as FO3 wanders at the location.
+      - The count is PTDT's count, at least 1. FO3's Allow Stealing (0x400)
+        sets Acquire's AllowStealing and AllowPickpocket; Allow Killing
+        (0x200) sets AllowKilling.
+      - Object types differ between the games (FO3 Ammo 13 is FO4's 12;
+        Alchemy 17 is 14; Food 18 is 15). `OBJECT_TYPES` maps every carried
+        one from xEdit's two `wbObjectTypeEnum`s. `WEAPON_TYPES` is its
+        weapon subset.
+      - Input layout: PKC2 values name a data input by its UNAM index
+        (xEdit `wbDefinitionsFO4.pas`, Data Input Indexes; 255 is unbound).
+        Read from `SitFoundRef`, `CommandMode_Activate` and
+        `DogmeatIntroGarageFetchWaitAtItem`.
+    - Scratch FO3 build: `find target not furniture or an item` 32 → 14
+      (2 Acquire, 16 FindAcquire). Package fragments rose 523 → 538, and
+      once-a-day factions 94 → 100. Records went up 24, and no FormID moved
+      under the same ledger.
+    - Not yet confirmed in game. `FantasiaStealKey`'s key is in nobody's
+      authored inventory (a script gives it to Dukov), so its Find may find
+      nothing, as in FO3.
+  A Find aimed at anything else is still left out (`find target not
+  furniture or an item`): NPCs by type or
+  list, creature and NPC bases, a faction, and
+  `FFER19SupermutantCaptiveCaptured`'s furniture base (Object ID), which no
+  vanilla FO4 package aims at with a FURN.
   - *Found by* the FO3 tutorial case `cg03_sit`: every Find was left out
     (`type Find`), so in CG03 Amata, Paul and Wally never went to their
     desks (`CG03AmataSitInClass`, `CG03*GoToClass`, `CG03*TakeTest`:
@@ -2511,6 +2809,17 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
   meaning; Head-track stays on as in the instance. The packages are often
   given by script (`AddScriptPackage`), which already builds a package a
   script property names (`Packages.named`).
+  A Use Weapon with no target (no PTD2) was left out as "no weapon target"
+  (2026-11-25; not yet played). The GECK's Use Weapon page says the actor
+  then fires in the direction it faces. These are 10 in FO3:
+  - Little Lamplight's `MS01Mine2`–`8`: each kid lays a Frag Mine at its
+    marker, its OnBegin adding the mine;
+  - the baseball pitcher and batter;
+  - `MQ05TaftVictimFiringPKG`.
+  Every vanilla FO4 UseWeapon has a target, and the only one aimed at no
+  form is `SalemIntroSceneAttack`, at object type NONE (PTDA 2, 0). So a
+  missing target becomes that. An authored target other than a reference or
+  linked reference is still left out ("weapon target not a reference").
 - <a id="combat-style-export"></a>**The export had no combat style values
   (found 2026-11-04 after play; exported, in the 2026-11-05 build, not
   played).** A Goodsprings
@@ -3172,6 +3481,23 @@ every such type (region: 21 types, 610 files; Doc's 197 moved from
 swept as stale. FO4's generic barks are tied to vanilla voice types, so
 converted NPCs speak FNV's own barks instead ([barks](#barks), built
 2026-10-31).
+
+<a id="player-voices"></a>**The player's voice types (built 2026-11-26, not
+played).** FO3 tests the player's voice types `PlayerVoiceMale` (0002853B)
+and `PlayerVoiceFemale` (00040D42) on 9 lines: the player's combat grunts
+on Attack, Hit, PowerAttack and Death (MQ04 in Tranquility Lane 7, CG02 2).
+No NPC uses them, so they were never written and the lines were left out
+(never true). `VoiceTypes` now knows them from the start as Fallout4.esm's
+own `PlayerVoiceMale01` (00018DF4, the player's VTCK) and
+`PlayerVoiceFemale01` (00018DF7), writes no record for them, and lists them
+in `made`, so the 42 FO3 recordings under the player voices (those grunts
+and `GenericPlayer`'s dying breaths) go to the FO4 player voice folders.
+Unproven: Fallout4.esm tests its player voice types in 26 lines, all in
+custom, Hello and player-choice topics, none in combat topics, so whether
+the engine has the player speak a Hit or Attack line is untested. The 8
+`GenericSupMutBehemoth` barks (`CreatureSupMutBehemoth`) stay left out on
+purpose: FO3 has no recordings for them, and giving the Behemoths that voice
+type would drop the roars of their FO4 body's voice type.
 
 **Two mesh faults found at this size.**
 - <a id="trap-triggers"></a>`traps/beartrap01.nif` is the only mesh in the
@@ -5374,10 +5700,18 @@ ForceGreet copy is picked again as soon as its talk ends.
   - Of FNV's 293 player Dialogue packages, 144 sit in an actor's own list,
     82 are script packages and 95 have no conditions at all.
 - **Built (`spike/greet_once.py`).**
-  - Each ForceGreet copy gets a number.
+  - Each ForceGreet copy gets a number: its object id, the low 24 bits of
+    its FormID (12 in a light plugin). The FormID is hashed from the FO3/FNV
+    package, so the number never changes on a rebuild, whatever order the
+    packages are made in, and two plugins' greets almost never share one
+    (it matters only on the same actor). It used to be the copy's place in
+    the build's list, so a change to that order (lines making the packages
+    they test, 2026-11-25) moved 7 numbers, and every plugin counted from 1
+    in the one shared actor value. Under 2^24 it is exact as a float.
   - The talk opening (`F3NV_Greeting`) sets the speaker's helper actor value
-    `DialogueDone` (FalloutHelpers.esl 0x826) to the number of its current
-    package, found in `FNV_DialogueGreets`. It skips a script package, which
+    `DialogueDone` (FalloutHelpers.esl 0x826) to the object id of its
+    current package when `FNV_DialogueGreets` holds it (`ObjectId`: low 24
+    bits, 12 when the slot is FE). It skips a script package, which
     `F3NV_ScriptPackages.Talked` still ends.
   - The ForceGreet copy needs `DialogueDone` != its number.
   - A parked copy (`FNV_<package>Done`: HoldPosition near self, the same
@@ -7584,6 +7918,20 @@ None, the `MoveTo` failed, and the setup ran every 5 seconds, showing "JSawyer
 Ultimate Edition Loaded" each time. `_master_places` now also holds the masters'
 named references their built plugins hold. A reference this build places still
 wins. No FormIDs move: only property values change.
+
+Packages and conditions see the masters' cells and references too
+(2026-11-25). A DLC's packages and conditions map FNV forms through
+`cell._form_map`, which held only the plugin's own cells and references. So
+Broken Steel's 0.9 build left out 115 packages for "location not built"
+(Rosa's package in the FO3 cell `00067488`), 23 for "target not built" and 5
+for "weapon target not built", all naming Fallout3.esm forms the built master
+holds. `cell._master_held` now lists every master CELL, WRLD and placed
+reference that the built masters hold, with its FO4 FormID (`SourceIds.held`).
+`_master_places` names them, and `_form_map` maps them by FormID beneath the
+plugin's own. A scratch Broken Steel build afterward: location 115 → 0, target
+23 → 1, weapon target 5 → 0, find target not furniture 18 → 3, and the
+GetScriptVariable, GetInCell and GetInZone conditions (7) → 0. No FormIDs
+move.
 
 <a id="formid-properties"></a>**References a script names by FormID
 (2026-11-14).** FNV scripts may name a reference by its quoted FormID

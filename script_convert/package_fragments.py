@@ -16,7 +16,7 @@ from script_convert.scro_refs import add_scro_ref, resolve_scro_aliases, scro_li
 from script_convert.symbols import property_declarations
 from script_convert.target import is_fallout4
 from script_convert.trace_points import items, package
-from tes5_import.packages.scripts_falloutnv import folds_change, package_sections, section_source
+from tes5_import.packages.scripts_falloutnv import chat_topic, folds_change, package_sections, section_source
 
 
 def package_fragment_name(formid: str) -> str:
@@ -36,7 +36,7 @@ def _walk_up(rec: dict, section: str, conv, sections: list) -> list:
 
 def _chat(rec: dict, section: str, conv, xref) -> list:
     """An NPC chat's chat_arrival lines opening `section`, their properties declared."""
-    topic = xref.formid_to_edid.get((rec.get('PKDD.Topic') or '').upper(), '') if xref else ''
+    topic = chat_topic(rec, xref.formid_to_edid) if xref else ''
     props, lines = chat_arrival(rec, section, topic)
     conv.sc.property_refs.update(props)
     return lines

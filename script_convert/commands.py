@@ -31,8 +31,9 @@ from script_convert.command_rows import (
     ACTOR_VALUE_READ_FUNCTIONS, Cmd, param_types
 )
 from script_convert.emit.commands import emit_row
-from script_convert.target import (anim_event_call, av_call, controls_call, fallout4_actor_values, fallout4_av_name,
-                                   is_fallout4, on_talking_activator, self_as_actor)
+from script_convert.target import (STANDINGS_PROPERTY, STANDINGS_SCRIPT, anim_event_call, av_call, controls_call,
+                                   fallout4_actor_values, fallout4_av_name, is_fallout4, on_talking_activator,
+                                   self_as_actor)
 from script_convert.commands_falloutnv import FALLOUT_HANDLERS
 from script_convert.anim_playing_falloutnv import linked_bases, played
 from script_convert.message_menus import PAGE_OPTIONS
@@ -683,16 +684,11 @@ def stop_combat(ctx, call) -> str:
 
 @command('moddisposition')
 def mod_disposition(ctx, call) -> str:
-    """ModDisposition -- disposition was removed in Skyrim.
-
-    A full -100 drop is Oblivion's "make them hostile" idiom, so it becomes
-    StartCombat.  DIRECTION MATTERS: TES4's signature is
-    `<actor>.ModDisposition <target> <value>` and it changes the CALLING
-    actor's disposition toward the target, so `UngolimRef.ModDisposition
-    player -100` means Ungolim now hates the player and Ungolim is the
-    aggressor.  Emitting `<target>.StartCombat(<ref>)` inverted that and made
-    the PLAYER attack Ungolim, which in Dark16Kiss framed the player for the
-    murder the quest wanted Ungolim to commit.
+    """ModDisposition -- `<actor>.ModDisposition <target> <value>` changes the CALLING actor's disposition toward
+    the target. A full -100 drop, Oblivion's "make them hostile" idiom, makes the caller attack the target
+    (Dark16Kiss). Otherwise, on Fallout 4, a change toward the player moves the standings quest's kept
+    disposition (F3NV_FalloutStandings.ModDisposition); any other is noted.
+    See: docs/fork/fo4_pipeline.md#disposition
     """
     parts = ctx.arg_srcs()
     try:
@@ -700,12 +696,23 @@ def mod_disposition(ctx, call) -> str:
     except ValueError:
         hostile = False
     if not hostile:
-        return ctx.note('ModDisposition')
+        return _kept_disposition(ctx, call) if len(parts) >= 2 and is_player(parts[0]) else \
+            ctx.note('ModDisposition')
     target = _as_actor(ctx, call.arg(0))
     ref = ctx._resolve_self_ref(call.ref, call.extends, actor_func=True)
     if is_player(call.ref):
         return f'{ref}.StartCombat({target})'
     return ctx._force_combat_call(ref, target)
+
+
+def _kept_disposition(ctx, call) -> str:
+    """On Fallout 4, the caller's disposition toward the player moved through the standings quest; else a note."""
+    if not is_fallout4() or is_player(call.ref):
+        return ctx.note('ModDisposition')
+    ctx.sc.property_refs[STANDINGS_PROPERTY] = STANDINGS_SCRIPT
+    ref = ctx._resolve_self_ref(call.ref, call.extends, actor_func=True)
+    actor = self_as_actor() if ref == 'Self' and call.extends == 'ObjectReference' else ref
+    return f'{STANDINGS_PROPERTY}.ModDisposition({actor}, {call.arg(1)})'
 
 
 @command('pushactoraway')

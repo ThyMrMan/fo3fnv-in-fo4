@@ -19,11 +19,14 @@ from fo4_import.base.install import source_walk
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.interiors import by_cell
+from fo4_import.spike.records import pack_keywords
 from tes5_import.base.tes5_reader import subrecords
 from tes5_import.base.writer import pack_subrecord
 
 #: derive_formid site of the generated locations (key: the FNV region's or worldspace's FormID).
 SITE = 'FNV LCTN'
+#: derive_formid site of a GetInCell group member's own location (key: the FNV exterior cell's FormID).
+FAMILY_SITE = 'FNV LCTN cell family'
 #: Units per exterior grid cell.
 CELL_UNITS = 4096.0
 #: LCTN ANAM (actor fade multiplier), vanilla's on every location.
@@ -53,10 +56,10 @@ def map_regions(world: int) -> list:
     return out
 
 
-def pack_lctn(fid: int, edid: str, name: str, parent: int, marker: int) -> bytes:
-    """A location: name, parent location and map marker (0 for none), radius 0, actor fade 1."""
+def pack_lctn(fid: int, edid: str, name: str, parent: int, marker: int, keywords: tuple = ()) -> bytes:
+    """A location: name, `keywords`, parent location and map marker (0 for none), radius 0, actor fade 1."""
     subs = pack_subrecord('EDID', f'{edid}\0'.encode('cp1252')) + pack_subrecord('FULL', f'{name}\0'.encode('cp1252'))
-    subs += pack_subrecord('PNAM', struct.pack('<I', parent)) if parent else b''
+    subs += pack_keywords(keywords) + (pack_subrecord('PNAM', struct.pack('<I', parent)) if parent else b'')
     subs += pack_subrecord('MNAM', struct.pack('<I', marker)) if marker else b''
     return pack_fo4_record('LCTN', fid, 0, subs + pack_subrecord('RNAM', bytes(4)) + pack_subrecord('ANAM', FADE))
 
@@ -67,18 +70,35 @@ class Locations:
 
     def __init__(self, builder, world: dict, markers: dict):
         """Write the locations of FNV worldspace `world` (its export record); `markers` {map name: FO4 marker}."""
-        fnv = int(world['FormID'], 16)
+        fnv, self.builder = int(world['FormID'], 16), builder
         self.root = builder.writer.derive_formid(SITE, fnv)
+        self.shown = {self.root: (world.get('FULL', world['EditorID']), 0)}
         builder.writer.add_record('LCTN', pack_lctn(self.root, f'FNV_{world["EditorID"]}Location',
-                                                    world.get('FULL', world['EditorID']), 0, 0))
+                                                    *self.shown[self.root], 0))
         self.regions, self.by_region = [], {}
         for region, edid, name, polygons in map_regions(fnv):
             fid = builder.writer.derive_formid(SITE, region)
-            builder.writer.add_record('LCTN', pack_lctn(fid, f'FNV_{edid}Location', name, self.root,
-                                                        markers.get(name, 0)))
+            self.shown[fid] = (name, markers.get(name, 0))
+            builder.writer.add_record('LCTN', pack_lctn(fid, f'FNV_{edid}Location', name, self.root, self.shown[fid][1]))
             self.regions.append((fid, polygons))
             self.by_region[region] = fid
         builder.counts['LCTN'] += 1 + len(self.regions)
+
+    def of_cell(self, cell: dict, grid: tuple) -> int:
+        """The location of FNV exterior cell `cell` at `grid`: of_grid's, or for a member of GetInCell groups
+        (builder.family_cells) its own child of that one, its name and marker, carrying the groups' keywords.
+        See: docs/fork/fo4_pipeline.md#cell-families
+        """
+        parent, fnv = self.of_grid(grid), int(cell['FormID'], 16)
+        keywords = self.builder.family_cells.get(fnv)
+        if not keywords:
+            return parent
+        fid = self.builder.writer.derive_formid(FAMILY_SITE, fnv)
+        name, marker = self.shown[parent]
+        edid = f'FNV_{cell.get("EditorID") or cell["FormID"]}CellLocation'
+        self.builder.writer.add_record('LCTN', pack_lctn(fid, edid, name, parent, marker, tuple(sorted(keywords))))
+        self.builder.counts['LCTN (GetInCell group cell)'] += 1
+        return fid
 
     def at(self, x: float, y: float) -> int:
         """The first region (by FormID) holding point (x, y), else the root."""
@@ -104,15 +124,18 @@ class Locations:
         return out
 
 
-def encounter_zones(builder, export_dir, owners: dict) -> dict:
-    """Write every FNV encounter zone on FNV's FormID; {FNV FormID: FO4}. An owner maps through `owners`."""
-    out = {}
+def zone_ids(builder, export_dir) -> dict:
+    """{FNV FormID: FO4} of every FNV encounter zone, before they are written."""
+    return {int(rec['FormID'], 16): builder.fnv_id(rec['FormID']) for rec in export_records(export_dir, 'ECZN')}
+
+
+def encounter_zones(builder, export_dir, owners: dict) -> None:
+    """Write every FNV encounter zone on its zone_ids FormID; an owner maps through `owners`."""
     for rec in export_records(export_dir, 'ECZN'):
-        out[int(rec['FormID'], 16)] = fid = builder.fnv_id(rec['FormID'])
+        fid = builder.zones[int(rec['FormID'], 16)]
         owner = owners.get(int(rec.get('DATA.Owner', '0'), 16), 0)
         data = struct.pack('<IIbbBb', owner, 0, int(rec.get('DATA.Rank', 0)), int(rec.get('DATA.MinLevel', 0)),
                            int(rec.get('DATA.Flags', 0)), 0)
         body = pack_subrecord('EDID', f'FNV_{rec["EditorID"]}\0'.encode('cp1252')) + pack_subrecord('DATA', data)
         builder.writer.add_record('ECZN', pack_fo4_record('ECZN', fid, 0, body))
         builder.counts['ECZN'] += 1
-    return out

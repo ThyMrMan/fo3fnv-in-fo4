@@ -21,6 +21,15 @@ _PAPYRUS_KEYWORDS = frozenset({
 })
 
 
+#: Properties Fallout 4's native parents declare (ObjectReference, Actor, F4SE's Form); a variable may not reuse one.
+_PARENT_PROPERTIES = frozenset({
+    'x', 'y', 'z', 'motion_fixed', 'motion_dynamic', 'motion_keyframed',
+    'critstage_none', 'critstage_goostart', 'critstage_gooend', 'critstage_disintegratestart',
+    'critstage_disintegrateend', 'critstage_freezestart', 'critstage_freezeend',
+    *(f'kslotmask{n}' for n in range(30, 62)),
+})
+
+
 def _load_papyrus_script_names() -> set:
     """Every script name Skyrim ships (types AND gameplay scripts), lowercased."""
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -34,6 +43,12 @@ def _load_papyrus_script_names() -> set:
 
 
 @functools.cache
-def papyrus_reserved() -> frozenset:
-    """Keywords plus every shipped script name; read on first use, not at import."""
-    return _PAPYRUS_KEYWORDS | _load_papyrus_script_names()
+def _reserved(fallout4: bool) -> frozenset:
+    """Keywords, script names, and on Fallout 4 its parents' properties."""
+    return _PAPYRUS_KEYWORDS | _load_papyrus_script_names() | (_PARENT_PROPERTIES if fallout4 else frozenset())
+
+
+def papyrus_reserved(fallout4: bool = None) -> frozenset:
+    """Reserved for `fallout4`, else the target (imported here: cycle via constants)."""
+    from script_convert.target import is_fallout4
+    return _reserved(is_fallout4() if fallout4 is None else fallout4)

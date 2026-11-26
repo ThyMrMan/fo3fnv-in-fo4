@@ -133,8 +133,8 @@ DECLARE = ['ObjectReference TES4_AnimRef', 'String TES4_AnimGroup', 'Float TES4_
            '&& now >= TES4_AnimStart && now < TES4_AnimEnd && akRef.Is3DLoaded()',
            '    Return 1',
            '  ElseIf akRef && akRef != TES4_AnimRef && akRef.GetBaseObject() as Door',
-           '    Int openState = akRef.GetOpenState()',
-           f'    Return (openState == {OPENING} || openState == {CLOSING}) as Int',
+           '    Int TES4_OpenState = akRef.GetOpenState()',
+           f'    Return (TES4_OpenState == {OPENING} || TES4_OpenState == {CLOSING}) as Int',
            '  EndIf',
            '  Return 0',
            'EndFunction', '']

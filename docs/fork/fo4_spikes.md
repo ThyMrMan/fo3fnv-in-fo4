@@ -2864,6 +2864,15 @@ distinct part lists, nightkin included) on
   22 get one (16 human, 2 brahmin); a protectron (no FO4 ragdoll) and three
   ED-E eyebots (no vanilla eyebot corpse) stay out. Counted as
   `ragdoll pose written (fallback)`.
+  An FNV pose that does not map takes the same fallback (2026-11-25):
+  bones not matched, no FNV skeleton, or entries that aren't the skeleton's
+  bodies (`Poses._mapped`). FO3's Mirelurks are the case: FO4's Mirelurk
+  has 23 ragdoll bodies (arms plus front and back legs), and FO3's
+  biped-named 18 can source at most 16, under `MAPPED_SHARE` (0.75). Broken
+  Steel's 10 placed dead Mirelurks lay at rest before; now they take
+  Fallout4.esm's flattest Mirelurk corpse. `fnv_model` also folds the
+  doubled backslashes some FO3 MODL paths carry (Skeleton2.nif, centaur
+  skeletonEvolved.nif), which read as "no FNV skeleton".
   Fallout4.esm's 98 Starts Dead actors without XRGD differ from the vagrant:
   26 stand on ragdoll-less turret and robot skeletons, 83 are leveled
   `Lvl*` bases (with XLCM), and the 6 persistent ones are all turrets or

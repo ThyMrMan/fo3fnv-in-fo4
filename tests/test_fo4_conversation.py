@@ -309,6 +309,22 @@ def test_each_npc_chat_is_built_in_a_quest_of_its_own():
     assert (talk.hub.scene_quests[0x0A000F01], talk.hub.scene_quests[0x0A000F02]) == (dad, amata)
 
 
+def test_a_chat_says_another_quests_line_naming_one_of_its_speakers():
+    """A chat built in the quest holding its topic's line also says another quest's line of it whose GetIsID names
+    an actor running such a chat (Brock's HELLO); one for someone else does not join, nor does a quest with none.
+    See: docs/fork/fo4_pipeline.md#chat-quests
+    """
+    say = _say([_said('L1', 'D1', '')], {'D1': {'EditorID': 'HELLO'}})
+    say.infos['Q2'] = [{**_said('L2', 'D1', '', [_test('GetIsID', 0x7E700)]), 'QSTI.Quest': 'Q2'},
+                       {**_said('L3', 'D1', '', [_test('GetIsID', 0x7E777)]), 'QSTI.Quest': 'Q2'}]
+    say.builder.packages = SimpleNamespace(chat_speakers=lambda topic: {0x7E700} if topic == 'hello' else set())
+    quests = [{'FormID': 'Q1', 'EditorID': 'One'}, {'FormID': 'Q2', 'EditorID': 'Two'}]
+    shared = hub(say, quests, {'One': 1, 'Two': 2}, set())
+    one, two = (Conversations(say, q, fid, FORMS, shared) for q, fid in zip(quests, (1, 2)))
+    assert one.talk('TES4Chat_HELLO', 0x0A000F01) and not two.talk('TES4Chat_Other', 0x0A000F02)
+    assert [step[2] for step in one.labels] == [('line', ('L1', 'L2'))]
+
+
 def test_leave_says_the_hubs_goodbye_line_before_the_silent_one():
     """[Leave]'s answer holds the Hub's GOODBYE line first (FNV says it as the player leaves, its result run), then
     the silent line; each ends the scene. GOODBYE (a Conversation topic) is not listed."""

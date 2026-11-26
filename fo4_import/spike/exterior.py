@@ -204,7 +204,7 @@ class Exterior:
             zone = builder.zones.get(int(self.cells[grid].get('XEZN.EncounterZone', '0'), 16), 0)
             water = float(self.cells[grid].get('XCLW.WaterHeight', DEFAULT_WATER))
             cells[grid] = (builder.fnv_id(self.cells[grid]['FormID']), land_record + navm + temporary,
-                           (self.locations.of_grid(grid), zone), water,
+                           (self.locations.of_cell(self.cells[grid], grid), zone), water,
                            regions.xclr(int(self.cells[grid]['FormID'], 16),
                                         zones.get(int(self.cells[grid]['FormID'], 16), ())))
         record = self._world(builder, world)

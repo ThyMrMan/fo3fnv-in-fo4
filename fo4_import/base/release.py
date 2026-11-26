@@ -51,6 +51,17 @@ def current() -> str:
     return from_file() or _from_git() or DEV
 
 
+def made_with(built: str) -> str:
+    """What release `built` reads as after a build's date: ' with <tag>', ', a development build after <tag>' (a
+    describe past a tag), ', a development build' (no tag), or '' when none was recorded."""
+    if not built:
+        return ''
+    if key(built) is None:
+        return ', a development build'
+    tag = PREFIX + built[len(PREFIX):].split('-', 1)[0]
+    return f' with {built}' if tag == built else f', a development build after {tag}'
+
+
 def older(built: str) -> bool:
     """Whether release `built` comes before this one (False when either has no number)."""
     then, now = key(built or ''), key(current())

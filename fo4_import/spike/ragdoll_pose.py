@@ -200,7 +200,8 @@ FNV_USE_MODEL = 0x40
 
 def fnv_model(records: dict, fid: int, depth: int = 0) -> 'str | None':
     """The skeleton model (meshes-relative) of FNV NPC, creature or leveled list `fid` in `records` {FormID: export
-    row}: its own, its Model/Animation template's, or a list's first entry's."""
+    row}: its own (an NPC's or creature's model is its skeleton, whatever its file name), its Model/Animation
+    template's, or a list's first entry's."""
     rec = records.get(fid) if depth < 12 else None
     if rec is None:
         return None
@@ -209,7 +210,7 @@ def fnv_model(records: dict, fid: int, depth: int = 0) -> 'str | None':
     if int(rec.get('ACBS.TemplateFlags', 0) or 0) & FNV_USE_MODEL and 'TPLT.Template' in rec:
         return fnv_model(records, int(rec['TPLT.Template'], 16), depth + 1)
     model = rec.get('Model.MODL')
-    return model.replace('\\\\', '\\') if model and model.lower().endswith('skeleton.nif') else None
+    return model.replace('\\\\', '\\') if model else None
 
 
 def decode(skeleton: Skeleton, xrgd: bytes) -> 'dict | None':
@@ -365,7 +366,8 @@ class Poses:
             try:
                 if kind == 'fnv':
                     path = export_file(self.builder.export_dir, 'meshes', model.replace('\\', '/').lower())
-                    self.skeletons[key] = fnv_skeleton(path) if path.exists() else None
+                    found = fnv_skeleton(path) if path.exists() else None
+                    self.skeletons[key] = found if found and found.bodies else None
                 else:
                     dirs = (self.builder.data_dir, *(Path(p).parent for p in self.builder.built))
                     loose = next((d / 'Meshes' / model for d in dirs if (d / 'Meshes' / model).exists()), None)
@@ -377,29 +379,30 @@ class Poses:
 
     def subrecords(self, fnv_ref: int, fnv_base: int, base: int) -> bytes:
         """XRGD (and XRGB) for FNV reference `fnv_ref` of FNV base `fnv_base` placed on FO4 `base`: FNV's pose
-        mapped, else (FNV has none) a vanilla corpse's on the same skeleton (_fallback, counted apart); b'' when
-        neither (counted by reason). XRGD lies in the reference's own space, so a copied pose needs no moving.
+        mapped, else (FNV has none, or it does not map) a vanilla corpse's on the same skeleton (_fallback, counted
+        apart); b'' when neither (counted by reason). XRGD lies in the reference's own space, so a copied pose
+        needs no moving.
         See: docs/fork/fo4_spikes.md#fallback-pose
         """
         found = self.ragdolls.get(fnv_ref)
         model, target = fnv_model(self.fnv_records, fnv_base), race_skeleton(self._lookup, base)
-        label = target or model or f'{fnv_base:08X}'
-        if not found:
-            fallback = self._fallback(target)
-            self.builder.counts[f'ragdoll pose {"written (fallback)" if fallback else "left out: no FNV pose"}: '
-                                f'{label}'] += 1
-            return pack(fallback)
+        pose, why = self._mapped(found[0], model, target) if found else (None, 'no FNV pose')
+        fallback = self._fallback(target) if why else None
+        kind = 'written' if why is None else 'written (fallback)' if fallback else 'left out: ' + why
+        self.builder.counts[f'ragdoll pose {kind}: {target or model or f"{fnv_base:08X}"}'] += 1
+        return pack((pose, found[1]) if why is None else fallback)
+
+    def _mapped(self, xrgd: bytes, model: 'str | None', target: 'str | None') -> tuple:
+        """(FNV pose `xrgd` of skeleton `model` on FO4 skeleton `target`, None), or (None, why it does not map)."""
         fnv = self._skeleton(('fnv', model)) if model else None
         fo4 = self._skeleton(('fo4', target)) if fnv and target else None
-        why = 'no FNV skeleton' if fnv is None else 'no FO4 ragdoll' if fo4 is None else None
-        pose = None
-        if why is None:
-            bones = bone_map(model, target)
-            mapped = len(sources(fnv, fo4, bones)) / len(fo4.bodies)
-            pose = convert(fnv, fo4, bones, found[0]) if mapped >= MAPPED_SHARE else None
-            why = 'bones not matched' if mapped < MAPPED_SHARE else 'entries not FNV bodies' if pose is None else None
-        self.builder.counts[f'ragdoll pose {"written" if why is None else "left out: " + why}: {label}'] += 1
-        return pack((pose, found[1]) if why is None else None)
+        if fnv is None or fo4 is None:
+            return None, 'no FNV skeleton' if fnv is None else 'no FO4 ragdoll'
+        bones = bone_map(model, target)
+        if len(sources(fnv, fo4, bones)) / len(fo4.bodies) < MAPPED_SHARE:
+            return None, 'bones not matched'
+        pose = convert(fnv, fo4, bones, xrgd)
+        return (pose, None) if pose is not None else (None, 'entries not FNV bodies')
 
 
 def bone_map(model: str, target: str) -> dict:

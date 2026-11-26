@@ -5,6 +5,50 @@ alpha. Download the zip named `fo3fnv-in-fo4-<release>.zip` from the
 [Releases page](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases), not
 "Source code".
 
+## f3nv-0.10 (2026-11-26)
+
+**After upgrading:** "Rebuild what changed" rebuilds your converted games
+once, because the dialogue, package and script code changed. Saves keep
+working: no existing record moved.
+
+### New
+- **Disposition.** Fallout 3's NPCs keep how they feel about you again.
+  `ModDisposition` (40 calls, mostly in line results) moves a per-NPC value, built from the game's own settings and each NPC's
+  Charisma. Lines that test it now play: Moriarty's, Moira's, MacCready's,
+  Scribe Rothchild's, the generic friendly greetings and Lucas Simms' "friend"
+  lines (30 lines).
+- **Crime counts.** Murders, assaults, thefts, pickpocketing and trespassing
+  are counted against each faction that tracks crime, so NPCs who react to
+  your record do (52 Fallout 3 lines: Megaton, Rivet City security, Little
+  Lamplight, Tenpenny Tower, Dukov).
+- **Items get picked up.** Packages that send an NPC to fetch an item now do
+  it: Dogmeat's fetching, Crowley's T-51b, the Evergreen Mills slaves.
+- **More packages run:**
+  - NPCs sit at furniture named by type or model (the Oasis morning rituals,
+    Vault 101 chairs) and at terminals (Li at the door, Moira's entry).
+  - Pets, brahmin, Regulators and Talon mercenaries from random encounters
+    follow their leaders.
+- **More lines play:**
+  - Lines for NPCs that only a script spawns: Fallout 3's free-form
+    encounters, 84 lines.
+  - Lines that name a group of cells: Big Town, Little Lamplight, Tenpenny,
+    Vault 101 (more than 1,100 lines).
+  - Lines that check what an NPC is doing: the packages they test are made
+    first (42 lines).
+  - The Mesmetron slave lines.
+  - Sarah Lyons' karma lines and the Chesterbrook paladin's.
+  - Player grunts in combat use Fallout 4's player voice.
+- **The target list names the release** that built each plugin ("with
+  f3nv-0.9", or "a development build").
+
+### Fixed
+- **A force greeting plays once** even after a mod is added or removed:
+  each one is numbered by its own record, not by build order.
+- Anchorage scripts that failed to compile (a variable named like a
+  built-in property, a comparison of two script types) now compile.
+- Dead Mirelurks in Broken Steel lie in a natural pose.
+- Face fitting no longer fails on a face that is the base texture.
+
 ## f3nv-0.9 (2026-11-25)
 
 ### Fixed

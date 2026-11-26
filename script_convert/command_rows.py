@@ -148,8 +148,8 @@ COMMAND_ROWS = {
     'unlock': Cmd('{ref}.Lock(false)', OBJREF),
 
     #: Identity, not an actor read. See: docs/commentary/script_convert.md#getisreference-not-an-actor-test
-    'getisreference': Cmd('{ref} == {a0}', OBJREF, defaults={0: 'None'}),
-    'getisref': Cmd('{ref} == {a0}', OBJREF, defaults={0: 'None'}, flags='cmp_bool'),
+    'getisreference': Cmd('({ref} as ObjectReference) == {a0}', OBJREF, defaults={0: 'None'}),
+    'getisref': Cmd('({ref} as ObjectReference) == {a0}', OBJREF, defaults={0: 'None'}, flags='cmp_bool'),
 
     #: Places a fresh instance of the BASE, the copy callers want.
     'createfullactorcopy': Cmd(
