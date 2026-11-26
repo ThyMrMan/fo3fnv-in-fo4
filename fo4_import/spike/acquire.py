@@ -51,6 +51,21 @@ FOLLOW_TREE = ('Sequence', 2), ('Simultaneous', 2), ('Find', 0, (0, 1, 2, 6, 6))
     ('Follow', 0, (2, 3, 4, 6, 6, 6))
 #: FIND_FOLLOW's value slots (CNAM order): Min Radius, Max Radius.
 MIN_RADIUS_SLOT, MAX_RADIUS_SLOT = 1, 2
+#: FNV PKDT type Find: its PTDT count is how many to find, not a distance.
+FNV_FIND = '0'
+#: Find-then-Escort inputs: destination (first), whom, search place, found list, RR201LiamEscortsToZ114Package's values.
+ESCORT_INPUTS = (('Location', 'PLDT', struct.pack('<iIiI', 12, 0, 500, 0), 'Destination'), INPUTS[1],
+                 ('Location', 'PLDT', struct.pack('<iIiI', 12, 0, 2048, 0), 'SearchLocation'),
+                 ('ObjectList', 'CNAM', bytes(4), 'FoundActors'), ('Int', 'CNAM', struct.pack('<i', 1), 'NumberToEscort'),
+                 *(('Float', 'CNAM', struct.pack('<f', v), n) for v, n in ((728.0, 'EscortWaitDist'),
+                                                                          (128.0, 'FollowMinDist'),
+                                                                          (728.0, 'FollowMaxDist'))),
+                 ('Bool', 'CNAM', b'\1', 'bTrue'), ('Bool', 'CNAM', b'\0', 'bFalse'),
+                 ('Float', 'CNAM', bytes(4), 'FloatZero'))
+#: Its tree: find the escorted near the escort, then lead them (DNPrime_EscortPlayerMasterPackageTemplate's slots).
+ESCORT_TREE = ('Sequence', 2), ('Simultaneous', 2), ('Find', 0, (2, 1, 3, 9, 9)), ('Sequence', 2), \
+    ('Travel', 0, (2, 255, 255, 255, 255)), ('Sandbox', 0, (2, 8, 8, 8, 8, 8, 8, *[255] * 7)), \
+    ('Escort', 1, (3, 4, 0, 5, 6, 7, 9, 8, 255, 9, 10, 10, 10, 10, 10, 255, 255))
 
 
 def find_acquire() -> bytes:
@@ -65,6 +80,13 @@ def find_follow() -> bytes:
     See: docs/fork/fo4_pipeline.md#follow-found
     """
     return _authored('FindFollow', FOLLOW_INPUTS, FOLLOW_TREE)
+
+
+def find_escort() -> bytes:
+    """The authored Find-then-Escort template's subrecords.
+    See: docs/fork/fo4_pipeline.md#escort-found
+    """
+    return _authored('FindEscort', ESCORT_INPUTS, ESCORT_TREE)
 
 
 def _authored(edid: str, inputs: tuple, tree: tuple) -> bytes:
@@ -113,7 +135,7 @@ def follow_values(rec: dict) -> dict:
     See: docs/fork/fo4_pipeline.md#follow-found
     """
     distance = float(int(rec.get('PTDT.Count', 0) or 0))
-    if not distance:
+    if not distance or rec.get('PKDT.Type') == FNV_FIND:
         return {}
     far = max(distance, struct.unpack('<f', FOLLOW_INPUTS[4][2])[0])
     return {MIN_RADIUS_SLOT: struct.pack('<f', distance), MAX_RADIUS_SLOT: struct.pack('<f', far)}

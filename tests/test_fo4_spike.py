@@ -1451,13 +1451,13 @@ def test_a_left_out_package_is_in_the_readiness_report_and_a_tested_item_is_made
     item no reference places makes the item and converts."""
     item = struct.pack('<B3xfIIIII', 0x60, 1.0, CD.FNV.index('GetItemCount'), 0x500, 0, 0, 0).hex()
     packs = {'00000101': {'FormID': '00000101', 'EditorID': 'NellisFindJanet', 'PKDT.Type': '0',
-                          'PTDT.Type': '2', 'PTDT.Target': '14'},
+                          'PTDT.Type': '2', 'PTDT.Target': '1'},
              '00000102': {'FormID': '00000102', 'EditorID': 'VMS49ChaserPackage', 'PKDT.Type': PK.FNV_TRAVEL,
                           'ConditionCount': '1', 'Condition[0].Raw': item}}
     packages, forms = _packages_for(packs, {0x500: 0x900500}), {}
     assert packages.package('00000101', forms) == 0
     assert packages.builder.readiness.entries == [
-        {'kind': RD.PACKAGE_LEFT_OUT, 'owner': '00000101', 'detail': 'NellisFindJanet (find target not furniture or an item)'}]
+        {'kind': RD.PACKAGE_LEFT_OUT, 'owner': '00000101', 'detail': 'NellisFindJanet (find target not furniture, an item or an actor)'}]
     assert packages.package('00000102', forms) == 0x77 and forms == {0x500: 0x900500}
 
 
@@ -1505,7 +1505,8 @@ def test_a_find_aimed_at_furniture_sits_in_a_chair_near_its_location():
     packages.furniture = set()
     assert packages._find(rec, {0x1EFFF: 0x0201EFFF}) == ('SitFoundRef', struct.pack('<iIi', 0, 0x0201EFFF, 350))
     npcs = {**rec, 'PTDT.Target': '14'}
-    assert packages._find(npcs, {0x1EFFF: 0x0201EFFF}) == 'find target not furniture or an item'
+    assert packages._find(npcs, {0x1EFFF: 0x0201EFFF}) == (PK.FIND_FOLLOW, struct.pack('<iIi', 0, 0x0201EFFF, 350))
+    assert packages._find({**rec, 'PTDT.Target': '1'}, {}) == 'find target not furniture, an item or an actor'
 
 
 def test_a_find_opens_its_door_and_one_without_a_target_wanders_at_its_location():
@@ -1548,7 +1549,7 @@ def test_a_find_aimed_at_a_placed_seat_sits_in_it():
     forms = {0x960C1: 0x020960C1, 0xB372A: 0x020B372A, 0x1234: 0x02001234}
     assert packages._find(rec, forms) == ('Sit', struct.pack('<iI', 0, 0x020960C1))
     assert packages._find({**rec, 'PTDT.Target': '000B372A'}, forms) == ('Acquire', struct.pack('<iIi', 0, 0x020B372A, 0))
-    assert packages._find({**rec, 'PTDT.Target': '00001234'}, forms) == 'find target not furniture or an item'
+    assert packages._find({**rec, 'PTDT.Target': '00001234'}, forms) == 'find target not furniture, an item or an actor'
 
 
 def test_a_find_of_an_item_by_form_or_type_finds_it_near_its_place_and_picks_it_up():
@@ -1569,7 +1570,7 @@ def test_a_find_of_an_item_by_form_or_type_finds_it_near_its_place_and_picks_it_
     assert AQ.acquire_values(meat) == {AQ.COUNT_SLOT: struct.pack('<i', 1), AQ.STEAL_SLOT: b'\1',
                                        AQ.PICKPOCKET_SLOT: b'\1', AQ.KILL_SLOT: b'\1'}
     assert AQ.acquire_values(chems)[AQ.COUNT_SLOT] == struct.pack('<i', 1)
-    assert packages._find({**meat, 'PTDT.Target': '00006000'}, {}) == 'find target not furniture or an item'
+    assert packages._find({**meat, 'PTDT.Target': '00006000'}, {}) == 'find target not furniture, an item or an actor'
 
 
 def test_a_follow_of_an_actor_not_placed_follows_one_found_and_a_seat_by_base_sits_in_one_found():
@@ -1605,6 +1606,41 @@ def test_the_authored_find_follow_follows_what_its_find_found():
     procs = [(subs[i + 2][1], [d[0] for t, d in itertools.takewhile(lambda s: s[0] == b'PKC2', subs[i + 4:])])
              for i, (t, d) in enumerate(subs) if t == b'ANAM' and d == b'Procedure\0']
     assert procs[0] == (b'Find\0', [0, 1, 2, 6, 6]) and procs[-1] == (b'Follow\0', [2, 3, 4, 6, 6, 6])
+
+
+def test_a_find_or_escort_of_an_actor_not_placed_goes_to_one_found():
+    """MS06AttackTemple finds TempleUnionFaction near the Temple: a FindFollow there, its count not a distance;
+    FFER55EscortSlaves leads base FFER55Slave to its marker: a FindEscort, the marker its first input.
+    See: docs/fork/fo4_pipeline.md#escort-found
+    """
+    packages = PK.Packages.__new__(PK.Packages)
+    packages.furniture, packages.activated, packages.carried = set(), set(), set()
+    packages.builder = SimpleNamespace(npcs=SimpleNamespace(actor_form={'0002F566': 0x0202F566}.get),
+                                       items=SimpleNamespace(records={}, item=lambda fid: None), bases={})
+    forms = {0x27FA5: 0x02027FA5, 0x35E1F: 0x02035E1F, 0x2F569: 0x0202F569}
+    attack = {'PKDT.Type': PK.FNV_FIND, 'PTDT.Type': '1', 'PTDT.Target': '00027FA5', 'PTDT.Count': '0',
+              'PLDT.Type': '0', 'PLDT.Location': '00035E1F', 'PLDT.Radius': '1200'}
+    assert packages._find(attack, forms) == (PK.FIND_FOLLOW, struct.pack('<iIi', 0, 0x02035E1F, 1200))
+    assert packages._follow_found(attack, forms) == {1: struct.pack('<iIi', 1, 0x02027FA5, 0)}
+    assert AQ.follow_values({**attack, 'PTDT.Count': '1'}) == {}
+    escort = {'PKDT.Type': '2', 'PTDT.Type': '1', 'PTDT.Target': '0002F566', 'PTDT.Count': '4',
+              'PLDT.Type': '0', 'PLDT.Location': '0002F569', 'PLDT.Radius': '250'}
+    assert packages._escort(escort, forms) == (PK.FIND_ESCORT, struct.pack('<iIi', 0, 0x0202F569, 250))
+    assert packages._follow_found(escort, forms) == {1: struct.pack('<iIi', 1, 0x0202F566, 0)}
+    assert packages._escort({**escort, 'PTDT.Type': '0'}, forms) == 'escort target not built'
+
+
+def test_the_authored_find_escort_escorts_what_its_find_found_to_its_destination():
+    """FindEscort's Find fills input 3 near the escort (input 2); Escort leads that list to input 0 and completes.
+    See: docs/fork/fo4_pipeline.md#escort-found
+    """
+    subs = list(subrecords(AQ.find_escort()))
+    procs = [(subs[i + 2][1], subs[i + 3][1], [d[0] for t, d in itertools.takewhile(lambda s: s[0] == b'PKC2', subs[i + 4:])])
+             for i, (t, d) in enumerate(subs) if t == b'ANAM' and d == b'Procedure\0']
+    assert procs[0] == (b'Find\0', bytes(4), [2, 1, 3, 9, 9])
+    assert procs[-1][:2] == (b'Escort\0', struct.pack('<I', 1)) and procs[-1][2][:3] == [3, 4, 0]
+    assert len(procs[-1][2]) == 17
+    assert [d for t, d in subs if t == b'PKCU'] == [struct.pack('<3I', 11, 0, 0)]
 
 
 def test_the_authored_find_acquire_binds_find_to_acquire_through_its_object_list():

@@ -61,6 +61,8 @@ ABSENT_ZERO = frozenset({'GetIsID', 'GetIsReference', 'GetIsVoiceType', 'GetInCe
 FIXED = {'IsActorTalkingThroughActivator': 0.0, 'Exists': 1.0}
 #: FNV's test of a talker speaking as the line's actor, and the form map key head of an actor's talking-as list.
 THROUGH, TALKING_AS = 'IsActorTalkingThroughActivator', 'talking_as'
+#: Form map key head of a faction's talked-through members: the actors a talker speaks as that are in it.
+TALKING_FACTION = 'talking_faction'
 #: FormIDs below this are the engine's own forms, the same in both games (the player's base 0x7 and reference 0x14).
 ENGINE_FORMS = 0x800
 #: Condition flag (both games): OR with the next condition.
@@ -214,36 +216,43 @@ def _mirrored(cond: dict, form_map: dict) -> bool:
     return ('qvar', p1, p2) in form_map or any((p1, p2, state) in form_map for state in OBJECTIVE_STATES)
 
 
-def _talked(cond: dict, form_map: dict) -> bool:
-    """True for Subject/Target `GetIsID(actor) == 1` of an actor with a talker."""
-    return (cond['func'] == 'GetIsID' and cond['run_on'] in (RUN_SUBJECT, RUN_TARGET) and not cond['op_flags'] & 0xE4
-            and cond['value'] == 1.0 and (TALKING_AS, cond['p1']) in form_map)
+def _talked(cond: dict, form_map: dict) -> tuple:
+    """The actors whose talking-as lists a Subject/Target `GetIsID == 1` or `GetInFaction == 1` also passes for.
+    See: docs/fork/fo4_pipeline.md#talking-activators
+    """
+    if cond['run_on'] not in (RUN_SUBJECT, RUN_TARGET) or cond['op_flags'] & 0xE4 or cond['value'] != 1.0:
+        return ()
+    if cond['func'] == 'GetIsID':
+        return (cond['p1'],) if (TALKING_AS, cond['p1']) in form_map else ()
+    return form_map.get((TALKING_FACTION, cond['p1']), ()) if cond['func'] == 'GetInFaction' else ()
 
 
-def talking_list(cond: dict, form_map: dict) -> 'int | None':
-    """The talking-as list a talked-through GetIsID also passes for, or None."""
-    return form_map[(TALKING_AS, cond['p1'])] if _talked(cond, form_map) else None
+def _through(cond: dict, actor_test: dict) -> dict:
+    """Talking through `== v` as the line's actor test `== 1 - v` (talkers fail it)."""
+    return {**cond, 'func': actor_test['func'], 'p1': actor_test['p1'], 'p2': 0, 'value': 1.0 - cond['value']}
 
 
-def _through(cond: dict, actor: int) -> dict:
-    """IsActorTalkingThroughActivator `== v` on a line that `actor` or its talker passes: GetIsID(actor) `== 1 - v`."""
-    return {**cond, 'func': 'GetIsID', 'p1': actor, 'p2': 0, 'value': 1.0 - cond['value']}
+def _also_talkers(cond: dict, actors: tuple) -> list:
+    """`cond` OR'd with IsInList of each of `actors`' talking-as lists."""
+    lists = [{**cond, 'func': 'IsInList', 'p1': (TALKING_AS, a), 'p2': 0, 'op_flags': cond['op_flags'] | OR_NEXT}
+             for a in actors]
+    return [{**cond, 'op_flags': cond['op_flags'] | OR_NEXT}, *lists[:-1], {**lists[-1], 'op_flags': cond['op_flags']}]
 
 
 def talking_through(conds: list, form_map: dict) -> list:
-    """`conds` with each talked-through GetIsID OR'd with IsInList of its actor's talking-as list, and
-    IsActorTalkingThroughActivator (== or != 0 or 1) as that actor's GetIsID negated.
+    """`conds` with each talked-through actor or faction test OR'd with its actors' talking-as lists, and
+    IsActorTalkingThroughActivator (== or != 0 or 1) as that test negated.
     See: docs/fork/fo4_pipeline.md#talking-activators
     """
-    actors = [cond['p1'] for cond in conds if _talked(cond, form_map) and cond['run_on'] == RUN_SUBJECT]
+    tests = [cond for cond in conds if _talked(cond, form_map) and cond['run_on'] == RUN_SUBJECT]
     out = []
     for cond in conds:
-        if _talked(cond, form_map):
-            out += [{**cond, 'op_flags': cond['op_flags'] | OR_NEXT},
-                    {**cond, 'func': 'IsInList', 'p1': (TALKING_AS, cond['p1']), 'p2': 0}]
-        elif (cond['func'] == THROUGH and actors and cond['run_on'] == RUN_SUBJECT
+        actors = _talked(cond, form_map)
+        if actors:
+            out += _also_talkers(cond, actors)
+        elif (cond['func'] == THROUGH and tests and cond['run_on'] == RUN_SUBJECT
               and not cond['op_flags'] & 0xC4 and cond['value'] in (0.0, 1.0)):
-            out.append(_through(cond, actors[0]))
+            out.append(_through(cond, tests[0]))
         else:
             out.append(cond)
     return out

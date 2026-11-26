@@ -5,6 +5,33 @@ alpha. Download the zip named `fo3fnv-in-fo4-<release>.zip` from the
 [Releases page](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases), not
 "Source code".
 
+## f3nv-0.11 (2026-11-26)
+
+**After upgrading:** "Rebuild what changed" rebuilds your converted games
+once, because the dialogue and package code changed. Saves keep working: no
+existing record moved.
+
+### New
+- **More packages run** (29 Fallout 3 packages that were left out):
+  - NPCs sent to find another NPC go to one and stay near it: Leroy
+    Walker's attack on the Temple of the Union (which also unlocks its
+    gate), Andy fighting the radroaches in Vault 101, Janice Kaplinski and
+    Anthony Ling around Rivet City, and the random encounters' dead-brahmin
+    finds, Enclave eyebot, radscorpion hunter and arguing pilgrims.
+  - The slaver encounter's slaver leads the slaves to his marker.
+  - In Fallout 3 a "find" ended once the NPC was found; here the NPC stays
+    near it until the package's own schedule or conditions end it.
+
+### Fixed
+- **Tenpenny Tower's intercom lets you back in.** The guard's replies to
+  "Let me in" on a return visit were left out, so the gate stayed shut;
+  lines that name the speaker by faction now play through a talking
+  activator speaking as a member.
+
+### Known
+- Not played in game yet. Whether Fallout 4 lets these Follow and Escort
+  packages act on an NPC they found, rather than a placed one, is untested.
+
 ## f3nv-0.10 (2026-11-26)
 
 **After upgrading:** "Rebuild what changed" rebuilds your converted games

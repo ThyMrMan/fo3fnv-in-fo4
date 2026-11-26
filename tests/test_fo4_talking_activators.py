@@ -6,7 +6,7 @@ from collections import Counter
 from types import SimpleNamespace
 
 from fo4_import.spike import conditions as C
-from fo4_import.spike.talking_activators import Talkers, pack_tact, speakers_of
+from fo4_import.spike.talking_activators import Talkers, faction_members, pack_tact, speakers_of
 from tes5_import.base.tes5_reader import subrecords
 
 RAMOS, BENNY, INTERCOM, LIST = 0x100, 0x200, 0x300, 0x900
@@ -41,6 +41,24 @@ def test_a_face_to_face_line_stays_off_the_intercom():
     conds = C.talking_through([cond('GetIsID', BENNY), cond(C.THROUGH, value=0.0)], form_map)
     assert outcome(conds, {('GetIsID', BENNY): 1, ('IsInList', (C.TALKING_AS, BENNY)): 1})
     assert not outcome(conds, {('IsInList', (C.TALKING_AS, BENNY)): 1})
+
+
+def test_a_faction_line_plays_through_a_talker_speaking_as_a_member():
+    """Tenpenny's intercom: GetInFaction guards + talking through == 1 plays for the talker in either guard's list,
+    not for a guard in person, nor for a talker speaking as someone else."""
+    guards = 0x19018
+    form_map = {(C.TALKING_AS, RAMOS): LIST, (C.TALKING_AS, BENNY): LIST + 1, (C.TALKING_FACTION, guards): (RAMOS, BENNY)}
+    conds = C.talking_through([cond('GetInFaction', guards), cond(C.THROUGH)], form_map)
+    assert outcome(conds, {('IsInList', (C.TALKING_AS, BENNY)): 1})
+    assert not outcome(conds, {('GetInFaction', guards): 1, ('IsInList', (C.TALKING_AS, RAMOS)): 1})
+    assert not outcome(conds, {('IsInList', (C.TALKING_AS, 0x400)): 1})
+
+
+def test_faction_members_group_the_spoken_as_actors_by_faction():
+    """Each faction lists the actors in it, in FormID order."""
+    recs = {RAMOS: {'FactionCount': '1', 'Faction[0].FormID': '00000050'},
+            BENNY: {'FactionCount': '2', 'Faction[0].FormID': '00000050', 'Faction[1].FormID': '00000060'}}
+    assert faction_members({BENNY, RAMOS}, recs.get) == {0x50: (RAMOS, BENNY), 0x60: (BENNY,)}
 
 
 def test_a_line_naming_no_talked_through_actor_is_unchanged():

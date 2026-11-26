@@ -19,7 +19,8 @@ from pathlib import Path
 
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.pipeline.export_index import export_records
-from fo4_import.spike.conditions import TALKING_AS
+from fo4_import.spike.conditions import TALKING_AS, TALKING_FACTION
+from fo4_import.spike.npcs import USE_FACTIONS
 from fo4_import.spike.radio import RADIO_STATION
 from script_convert.constants import TALKING_LISTS_PROPERTY
 from tes5_import.base.writer import pack_formid_subrecord, pack_string_subrecord, pack_subrecord
@@ -58,6 +59,16 @@ def speakers_of(pairs: set, talkers: dict) -> dict:
     return out
 
 
+def faction_members(actors, factions_of) -> dict:
+    """{faction FNV FormID: (actors in it, sorted)} of `actors`; factions_of(actor) is its record (Faction[i])."""
+    out = {}
+    for actor in sorted(actors):
+        rec = factions_of(actor)
+        for i in range(int(rec.get('FactionCount', 0))):
+            out.setdefault(int(rec[f'Faction[{i}].FormID'], 16), []).append(actor)
+    return {faction: tuple(members) for faction, members in out.items()}
+
+
 class Talkers:
     """FO4 talking activators for FNV's non-station TACTs and the talking-as lists of the actors they speak as."""
 
@@ -86,21 +97,25 @@ class Talkers:
         return self.made[fnv][0]
 
     def form_map(self, form_map: dict) -> dict:
-        """The talkers made and each built actor's talking-as list (key (TALKING_AS, actor)), for line conditions."""
+        """The talkers made, each built actor's talking-as list (key (TALKING_AS, actor)), and each faction's
+        actors among them (key (TALKING_FACTION, faction)), for line conditions."""
         actors = {a for spoken in self.speaks_as.values() for a in spoken if a in form_map}
         self.lists = {a: self.builder.writer.derive_formid(SITE, f'{a:08X}') for a in sorted(actors)}
+        factions = faction_members(self.lists, lambda a: self.builder.npcs.source(a, USE_FACTIONS) or {})
         return {**{fnv: made[0] for fnv, made in self.made.items()},
-                **{(TALKING_AS, a): fid for a, fid in self.lists.items()}}
+                **{(TALKING_AS, a): fid for a, fid in self.lists.items()},
+                **{(TALKING_FACTION, f): members for f, members in factions.items()}}
 
     def voice(self, fnv: int, rec: dict) -> 'int | None':
-        """The FO4 voice type of talker `fnv`: its actors' when they share one, else its own (VNAM); None for none."""
+        """Talker `fnv`'s FO4 voice type: its actors' shared one, else its VNAM."""
         shared = {self.voices.get(a, 0) for a in self.speaks_as.get(fnv, ())} - {0}
         own = next(iter(shared)) if len(shared) == 1 else int(rec.get('VNAM', '0'), 16)
         return self.builder.npcs.voices.of(own) if own else None
 
     def members(self, actor: int, form_map: dict) -> list:
-        """A talking-as list's forms: its actor's base, then each talker made that speaks as only that actor, so a
-        line asks no script first (FO4 opens the talker's dialogue before its OnActivate runs)."""
+        """A talking-as list: `actor`'s base, then talkers speaking only as it.
+        See: docs/fork/fo4_pipeline.md#talking-activators
+        """
         return [form_map[actor]] + [self.made[t][0] for t in sorted(self.made) if self.speaks_as.get(t) == {actor}]
 
     def write(self, form_map: dict) -> None:

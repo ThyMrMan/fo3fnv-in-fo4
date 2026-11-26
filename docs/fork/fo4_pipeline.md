@@ -2468,6 +2468,26 @@ nVPrimmDeputyConv: Trudy, Joe Cobb, Ringo, Sunny, McGee), which
     as its target (as Sit takes FoundChairs), with FO3's distance as Min
     Radius. That a Follow procedure accepts an object list is not verified
     in game.
+  - <a id="escort-found"></a>*A Find or Escort of an actor not named by
+    reference (2026-11-26, an approximation).* FO3's Find of an actor
+    (27 entries: Leroy Walker's `MS06AttackTemple` against
+    TempleUnionFaction, `CG04AndyFightRoaches`, Janice Kaplinski's and
+    Anthony Ling's outings, the free-form encounter finds) has no FO4
+    procedure. It is the same `FindFollow`: go to one found and stay near
+    it. FO3's Find ends once the actor is found and the next package runs;
+    the copy stays until its own schedule or conditions end it. A Find's
+    PTDT count is how many to find, so it is no Min Radius. Fights happen
+    as in FO3, from faction hostility once the NPC is near. The copy keeps
+    the package's fragments (MS06AttackTemple's start unlocks the Temple
+    gate). `FFER55EscortSlaves` escorts base FFER55Slave, but FO4's Escort
+    takes a reference: the authored `FindEscort` (`acquire.find_escort`)
+    finds the escorted within 2,048 of the escort, then Escort takes that
+    list, the package's own place as Destination (its first input). Escort's
+    17 inputs are laid out as vanilla's
+    `DNPrime_EscortPlayerMasterPackageTemplate` (which has an "EscortedActor(s)"
+    object list input), with `RR201LiamEscortsToZ114Package`'s distances
+    (wait 728, follow 128 to 728). That Escort accepts an object list is not
+    verified in game.
   - Still left out: a Find or Escort of an actor by base or type
     (FFER05/15/73 FindDeadBrahmin, `JaniceKaplinskiFindNPC*`,
     `FFER55EscortSlaves`: 29 entries). FO3's Find goes to the actor and
@@ -4452,6 +4472,15 @@ e.g. DmndEntranceIntercom with Danny Sullivan's), said through a quest alias.
   actor or its talker, so "through a talker" is "not the actor". Ramos's
   intercom lines need `== 1` and Benny's face-to-face greetings `== 0`, so
   neither plays from the wrong side.
+- **Faction tests** (2026-11-26). A line may name the speaker by faction
+  instead: Tenpenny's intercom lines test `GetInFaction TenpennyGuardFaction`
+  and talking-through `== 1`, and the intercom's script speaks as Chief
+  Gustavo or the day guard. A Subject or Target `GetInFaction(f) == 1` is
+  OR'd with `IsInList` of every talking-as list whose actor is in `f`
+  (`Talkers.form_map` keys them `(TALKING_FACTION, f)`, from each actor's own
+  or template factions), and talking-through becomes `GetInFaction(f) == 1 - v`:
+  the talker is in no faction. Before, both lines (`00003102`, `0001F5F8`,
+  whose result scripts open the gate on a return visit) were left out.
 - **The greeting** (2026-10-31, after play: Tabitha's dish hut transceiver
   stayed silent). An intercom's lines are GREETING lines, which play in the
   shared greeting scene. Its starter line passed only for the NPCs those lines

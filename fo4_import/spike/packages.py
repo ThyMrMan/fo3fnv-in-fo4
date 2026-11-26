@@ -13,8 +13,8 @@ import math
 import struct
 
 from fo4_import.base.vmad import package_fragments
-from fo4_import.spike.acquire import (ACTOR_TYPES, OBJECT_TYPES, acquire_values, find_acquire, find_follow,
-                                      follow_values, selector)
+from fo4_import.spike.acquire import (ACTOR_TYPES, OBJECT_TYPES, acquire_values, find_acquire, find_escort,
+                                      find_follow, follow_values, selector)
 from fo4_import.spike.items import ITEM_TYPES
 from fo4_import.base.writer import pack_fo4_record
 from fo4_import.spike.condition_forms import condition_effects, condition_items
@@ -44,10 +44,10 @@ INSTANCES = {'Travel': 0x248982, 'Sit': 0x2471DB, 'Sandbox': 0x24674E, 'ForceGre
              'Eat': 0x1AE26C, 'HoldPosition': 0x2491F8, 'Patrol': 0x248492, 'FollowNPC': 0x232257,
              'FleeTo': 0x204C1D, 'FleeFrom': 0x1D4388, 'UseWeapon': 0x19632E, 'EscortPlayer': 0x112EED,
              'SitFoundRef': 0x08CA6A, 'Activate': 0x0BB011, 'Acquire': 0x0E9876}
-#: The authored templates (acquire.py) of a Find of an item type or category, a Follow of an actor not by reference.
-FIND_ACQUIRE, FIND_FOLLOW = 'FindAcquire', 'FindFollow'
-#: FNV PKDT types whose copy follows its target: Follow, Accompany.
-FOLLOW_TYPES = ('1', '7')
+#: The authored templates (acquire.py): Find of an item type, Follow or Find and Escort of an actor not by reference.
+FIND_ACQUIRE, FIND_FOLLOW, FIND_ESCORT = 'FindAcquire', 'FindFollow', 'FindEscort'
+#: FNV PKDT types whose copy goes to an actor found by base, list, faction or type: Find, Follow, Accompany.
+FOLLOW_TYPES = ('0', '1', '7')
 #: SitFoundRef's Target Selector: its second location or target input.
 SEAT_SELECTOR = 1
 #: FNV base types a Find's target reference is activated as (the GECK's Find: a door opens, an activator runs).
@@ -180,8 +180,8 @@ class Packages:
         self.by_name = {r['EditorID'].lower(): fid for fid, r in self.packs.items() if r.get('EditorID')}
         self.links = linked_by_package(export_dir)
         packs ={r.form_id: r.body for r, _ in walk(builder.fo4, b'PACK')}
-        self.vanilla = {name: packs[fid] for name, fid in INSTANCES.items()} | {FIND_ACQUIRE: find_acquire(),
-                                                                                 FIND_FOLLOW: find_follow()}
+        self.vanilla = {name: packs[fid] for name, fid in INSTANCES.items()} | {
+            FIND_ACQUIRE: find_acquire(), FIND_FOLLOW: find_follow(), FIND_ESCORT: find_escort()}
         self.slots = {name: value_slots(self.vanilla[name], packs)
                       for name in ('Sandbox', 'FollowNPC', 'UseWeapon', 'EscortPlayer')}
         self.vanilla['ForceGreet'] = greet_template.write(builder, self.vanilla['ForceGreet'], packs)
@@ -319,7 +319,8 @@ class Packages:
         number = self.once.walk_number(fid) if says_to_player(rec) else self.once.number(fid) if template == 'ForceGreet' else 0
         values = {0: plan[2]} if len(plan) > 2 else self._values(rec, template)
         inputs = {'ForceGreet': self._trigger, 'UseWeapon': self._weapon, 'EscortPlayer': self._escorted,
-                  FIND_ACQUIRE: self._sought, 'SitFoundRef': self._seat_sought, FIND_FOLLOW: self._follow_found}.get(
+                  FIND_ACQUIRE: self._sought, 'SitFoundRef': self._seat_sought, FIND_FOLLOW: self._follow_found,
+                  FIND_ESCORT: self._follow_found}.get(
             template, lambda *_: {})(rec, form_map)
         own = self.once.unspoken(number) if number else b''
         own += self.once.undone(rec) if day_marked(rec) or self._chat(rec) and daily(rec) else b''
@@ -575,10 +576,12 @@ class Packages:
         return self._at(rec, FNV_USE_WEAPON, 'UseWeapon', form_map)
 
     def _escort(self, rec: dict, form_map: dict) -> 'tuple | str':
-        """(EscortPlayer, PLDT payload) leading FNV Escort `rec`'s built target reference to its location; why not,
-        otherwise.
+        """(EscortPlayer, PLDT payload) leading FNV Escort `rec`'s built target reference to its location, or one
+        found by base, list, faction or type (FIND_ESCORT); why not, otherwise.
         See: docs/fork/fo4_pipeline.md#escort
         """
+        if rec.get('PTDT.Type') != str(TARGET_REFERENCE) and self._followed(rec, form_map):
+            return self._at(rec, FNV_ESCORT, FIND_ESCORT, form_map)
         if rec.get('PTDT.Type') != str(TARGET_REFERENCE) or int(rec.get('PTDT.Target', '0') or '0', 16) not in form_map:
             return 'escort target not built'
         return self._at(rec, FNV_ESCORT, 'EscortPlayer', form_map)
@@ -605,7 +608,7 @@ class Packages:
             return seat
         if selector(rec, self._carried_item):
             return self._at(rec, FNV_FIND, FIND_ACQUIRE, form_map)
-        return 'find target not furniture or an item'
+        return self._found_actor(rec, form_map) or 'find target not furniture, an item or an actor'
 
     def _talk_to(self, rec: dict, form_map: dict) -> 'tuple | str':
         """(template, PLDT payload) of FNV Dialogue `rec`: to an NPC, a Travel to its Wait Location (_at), else to
@@ -731,8 +734,8 @@ class Packages:
         return {SEAT_SELECTOR: struct.pack('<iIi', TARGET_OBJECT, made, 0)} if made else {}
 
     def _found_actor(self, rec: dict, form_map: dict) -> 'tuple | None':
-        """(FIND_FOLLOW, PLDT payload) of FNV Follow `rec` aimed at an actor by base, list, faction or type: follow
-        one found near its location, else within FNV's loaded area; None for another target.
+        """(FIND_FOLLOW, PLDT payload) of FNV Follow or Find `rec` aimed at an actor by base, list, faction or type:
+        go to one found near its location, else within FNV's loaded area; None for another target.
         See: docs/fork/fo4_pipeline.md#follow-found
         """
         if rec.get('PKDT.Type') not in FOLLOW_TYPES or self._followed(rec, form_map) is None:
