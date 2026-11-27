@@ -86,6 +86,23 @@ def test_a_build_by_an_older_release_is_converted_in_full(tmp_path, monkeypatch)
     assert ST.unavailable(s, 'falloutnv', 'update') == 'built by f3nv-0.2, an older release: convert it in full'
 
 
+def test_a_build_against_another_copy_of_a_master_is_converted_in_full(tmp_path, monkeypatch):
+    """A plugin whose last build read a master other than that master's output now is not rebuilt: the rebuild
+    would follow the record to the old copy (f3nv-0.13's exit 7 for every FNV DLC)."""
+    s = _settings(tmp_path)
+    plugin, now, old = ST.plugin_path(s, 'falloutnv'), tmp_path / 'now' / 'X.esm', tmp_path / 'old' / 'X.esm'
+    plugin.parent.mkdir(parents=True)
+    plugin.write_text('x')
+    monkeypatch.setattr(ST, 'masters', lambda *_: [('X.esm', now)])
+    monkeypatch.setattr(ST.build_plan, 'record', lambda _: {})
+    monkeypatch.setattr(ST.build_plan, 'from_older_release', lambda _: '')
+    monkeypatch.setattr(ST.build_plan, 'masters_of', lambda _: [now])
+    assert ST.full_build(s, 'falloutnv') == '' and ST.found(s, 'falloutnv', 'build').done
+    monkeypatch.setattr(ST.build_plan, 'masters_of', lambda _: [old])
+    assert not ST.found(s, 'falloutnv', 'build').done
+    assert ST.unavailable(s, 'falloutnv', 'update', 'win32') == f'built against {old}: convert it in full'
+
+
 def test_export_reads_the_chosen_game_folder(tmp_path):
     """Export runs convert.py, archives too, with the game Data folder."""
     cmd = ST.command(_settings(tmp_path), 'falloutnv', 'export', ST.Scope(), tmp_path / 'x.json')

@@ -5,6 +5,16 @@ alpha. Download the zip named `fo3fnv-in-fo4-<release>.zip` from the
 [Releases page](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases), not
 "Source code".
 
+## f3nv-0.14 (2026-11-26)
+
+### Fixed
+- **A DLC no longer fails with "Conversion did not finish" after its game
+  moved to a new output folder.** A DLC last built against the game's old
+  folder made "Rebuild what changed" go back to that old copy and stop
+  (exit code 7) when an older release had built it. Such a DLC now converts
+  in full against the game's current folder: Build is ticked, and Rebuild
+  what changed says which copy it was built against.
+
 ## f3nv-0.13 (2026-11-26)
 
 **After upgrading:** rebuild your converted games and DLC ("Rebuild what

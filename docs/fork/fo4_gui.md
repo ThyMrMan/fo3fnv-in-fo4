@@ -980,6 +980,15 @@ does not list as add-ons).
   count as done once a faces run finished: the rebuild runs them again
   when the plugin changes. Ticking Build as well runs the whole build
   first, then the rebuild (the mods built on it, and stale faces).
+- **Built against another copy of a master: convert in full**
+  (`stages.full_build`, as for an older release). An add-on whose last
+  build read a master that is not that master's output now (the game's
+  output was moved to a new folder, and the DLC's default folder is still
+  the old one) is not rebuilt: the rebuild would follow its recorded
+  masters to the old copy. In f3nv-0.13 it did, found the old
+  `F3NV - Fallout New Vegas\FalloutNV.esm` built by f3nv-0.6, and stopped
+  with exit 7 (`OLD_RELEASE`), "Conversion did not finish" for every FNV
+  DLC once the game was built into `F3NV - Fallout New Vegas Test`.
 - **On the user's setup** (read only, 2026-11-15): with the game as target,
   the set is FalloutNV.esm and the 30 mod plugins built on it, Fallout3.esm
   left out, as the chain's `others` step builds them.

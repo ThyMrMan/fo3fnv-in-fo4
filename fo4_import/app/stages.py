@@ -99,19 +99,19 @@ def found(settings: dict, source: str, stage: str) -> 'Found | None':
     if stage == 'export':
         return Found(f'export from {_when(exported)}', True) if exported else None
     if stage in ('build', 'faces'):
-        return _built(plugin_path(settings, source), stage)
+        return _built(plugin_path(settings, source), stage, full_build(settings, source))
     made = {'helpers': S.output_dir(settings, source) / FALLOUT4_HELPER_PLUGIN,
             'classic': S.output_dir(settings, source) / plugin_name(GAMES[source]['plugin']),
             'runtime': chosen.output / PLUGINS / RUNTIME_DLL}.get(stage)
     return Found(f'{made.name} built {_when(made.stat().st_mtime)}') if made and made.is_file() else None
 
 
-def _built(plugin: Path, stage: str) -> 'Found | None':
+def _built(plugin: Path, stage: str, older: str) -> 'Found | None':
     """found() of the build or faces stage of `plugin`: done once a finished build (or faces run) is recorded, as
-    Rebuild what changed then rebuilds it, and runs its faces again, when needed.
+    Rebuild what changed then rebuilds it, and runs its faces again, when needed; never while `older` says why it
+    converts in full (full_build).
     See: docs/fork/fo4_gui.md#rebuild
     """
-    older = build_plan.from_older_release(plugin) if plugin.is_file() else ''
     if stage == 'faces':
         stamp = faces_stamp(plugin)
         finished = stamp is not None and stamp.get('status') == 'finished'
@@ -128,18 +128,40 @@ def _when(stamp: float) -> str:
     return time.strftime('%Y-%m-%d %H:%M', time.localtime(stamp))
 
 
+def full_build(settings: dict, source: str) -> str:
+    """Why the target's plugin must convert in full, not rebuild; '' if not."""
+    return build_plan.from_older_release(plugin_path(settings, source)) or other_copy(settings, source)
+
+
 def plugin_path(settings: dict, source: str) -> Path:
     """The plugin the build writes, in the target's output folder."""
     chosen = target(settings, source)
     return chosen.output / (GAMES[source]['plugin'] if chosen.game else chosen.plugin)
 
 
-def master_dirs(settings: dict, source: str) -> list:
-    """The output folders of the target's masters (an add-on's plugin folders), in its master order."""
+def masters(settings: dict, source: str) -> list:
+    """(name, built plugin path) of each of the target's masters, in its master order; [] for the game."""
     chosen, master = target(settings, source), GAMES[source]['master']
     plugin = None if chosen.game else addons.source_file(settings, source, chosen, S.export_root(settings))
-    names = addons.plugin_masters(plugin) if plugin else []
-    return [addons.output(settings, source, name, master) for name in names]
+    return [(name, addons.output(settings, source, name, master)
+             / (GAMES[source]['plugin'] if name.lower() == master.lower() else name))
+            for name in (addons.plugin_masters(plugin) if plugin else [])]
+
+
+def master_dirs(settings: dict, source: str) -> list:
+    """The output folders of the target's masters, in its master order."""
+    return [path.parent for _, path in masters(settings, source)]
+
+
+def other_copy(settings: dict, source: str) -> str:
+    """'built against <plugin>' when the target's last build read a master that is not that master's built plugin
+    now (another copy of the game, in a folder the app no longer uses); else ''.
+    See: docs/fork/fo4_gui.md#rebuild
+    """
+    now = {path.name.lower(): path.resolve() for _, path in masters(settings, source)}
+    old = [m for m in build_plan.masters_of(plugin_path(settings, source))
+           if now.get(m.name.lower(), m.resolve()) != m.resolve()]
+    return f'built against {old[0]}' if old else ''
 
 
 def built_plugins(settings: dict, source: str) -> list:
@@ -165,16 +187,10 @@ def rebuilt(settings: dict, source: str) -> list:
 
 
 def missing_master(settings: dict, source: str) -> str:
-    """The first of the target's masters with no built plugin in its output folder or no export in this work
-    folder (a build reads both); '' when none."""
-    chosen, master, root = target(settings, source), GAMES[source]['master'], S.export_root(settings)
-    plugin = None if chosen.game else addons.source_file(settings, source, chosen, root)
-    for name in addons.plugin_masters(plugin) if plugin else []:
-        built = GAMES[source]['plugin'] if name.lower() == master.lower() else name
-        if not (addons.output(settings, source, name, master) / built).is_file() \
-                or not Path(build_plan.in_root(root, name)).is_dir():
-            return name
-    return ''
+    """The first master lacking its built plugin or its export here; '' when none."""
+    root = S.export_root(settings)
+    return next((name for name, path in masters(settings, source)
+                 if not path.is_file() or not Path(build_plan.in_root(root, name)).is_dir()), '')
 
 
 def unavailable(settings: dict, source: str, stage: str, platform: str = sys.platform) -> str:
@@ -194,8 +210,8 @@ def unavailable(settings: dict, source: str, stage: str, platform: str = sys.pla
         return f'convert its master {missing_master(settings, source)} first, with this work folder'
     if stage == 'update' and build_plan.record(plugin_path(settings, source)) is None:
         return 'no finished build of it yet: build it once first'
-    if stage == 'update' and build_plan.from_older_release(plugin_path(settings, source)):
-        return f'{build_plan.from_older_release(plugin_path(settings, source))}: convert it in full'
+    if stage == 'update' and full_build(settings, source):
+        return f'{full_build(settings, source)}: convert it in full'
     if stage in ('helpers', 'build', 'update', 'check', 'fo4edit') and not _has_data(settings, 'fallout4'):
         return "Fallout 4's game folder is not set, or has no Data folder"
     return ''
@@ -230,7 +246,7 @@ def next_step(settings: dict, source: str) -> str:
     if missing:
         return f'Convert {missing} first: pick it in the list above.'
     built = plugin_path(settings, source)
-    if build_plan.record(built) is None or build_plan.from_older_release(built):
+    if build_plan.record(built) is None or full_build(settings, source):
         return f'Click Convert to build {name}; the line under the button says about how long it takes.'
     return (f'{name} is built. Click Convert to rebuild only what changed since, or open Finished to set it up in '
             'Mod Organizer and play.')
