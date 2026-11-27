@@ -4,6 +4,7 @@ build holds and whether it finished.
 See: docs/fork/fo4_pipeline.md#build-stamp
 """
 
+import itertools
 import json
 import os
 import subprocess
@@ -51,6 +52,16 @@ def stamp_path(plugin: Path) -> Path:
     return moved_in(plugin.with_name(plugin.name + STAMP_SUFFIX))
 
 
+def stamp_flag(plugin: Path, flag: str) -> list:
+    """The values after `flag` in the argv `plugin`'s build stamp records, up to the next flag; [] without one."""
+    try:
+        argv = json.loads(stamp_path(plugin).read_text(encoding='utf-8')).get('argv') or []
+    except (OSError, ValueError):
+        return []
+    rest = argv[argv.index(flag) + 1:] if flag in argv else []
+    return list(itertools.takewhile(lambda word: not word.startswith('--'), rest))
+
+
 def _git(*args: str) -> str:
     """A git command's output in the repo, or '' when git fails."""
     try:
@@ -61,7 +72,7 @@ def _git(*args: str) -> str:
 
 
 def source_state() -> dict:
-    """The release (fo4_import.base.release), the commit and the files differing from it."""
+    """The release, the commit and the files differing from it."""
     changed = [line[3:] for line in _git('status', '--porcelain', '--untracked-files=no').splitlines() if line]
     return {'release': current_release(),'commit': _git('rev-parse', 'HEAD').strip(),
             'changed files': sorted(changed)}

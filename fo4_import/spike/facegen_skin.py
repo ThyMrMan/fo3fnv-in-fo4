@@ -18,11 +18,13 @@ from pathlib import Path
 import numpy as np
 
 from core.build_resources import pool_workers
+from core.mod_sources import PLUGIN_SUFFIXES
 from core.process_job import join_pool_job
 from fo4_import.base.install import FALLOUT4_ESM, masters_of
 from fo4_import.face import face_tint, facegeom, npc_skin, own_facegen, sculpt, slider_fit, tint
 from fo4_import.face.bake import face_shape
 from fo4_import.pipeline import creation_kit
+from fo4_import.pipeline.build_steps import stamp_flag
 from fo4_import.pipeline.export_index import export_records
 from fo4_import.spike.face_fit import brow_overlay, record_subrecords
 from fo4_import.spike.fnv_npc import fnv_face, fnv_relief, fnv_shine, npc_head, race_shade
@@ -95,8 +97,15 @@ def description(data: bytes) -> str:
 
 
 def profile_dirs(data_dir: Path) -> tuple:
-    """(mod folders, load order) the CK sees, but `data_dir` (module doc)."""
-    return without_tests(*own_facegen.profile_order(creation_kit.profile_dir(), creation_kit.MO2, (data_dir.name,)))
+    """(mod folders, load order) the CK sees, but `data_dir` (module doc), after the folders the builds of
+    `data_dir`'s plugins found their masters in (--plugin-dirs), which the profile may not enable.
+    See: docs/fork/fo4_facegen_plan.md#build-faces
+    """
+    dirs, order = without_tests(*own_facegen.profile_order(creation_kit.profile_dir(), creation_kit.MO2,
+                                                           (data_dir.name,)))
+    built = [Path(d) for p in sorted(data_dir.iterdir()) if p.suffix.lower() in PLUGIN_SUFFIXES
+             for d in stamp_flag(p, '--plugin-dirs')]
+    return list(dict.fromkeys([*built, *dirs])), order
 
 
 def sources(plugin_path: Path, data_dir: Path) -> facegeom.Sources:

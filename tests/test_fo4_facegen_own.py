@@ -3,6 +3,7 @@
 See: docs/fork/fo4_facegen_plan.md#own-stage
 """
 
+import json
 import struct
 from concurrent.futures.process import BrokenProcessPool
 
@@ -10,6 +11,7 @@ from fo4_import.base.writer import FO4PluginWriter, pack_fo4_record
 from fo4_import.face import facegeom, own_facegen
 from fo4_import.face.facegeom import Rec
 from fo4_import.pipeline import work_cache
+from fo4_import.pipeline.build_steps import stamp_path
 from fo4_import.spike import facegen, facegen_inherit, facegen_own, facegen_skin
 from tes5_import.base.writer import pack_subrecord
 
@@ -90,6 +92,20 @@ def test_a_face_a_later_plugin_overrides_is_not_refitted(monkeypatch):
     monkeypatch.setattr(facegen_skin.slider_fit, 'problem', lambda female: None)
     monkeypatch.setattr(facegen_skin.facegeom, 'npc_face', lambda *_: (Rec('mod.esp', b'NPC_', []),))
     assert facegen_skin.refit_face(facegen_skin.Face(0x800, 'x', False, False)) is None
+
+
+def test_masters_are_found_where_the_plugins_build_found_them(tmp_path, monkeypatch):
+    """The folders a plugin's build stamp names as --plugin-dirs come before the profile's mod folders, so a game
+    the selected MO2 profile does not enable still gives its master (f3nv-0.14's failed Dead Money faces)."""
+    mod, game, other = tmp_path / 'mod', tmp_path / 'game', tmp_path / 'other'
+    mod.mkdir()
+    (mod / 'DLC.esm').write_bytes(b'')
+    stamp = stamp_path(mod / 'DLC.esm')
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.write_text(json.dumps({'argv': ['--out', 'x', '--plugin-dirs', str(game), '--resources', 'y']}))
+    monkeypatch.setattr(facegen_skin.own_facegen, 'profile_order', lambda *_: ([other], ['DLC.esm']))
+    monkeypatch.setattr(facegen_skin, 'without_tests', lambda dirs, order: (dirs, order))
+    assert facegen_skin.profile_dirs(mod) == ([game, other], ['DLC.esm'])
 
 
 def test_a_failing_npc_is_reported_not_raised(monkeypatch):

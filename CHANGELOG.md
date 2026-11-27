@@ -5,6 +5,19 @@ alpha. Download the zip named `fo3fnv-in-fo4-<release>.zip` from the
 [Releases page](https://github.com/ThyMrMan/fo3fnv-in-fo4/releases), not
 "Source code".
 
+## f3nv-0.15 (2026-11-26)
+
+**After upgrading:** a DLC whose faces failed in 0.14 gets them on its next
+"Rebuild what changed".
+
+### Fixed
+- **A DLC's faces no longer fail when Mod Organizer's selected profile
+  leaves its game off** (a New Vegas DLC converted with a Fallout 3 profile
+  selected). The faces stage looked for the game's plugin only in that
+  profile, so every head failed and the stage stopped looking for
+  `FalloutNV.esm`. It now first looks in the game folder the build itself
+  used.
+
 ## f3nv-0.14 (2026-11-26)
 
 ### Fixed

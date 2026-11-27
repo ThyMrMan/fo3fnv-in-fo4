@@ -1055,6 +1055,13 @@ scratch tool (`face.slider_facegen`, `face.slider_records`) is gone.
 
 Records and files are read as the CK sees them (MO2's profile), past any
 plugin whose description starts `FaceGen test` and the mod folder holding it.
+The folders the plugin's own build found its masters in (its stamp's
+`--plugin-dirs`, `build_steps.stamp_flag`) come first: the app passes the
+game's output there, and the selected profile need not enable it. In
+f3nv-0.14 it didn't (an FNV DLC faced with a Fallout 3 profile selected):
+every face worker died at its start (`master falloutnv.esm not in …`), all
+113 Dead Money heads failed, and the overrides step stopped looking for
+`FalloutNV.esm` in Fallout 4's Data.
 Test mods 4–6 still load in the CK through MO2, so disable them before the
 faces stage.
 
